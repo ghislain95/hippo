@@ -98,22 +98,28 @@ Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la bran
 - [`backlog.md`](../backlog.md) : colonne « Statut » pour E0. E0-01 à E0-04, E0-06 et E0-07 sont terminées par le setup (`/eval-prompt` attend le harnais d'E3-09). **E0-05 est reformulée** : le squelette du contrat et la génération sont en place ; le contrat complet des routes de la spec est le premier change OpenSpec.
 - [`README.md`](../../README.md) : statut, structure du dépôt, ligne `docs/dev/` dans la table de la doc, section « Démarrage » (prérequis, premier lancement, backend, appli, commandes).
 
-## 4. Actions manuelles qui te restent
+## 4. Actions manuelles
 
-Par ordre d'urgence.
+État vérifié le 25 octobre 2026, après la fusion de la PR du setup ([ghislain95/hippo#1](https://github.com/ghislain95/hippo/pull/1)).
 
-1. **Token GitHub pour les agents** : créer un *fine-grained token* limité à `ghislain95/hippo` (Contents, Pull requests et Workflows en lecture et écriture ; Actions et Metadata en lecture) et remplacer la valeur de `GH_TOKEN` dans `.claude/settings.local.json` (fichier déjà créé, gitignoré, illisible par les agents). Sans lui, `gh` agit au nom de `ghislain-sartorius-adeo`.
-2. **Xcode** : `sudo mas install 497799835` (ou l'App Store), puis `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` et `sudo xcodebuild -license accept`. Ensuite `cd app && npx expo run:ios` compile le development build sur le simulateur. CocoaPods et watchman sont déjà installés.
-3. **`infra/.env`** : `cp infra/.env.example infra/.env`, puis `API_TOKEN` (`openssl rand -hex 32`). Les agents ne peuvent ni le créer ni le lire.
-4. **Après la fusion de la PR du setup, réglages du dépôt** (je peux les faire avec `gh api` une fois le token posé, sur ton accord) :
-   - *Rulesets* sur `main` : PR obligatoire, check `ci-ok` obligatoire, pas de force-push, pas de suppression, aucune approbation exigée ;
-   - *General* : merge commit seulement (désactiver squash et rebase), suppression automatique des branches fusionnées ;
-   - *Actions* : `GITHUB_TOKEN` en lecture par défaut (les workflows demandent eux-mêmes `packages: write`).
-5. **GHCR** : après la première publication par `image.yml`, passer le paquet `hippo` en **public** et le relier au dépôt (*Package settings*), conformément à ADR-0027.
-6. **Anthropic** (avant E3) : compte API, crédits prépayés **sans recharge automatique**, clé dédiée à Hippo, à poser dans `infra/.env` (ADR-0021).
-7. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet.
-8. **Apple et SideStore** (E1) : identifiant Apple gratuit, premier appairage de SideStore depuis le Mac.
-9. **NAS** (E6) : dossier de données appartenant à l'uid 65532, service de sauvegarde externe à choisir (ADR-0020).
+### Faites
+
+- ✅ **Token GitHub des agents** : *fine-grained token* limité à `ghislain95/hippo` (Contents, Pull requests et Workflows en écriture ; Actions et Metadata en lecture), posé en `GH_TOKEN` dans `.claude/settings.local.json` ; `gh` agit en `ghislain95`. **Il expire le 24 novembre 2026** : en créer un nouveau avant et remplacer la valeur. Sans la permission Administration, les agents ne peuvent pas modifier les réglages du dépôt, et c'est voulu.
+- ✅ **Réglages du dépôt** : merge commit seulement, suppression automatique des branches fusionnées.
+- ✅ **Ruleset de `main`** : PR obligatoire avec 0 approbation et fusion en merge commit, check `ci-ok` obligatoire, pas de force-push ni de suppression. L'option `require_extra_approval_for_unattributed_changes` est active : si elle bloque un jour une fusion d'agent, c'est la première à décocher.
+- ✅ **GHCR** : image `ghcr.io/ghislain95/hippo` publique (téléchargement anonyme vérifié).
+- ✅ **Xcode** installé dans `/Applications/Xcode.app`.
+
+### À faire
+
+1. **Xcode, fin de l'installation** : `xcode-select` pointe encore sur les Command Line Tools. `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, puis `sudo xcodebuild -license accept`. Ensuite `cd app && npx expo run:ios` compile le development build sur le simulateur.
+2. **`infra/.env`** : `cp infra/.env.example infra/.env`, puis `API_TOKEN` (`openssl rand -hex 32`). Les agents ne peuvent ni le créer ni le lire.
+3. **Facultatif, auto-merge GitHub** : cocher *Allow auto-merge* (Settings › General). Avec le ruleset, GitHub fusionnerait seul une PR dès que `ci-ok` est vert, sans qu'un agent ait à revenir la fusionner.
+4. **Facultatif, `GITHUB_TOKEN` en lecture par défaut** (Settings › Actions › General › Workflow permissions) : non vérifiable par les agents ; les workflows déclarent déjà leurs permissions.
+5. **Anthropic** (avant E3) : compte API, crédits prépayés **sans recharge automatique**, clé dédiée à Hippo, à poser dans `infra/.env` (ADR-0021).
+6. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet.
+7. **Apple et SideStore** (E1) : identifiant Apple gratuit, premier appairage de SideStore depuis le Mac.
+8. **NAS** (E6) : dossier de données appartenant à l'uid 65532, service de sauvegarde externe à choisir (ADR-0020).
 
 Aucune action ne coûte d'argent à ce stade.
 
