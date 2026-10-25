@@ -46,4 +46,4 @@
 
 - [x] 7.1 `make check` green; `code-reviewer` pass on the uncommitted diff without 🛑 nor 🔴
 - [x] 7.2 `/opsx:verify` on the change
-- [ ] 7.3 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md)
+- [x] 7.3 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md)

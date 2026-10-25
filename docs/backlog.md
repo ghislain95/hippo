@@ -33,7 +33,7 @@ Fait en séance sur le Mac, en reprenant les pratiques de geomni et wifisense. L
 | E0-02 | Mettre en place le contexte des agents : `CLAUDE.md` racine avec table de routage, un `CLAUDE.md` par dossier, agents, skills et règles repris et adaptés de l'autre projet | M | ✅ setup |
 | E0-03 | Écrire la stratégie de test (back, front, prompt) en s'inspirant de celle de l'autre projet | M | ✅ setup ([`dev/testing.md`](dev/testing.md)) |
 | E0-04 | Initialiser OpenSpec | M | ✅ setup |
-| E0-05 | Écrire le contrat complet `api/openapi.yaml` des routes de la [spec](spec-v1.md#api-rest) : **premier change OpenSpec**, cadré avec Ghislain. Le squelette du contrat (sécurité Bearer, problem+json, pagination par curseur, `/healthz`) et la génération du serveur Go et du client TypeScript, avec la vérification « code généré à jour », sont en place depuis le setup | M | À faire (1er change) |
+| E0-05 | Écrire le contrat complet `api/openapi.yaml` des routes de la [spec](spec-v1.md#api-rest) : **premier change OpenSpec**, cadré avec Ghislain. Le squelette du contrat (sécurité Bearer, problem+json, pagination par curseur, `/healthz`) et la génération du serveur Go et du client TypeScript, avec la vérification « code généré à jour », sont en place depuis le setup | M | ✅ `api-contract-v1` (25 octobre 2026) |
 | E0-06 | CI GitHub Actions : lint, tests back et front, vérification du code généré, build de l'image Docker (filtres par chemin) | M | ✅ setup |
 | E0-07 | Commandes d'agent `/eval-prompt` et `/new-content-type` | S | ✅ setup (`/eval-prompt` attend le harnais d'E3-09) |
 
