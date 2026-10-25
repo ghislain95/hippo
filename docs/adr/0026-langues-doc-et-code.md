@@ -1,6 +1,6 @@
 # ADR-0026 — Documentation en français, code en anglais
 
-- **Statut** : Accepté
+- **Statut** : Accepté — complété par [ADR-0028](0028-langues-du-developpement.md)
 - **Date** : 2026-10-13
 
 ## Contexte

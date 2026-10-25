@@ -1,6 +1,6 @@
 # ADR-0002 — Un seul dépôt (monorepo)
 
-- **Statut** : Accepté
+- **Statut** : Accepté — visibilité amendée par [ADR-0027](0027-depot-public.md)
 - **Date** : 2026-10-11
 
 ## Contexte
