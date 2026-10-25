@@ -71,6 +71,7 @@ check-tooling: ## Test the agent hooks and lint the shell scripts
 	bash .claude/hooks/protect-files.test.sh
 	shellcheck -S warning .claude/hooks/protect-files.sh .claude/hooks/protect-files.test.sh .claude/hooks/format-on-edit.sh
 	shellcheck -S error .claude/hooks/block-git-writes.sh .claude/hooks/block-git-writes.test.sh
+	actionlint
 
 .PHONY: check-openspec
 check-openspec: ## Validate every OpenSpec spec and change
