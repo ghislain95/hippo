@@ -5,8 +5,13 @@ title = "hippo"
 useDefault = true
 
 [allowlist]
-description = "Documented placeholders and test fixtures"
+description = "Documented placeholders and obviously fake test tokens"
 paths = [
   '''(^|/)\.env\.example$''',
   '''(^|/)testdata/''',
+]
+# Fake tokens of the tests are built from these sequences, so a real secret never matches.
+regexes = [
+  '''0123456789abcdef''',
+  '''fedcba9876543210''',
 ]

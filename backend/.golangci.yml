@@ -1,0 +1,78 @@
+# golangci-lint v2 configuration (ADR-0030). Run with `make lint-backend`; formatters run with
+# `make fmt` and after each edit by the agents (.claude/hooks/format-on-edit.sh).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+  settings:
+    depguard:
+      # Architecture rules (docs/dev/conventions-backend.md, "Dépendances entre couches").
+      rules:
+        anthropic-only-in-analysis:
+          files:
+            - "$all"
+            - "!**/internal/analysis/**"
+          deny:
+            - pkg: github.com/anthropics/anthropic-sdk-go
+              desc: only internal/analysis talks to the Anthropic API, behind the Analyzer interface (ADR-0005)
+        store-knows-no-transport:
+          files:
+            - "**/internal/store/**"
+          deny:
+            - pkg: net/http
+              desc: the store knows nothing of HTTP
+            - pkg: github.com/ghislain95/hippo/backend/internal/httpapi
+              desc: the store sits below the transport
+        generated-api-only-in-httpapi:
+          files:
+            - "$all"
+            - "!**/internal/httpapi/**"
+            - "!**/cmd/hippo/**"
+          deny:
+            - pkg: github.com/ghislain95/hippo/backend/internal/httpapi
+              desc: only cmd/hippo wires the HTTP transport; domains never depend on it
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-strings
+        - name: context-as-argument
+  exclusions:
+    generated: strict
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - bodyclose # bodies are closed in t.Cleanup by the test helpers
+          - gosec
+          - noctx
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ghislain95/hippo/backend
+  exclusions:
+    generated: strict

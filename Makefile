@@ -4,6 +4,15 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
+
+# Generated files: never edited by hand, checked up to date by `make check-generated`.
+GENERATED := backend/internal/httpapi/api.gen.go
+
+# infra/.env is optional for the local targets: without it, variables come from the shell.
+LOCAL_ENV_FILE := infra/.env
+LOAD_LOCAL_ENV := set -a; if [ -f $(LOCAL_ENV_FILE) ]; then . ./$(LOCAL_ENV_FILE); fi; set +a
+
 LYCHEE_FLAGS := --offline --no-progress --include-fragments --hidden \
 	--exclude-path node_modules --exclude-path .claude/worktrees --exclude-path .git
 
@@ -21,7 +30,25 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec lint-api ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api check-backend check-generated ## Run every check the CI runs
+
+# --- Code generation -----------------------------------------------------------
+
+.PHONY: generate
+generate: ## Regenerate the code built from api/openapi.yaml and docs/prompt/schemas/
+	cd backend && go generate ./...
+
+.PHONY: check-generated
+check-generated: generate ## Fail if a generated file is not up to date with its source
+	@if [ -n "$$(git status --porcelain -- $(GENERATED))" ]; then \
+		git --no-pager diff --stat -- $(GENERATED); \
+		echo "Generated files are out of date: run 'make generate' and commit the result."; \
+		exit 1; \
+	fi
+
+.PHONY: fmt
+fmt: ## Format the Go code (gofumpt, goimports)
+	cd backend && golangci-lint fmt ./...
 
 # --- Repository-wide checks --------------------------------------------------
 
@@ -49,3 +76,29 @@ check-openspec: ## Validate every OpenSpec spec and change
 .PHONY: lint-api
 lint-api: ## Lint the OpenAPI contract (Redocly)
 	cd api && npx --no-install redocly lint openapi.yaml
+
+# --- Backend -----------------------------------------------------------------
+
+.PHONY: check-backend
+check-backend: lint-backend test-backend build-backend ## Lint, test and build the backend
+
+.PHONY: lint-backend
+lint-backend: ## Lint the Go code (golangci-lint, depguard architecture rules)
+	cd backend && golangci-lint run ./...
+
+.PHONY: test-backend
+test-backend: ## Run the Go tests (unit and integration on a real SQLite), with the race detector
+	cd backend && go test -race -cover ./...
+
+.PHONY: build-backend
+build-backend: ## Build the backend binary into backend/bin/
+	cd backend && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/hippo ./cmd/hippo
+
+.PHONY: dev
+dev: ## Run the backend locally on 127.0.0.1:8080 (variables from infra/.env if present)
+	@mkdir -p data/dev
+	@$(LOAD_LOCAL_ENV); cd backend && HTTP_ADDR=127.0.0.1:8080 DATA_DIR=../data/dev go run -ldflags "-X main.version=$(VERSION)" ./cmd/hippo
+
+.PHONY: image
+image: ## Build the backend Docker image (hippo:local)
+	docker build --build-arg VERSION=$(VERSION) -t hippo:local backend

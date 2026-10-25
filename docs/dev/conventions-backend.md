@@ -62,6 +62,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 
 - Driver `modernc.org/sqlite` (sans CGO), mode WAL, `foreign_keys` activé, `busy_timeout` de 5 s, transactions d'écriture en `BEGIN IMMEDIATE` ([ADR-0004](../adr/0004-sqlite.md)).
 - **Chaque requête sur une table métier filtre par `user_id`** (RG-90, [ADR-0022](../adr/0022-preparation-multi-utilisateur.md)). Le `user_id` vient du contexte authentifié (`httpapi` → paramètre explicite des fonctions du domaine et du store), jamais d'un champ de la requête.
+- Tables déclarées `STRICT` : SQLite refuse une valeur du mauvais type au lieu de la convertir en silence.
 - Requêtes paramétrées (`?`) uniquement ; aucune concaténation de valeur.
 - `defer rows.Close()` et vérification de `rows.Err()`.
 - Les tables synchronisées portent `updated_at`, et les suppressions laissent `deleted_at` pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md)).
