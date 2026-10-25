@@ -1,6 +1,6 @@
 # ADR-0029 — Workflow git autonome des agents
 
-- **Statut** : Accepté
+- **Statut** : Accepté — moment de la fusion amendé par [ADR-0034](0034-auto-merge-github.md)
 - **Date** : 2026-10-25
 
 ## Contexte

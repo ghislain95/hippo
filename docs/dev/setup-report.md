@@ -114,7 +114,7 @@ Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la bran
 
 1. **Xcode, fin de l'installation** : `xcode-select` pointe encore sur les Command Line Tools. `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, puis `sudo xcodebuild -license accept`. Ensuite `cd app && npx expo run:ios` compile le development build sur le simulateur.
 2. **`infra/.env`** : `cp infra/.env.example infra/.env`, puis `API_TOKEN` (`openssl rand -hex 32`). Les agents ne peuvent ni le créer ni le lire.
-3. **Facultatif, auto-merge GitHub** : cocher *Allow auto-merge* (Settings › General). Avec le ruleset, GitHub fusionnerait seul une PR dès que `ci-ok` est vert, sans qu'un agent ait à revenir la fusionner.
+3. ✅ **Auto-merge GitHub** : *Allow auto-merge* coché (Settings › General) ; les agents l'utilisent selon [ADR-0034](../adr/0034-auto-merge-github.md).
 4. **Facultatif, `GITHUB_TOKEN` en lecture par défaut** (Settings › Actions › General › Workflow permissions) : non vérifiable par les agents ; les workflows déclarent déjà leurs permissions.
 5. **Anthropic** (avant E3) : compte API, crédits prépayés **sans recharge automatique**, clé dédiée à Hippo, à poser dans `infra/.env` (ADR-0021).
 6. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet.

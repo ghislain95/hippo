@@ -50,7 +50,8 @@ relecture                 code-reviewer (obligatoire), puis /opsx:verify
 doc                       doc-keeper
 commits, archive          feat|fix(<id>), /opsx:archive + post-archive, chore(<id>)
 PR                        /dod-check, git push -u origin <branche>, gh pr create
-fusion                    gh pr merge --merge, si ci-ok vert + relecture propre (+ QA si demandée)
+fusion                    gh pr merge --merge si ci-ok vert + relecture propre (+ QA si demandée) ;
+                          CI pas finie : gh pr merge --auto --merge (ADR-0034)
 ```
 
 Une fois le proposal validé, tu mènes le change jusqu'à la fusion **sans demander de GO entre les tranches**. Tu t'arrêtes seulement dans les cas listés dans [`docs/dev/workflow.md`](docs/dev/workflow.md#quand-sarrêter-pour-demander) : contradiction avec la doc, règle manquante, nouvelle dépendance, prompt ou schéma, coût, sécurité, données, GitHub hors PR, ADR remis en cause.

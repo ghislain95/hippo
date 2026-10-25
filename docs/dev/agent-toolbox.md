@@ -34,7 +34,7 @@ Les skills de design visent d'abord le web ; on en applique les principes (hiér
 
 | Outil | Rôle |
 | --- | --- |
-| `block-git-writes.sh` | Règles git ([git.md](git.md)) ; 343 cas de test |
+| `block-git-writes.sh` | Règles git ([git.md](git.md)), dont la fusion différée `--auto --merge` ; 378 cas de test |
 | `protect-files.sh` | Secrets (y compris les commandes qui affichent `.env` sans le nommer), fichiers générés, dépôts voisins, `rm -r` hors du dépôt ; 82 cas de test |
 | `format-on-edit.sh` | Formatage Go et TypeScript après chaque édition |
 | `lefthook.yml` | Pré-commit : gitleaks, format, lint rapide |
