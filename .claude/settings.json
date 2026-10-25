@@ -24,7 +24,6 @@
       "Bash(docker images *)",
       "Bash(docker ps *)",
       "Bash(docker logs *)",
-      "Bash(docker inspect *)",
       "Bash(curl -fsS http://127.0.0.1:*)",
       "Bash(curl -s http://127.0.0.1:*)",
       "Bash(curl -i http://127.0.0.1:*)",
@@ -75,7 +74,9 @@
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~*)",
       "Bash(rm -rf ..*)",
-      "Bash(sudo *)"
+      "Bash(sudo *)",
+      "Bash(docker inspect *)",
+      "Bash(docker container inspect *)"
     ]
   },
   "hooks": {

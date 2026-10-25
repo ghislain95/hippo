@@ -127,7 +127,7 @@ Un change est terminé quand **chaque** point est vrai et vérifié (`/dod-check
 Ce que les agents ne peuvent pas faire, même par erreur ([`.claude/settings.json`](../../.claude/settings.json) et [`.claude/hooks/`](../../.claude/hooks/)) :
 
 - **Git** (`block-git-writes.sh`) : commit ou push sur `main`, force-push, réécriture d'historique, staging en masse, `--no-verify`, fusion autre qu'en merge commit.
-- **Fichiers** (`protect-files.sh`) : lire ou écrire `.env` et `.claude/settings.local.json` ; éditer un fichier généré ; écrire dans un dépôt voisin ; `rm -r` hors du dépôt.
+- **Fichiers** (`protect-files.sh`) : lire ou écrire `.env` et `.claude/settings.local.json`, y compris par une commande qui les affiche sans les nommer (`grep -r`, `rg --no-ignore`, `docker compose config`, `docker inspect` ; utiliser `git grep` ou `rg`) ; éditer un fichier généré ; écrire dans un dépôt voisin ; `rm -r` hors du dépôt.
 - **Formatage** (`format-on-edit.sh`) : chaque fichier Go ou de l'appli est formaté après édition.
 - **Pré-commit** (`lefthook.yml`) : gitleaks, format Go, ESLint et Prettier sur les fichiers indexés.
 - **CI** : porte `ci-ok`, qui agrège tous les jobs ; seule exigence de la protection de `main`.

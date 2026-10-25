@@ -48,13 +48,26 @@ is_generated() {
   return 1
 }
 
-# absolute <path>: the path made absolute against the repository root (no symlink resolution).
+# absolute <path>: the path made absolute against the repository root, with "." and ".."
+# segments collapsed (no symlink resolution), so "$ROOT/../geomni/x" is seen as a sibling.
 absolute() {
+  local raw part
+  local -a parts out=()
   case "$1" in
-    /*) printf '%s' "$1" ;;
-    '~'*) printf '%s' "$HOME${1#\~}" ;;
-    *) printf '%s' "$ROOT/$1" ;;
+    /*) raw=$1 ;;
+    '~'*) raw="$HOME${1#\~}" ;;
+    *) raw="$ROOT/$1" ;;
   esac
+  IFS=/ read -ra parts <<< "$raw"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      '' | .) ;;
+      ..) [ ${#out[@]} -gt 0 ] && unset "out[$((${#out[@]} - 1))]" ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  [ ${#out[@]} -eq 0 ] && { printf '/'; return; }
+  printf '/%s' "${out[@]}"
 }
 
 case "$TOOL" in
@@ -94,6 +107,26 @@ case "$TOOL" in
     if printf '%s' "$COMMAND" | grep -qE 'settings\.local\.json'; then
       block "the command names .claude/settings.local.json, which holds the GH_TOKEN."
     fi
+    # Commands that print the content of .env without naming it: a recursive grep (it reads
+    # ignored files), rg told to ignore .gitignore, the resolved Compose configuration, and the
+    # environment of a container.
+    while IFS= read -r segment; do
+      if printf '%s' "$segment" | grep -qE '(^|[[:space:]/])grep[[:space:]]' &&
+        printf '%s' "$segment" | grep -qE '[[:space:]](-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive|-d[[:space:]]*recurse|--directories=recurse)([[:space:]]|$)'; then
+        block "a recursive grep also reads the gitignored .env files. Use 'git grep' or 'rg', which skip them."
+      fi
+      if printf '%s' "$segment" | grep -qE '(^|[[:space:]/])rg[[:space:]]' &&
+        printf '%s' "$segment" | grep -qE '[[:space:]](--no-ignore[a-z-]*|-u+|-[a-zA-Z]*u[a-zA-Z]*)([[:space:]]|$)'; then
+        block "rg without its ignore rules reads the gitignored .env files. Drop --no-ignore / -u."
+      fi
+      if printf '%s' "$segment" | grep -qE '(^|[[:space:]/])docker([[:space:]]+[^[:space:]]+)*[[:space:]]+compose([[:space:]]+[^[:space:]]+)*[[:space:]]+config([[:space:]]|$)' &&
+        ! printf '%s' "$segment" | grep -qE '[[:space:]](--quiet|-q)([[:space:]]|$)'; then
+        block "'docker compose config' prints the secrets of infra/.env. Use 'make check-infra' or add --quiet."
+      fi
+      if printf '%s' "$segment" | grep -qE '(^|[[:space:]/])docker[[:space:]]+((container|image)[[:space:]]+)?inspect([[:space:]]|$)'; then
+        block "'docker inspect' prints the environment of the container, secrets included. Use 'docker ps' or 'make logs'."
+      fi
+    done < <(printf '%s\n' "$COMMAND" | tr ';&|' '\n')
     # Recursive rm: every target must stay inside the repository.
     while IFS= read -r segment; do
       printf '%s' "$segment" | grep -qE '(^|[[:space:]])rm[[:space:]]' || continue

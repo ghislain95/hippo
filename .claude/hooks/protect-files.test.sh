@@ -59,7 +59,7 @@ cmd 2 'docker compose --env-file infra/.env up -d'
 cmd 2 'cp infra/.env.example infra/.env'
 cmd 2 'cat .claude/settings.local.json'
 cmd 0 'cat infra/.env.example'
-cmd 0 'grep -r "process.env" app/src'
+cmd 0 'git grep "process.env" app/src'
 cmd 0 'ls -la .envrc'
 cmd 0 'make up'
 cmd 0 'docker compose --env-file=x up'
@@ -70,6 +70,32 @@ cmd 2 "cat <<'EOF' > infra/.env${NL}X=1${NL}EOF"
 cmd 2 'cat "infra/.env"'
 cmd 2 'echo "$(cat infra/.env)"'
 cmd 0 'git commit -m "warn about rm -rf ../geomni in docs"'
+
+# Commands that print .env without naming it.
+cmd 2 'grep -rn API_TOKEN infra'
+cmd 2 'grep -R TOKEN .'
+cmd 2 'grep --recursive TS_AUTHKEY infra'
+cmd 2 'cd infra && grep -ril secret .'
+cmd 2 'rg --no-ignore API_TOKEN'
+cmd 2 'rg -uu TOKEN infra'
+cmd 2 'docker compose -f infra/docker-compose.yml config'
+cmd 2 'docker compose config --format json'
+cmd 2 'docker inspect hippo-local-hippo-1'
+cmd 2 'docker container inspect hippo-local-hippo-1'
+cmd 0 'grep -n API_TOKEN infra/.env.example'
+cmd 0 'grep -n TOKEN backend/internal/config/config.go'
+cmd 0 'git grep -n API_TOKEN'
+cmd 0 'rg -n API_TOKEN infra'
+cmd 0 'rg --hidden -n TOKEN .claude'
+cmd 0 'docker compose -f infra/docker-compose.yml config --quiet'
+cmd 0 'API_TOKEN=check docker compose -f infra/docker-compose.local.yml config -q'
+cmd 0 'docker ps --format "{{.Names}}"'
+cmd 0 'make check-infra'
+
+# Paths are normalised before the sibling check.
+file 2 Edit "$ROOT/../geomni/AGENTS.md"
+file 2 Write "$ROOT/backend/../../wifisense/CLAUDE.md"
+file 0 Edit "$ROOT/backend/../docs/glossary.md"
 
 # Recursive rm.
 cmd 0 'rm -rf backend/bin'
