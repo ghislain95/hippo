@@ -1,25 +1,62 @@
 openapi: 3.1.0
 info:
   title: Hippo API
-  version: 0.1.0
+  version: 0.2.0
   summary: Personal second brain — capture, nightly analysis, reading.
   description: |
     Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share
     extension. This file is the source of truth (ADR-0017): the Go server and the TypeScript
-    client are generated from it (ADR-0031).
+    types are generated from it (ADR-0031), through `api/openapi.bundled.gen.json`, which
+    `make generate` assembles with the fiche components of `api/fiches.gen.json` (ADR-0035).
 
-    Conventions:
+    ## Conventions
+
     - Every route lives under `/api` and requires `Authorization: Bearer <token>`, except
-      `/healthz` (ADR-0016).
-    - JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`); identifiers are ULIDs.
-    - Errors use `application/problem+json` (RFC 9457, schema `Problem`). Business errors have
-      a stable `type` of the form `urn:hippo:problem:<slug>`; generic HTTP errors use
-      `about:blank`. `detail` is in French and can be shown as is.
-    - Collections are paginated by cursor: query parameters `cursor` and `limit`, and the
-      response carries `items` and `next_cursor` (`null` on the last page).
+      `/healthz` (ADR-0016). A missing or wrong token answers `401` before any routing.
+    - JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`).
+    - Identifiers (ADR-0035): ULIDs for items, assets and batches; integers for categories and
+      tags; content types are named by their `key`. An item references its category, content
+      type and tags by identifier, never by name.
+    - Collections are paginated by cursor: query parameters `cursor` and `limit`; the response
+      carries `next_cursor`, `null` on the last page.
+    - Nullability: a nullable value is declared on its property; in a `PATCH` body an absent
+      field changes nothing and an explicit `null` clears the value.
+    - The fiche of an item is rendered by `fiche.template`, never by the item's content type:
+      the two differ after a type correction (RG-60), a type merge (RG-72) or for a proposed
+      type. `schema_version` tells which version of the fiche schema produced it (RG-64).
+    - Operations and schemas are binding. The status codes and problem types listed for each
+      operation are provisional until the story that implements it, which amends them here
+      first.
+    - An operation, request format or field declared here but not implemented yet answers
+      `501` with the problem type `urn:hippo:problem:not-implemented`.
 
-    The routes of the V1 specification (docs/spec-v1.md, "API REST") are added by the
-    OpenSpec changes that implement them.
+    ## Problem types
+
+    Errors use `application/problem+json` (RFC 9457, schema `Problem`); `detail` is in French
+    and can be shown as is. Generic HTTP errors (`400` for a request that breaks this
+    contract, `401`, `404` for an unknown route or another user's resource, `415`) use
+    `about:blank`. Business errors use one of these types:
+
+    | Type (`urn:hippo:problem:…`) | Status | Meaning |
+    | --- | --- | --- |
+    | `invalid-url` | 400 | The URL of a capture is not a valid `http` or `https` URL (RG-02) |
+    | `empty-note` | 400 | The note of a capture is empty (RG-02) |
+    | `empty-capture` | 400 | The capture holds neither a URL, a note nor an image (RG-02) |
+    | `ambiguous-capture` | 400 | The capture holds a URL and a note, or a note and a capture note (RG-07) |
+    | `unsupported-image` | 400 | The image is not JPEG, PNG, HEIC or WebP (RG-02) |
+    | `image-too-large` | 413 | The image exceeds 20 MB (RG-02) |
+    | `private-item` | 409 | A private item is never sent to the AI (RG-12, RG-33) |
+    | `budget-exceeded` | 409 | The monthly AI budget is reached (RG-81) |
+    | `not-ready` | 409 | The item is still being extracted (RG-33) |
+    | `already-submitted` | 409 | The item is already in tonight's batch (RG-33) |
+    | `not-failed` | 409 | Only a failed item can be retried (RG-35) |
+    | `name-taken` | 409 | Another category under the same parent, or another tag, has this name (RG-54, RG-74) |
+    | `category-too-deep` | 400 | Categories have two levels at most (RG-51) |
+    | `category-not-empty` | 409 | Only an empty category can be deleted (backlog E4-07) |
+    | `invalid-merge-target` | 400 | A category, type or tag cannot be merged into itself or into its own subcategory (backlog E4-07) |
+    | `type-not-proposed` | 409 | Only a proposed content type can be merged into another one (RG-72) |
+    | `sync-expired` | 410 | The sync token is older than the 30-day retention of deletions: resync without a token (ADR-0035) |
+    | `not-implemented` | 501 | Declared in this contract, not implemented yet |
 servers:
   - url: http://127.0.0.1:8080
     description: Local backend on the Mac (make dev, make up)
@@ -33,7 +70,17 @@ security:
   - bearerAuth: []
 tags:
   - name: system
-    description: Service health and operations
+    description: Service health
+  - name: items
+    description: Capture, read, correct and delete items
+  - name: analysis
+    description: Immediate analysis and retry
+  - name: review
+    description: Morning review of what the AI classified
+  - name: classification
+    description: Categories, content types and tags
+  - name: sync
+    description: Offline cache synchronisation and export
 paths:
   /healthz:
     get:
@@ -55,12 +102,650 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+
+  /api/items:
+    post:
+      operationId: createItem
+      summary: Capture an item
+      description: |
+        Creates an item from a link, a note (JSON body) or an image (multipart body) and answers
+        at once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same
+        normalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing
+        item with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds
+        no `user_note` (RG-07).
+      tags: [items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaptureRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CaptureImageRequest"
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/heic, image/webp
+      responses:
+        "201":
+          description: Item created, status `queued`, read status `to_read`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "200":
+          description: Existing item returned. For a duplicate link, the new capture note is appended to the existing one, dated (RG-04); a replayed `client_id` changes nothing (RG-08).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          description: "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: "`image-too-large`."
+          $ref: "#/components/responses/Problem"
+        "415":
+          description: Neither `application/json` nor `multipart/form-data`.
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listItems
+      summary: List, filter and search items
+      description: |
+        Items of the user, newest first, pinned items first within a category (RG-77). `q`
+        searches the title, fiche, capture note, annotations and tags, ignoring case and
+        accents (RG-95); every filter combines with the others and with `q` (RG-96).
+        `category` includes its subcategories.
+      tags: [items]
+      parameters:
+        - name: q
+          in: query
+          description: Full-text search terms.
+          schema:
+            type: string
+            minLength: 1
+        - name: type
+          in: query
+          description: Content type key.
+          schema:
+            $ref: "#/components/schemas/ContentTypeKey"
+        - name: category
+          in: query
+          description: Category id; includes its subcategories.
+          schema:
+            type: integer
+            format: int64
+        - name: tag
+          in: query
+          description: Tag id; repeat the parameter to require several tags.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int64
+        - name: status
+          in: query
+          description: Processing status.
+          schema:
+            $ref: "#/components/schemas/ProcessingStatus"
+        - name: read_status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ReadStatus"
+        - name: pinned
+          in: query
+          description: Only pinned items.
+          schema:
+            type: boolean
+        - name: unsorted
+          in: query
+          description: Only items without a category (À trier).
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/items/{item_id}:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getItem
+      summary: Item detail
+      description: The item with its fiche and its images. An item of another user answers `404` (RG-90).
+      tags: [items]
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateItem
+      summary: Correct, pin, annotate an item
+      description: |
+        Changes the content type, category, tags, pin, annotations, capture note or private
+        flag. A change of content type, category or tags is recorded as a manual correction
+        (RG-60) that no reanalysis overwrites (RG-61). Unchecking private queues the item for
+        analysis again (RG-14).
+      tags: [items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemPatch"
+      responses:
+        "200":
+          description: The updated item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteItem
+      summary: Delete an item
+      description: Deletes the item, its fiche, extracted content and images for good (RG-79); only a tombstone stays for the sync.
+      tags: [items]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/items/{item_id}/progress:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    put:
+      operationId: updateReadingProgress
+      summary: Reading position and status
+      description: Records the reading position and moves the read status by RG-75, or forces read / unread.
+      tags: [items]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadingProgress"
+      responses:
+        "200":
+          description: The updated item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/items/{item_id}/analyze:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    post:
+      operationId: analyzeItem
+      summary: Analyse an item now
+      description: Analyses the item at once, out of the nightly batch, at the full price (RG-33).
+      tags: [analysis]
+      responses:
+        "200":
+          description: The analysed item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`private-item`, `budget-exceeded`, `not-ready`, `already-submitted`."
+          $ref: "#/components/responses/Problem"
+
+  /api/items/{item_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    post:
+      operationId: retryItem
+      summary: Queue a failed item again
+      description: Puts a `failed` item back in the queue with its attempts reset (RG-35).
+      tags: [analysis]
+      responses:
+        "200":
+          description: The queued item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`not-failed`."
+          $ref: "#/components/responses/Problem"
+
+  /api/assets/{asset_id}:
+    parameters:
+      - $ref: "#/components/parameters/AssetId"
+    get:
+      operationId: getAsset
+      summary: Download an image
+      description: The image file of an item, as captured.
+      tags: [items]
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/review:
+    get:
+      operationId: getReview
+      summary: What to review
+      description: Items analysed since the last review, and the proposed categories and content types (RG-70).
+      tags: [review]
+      responses:
+        "200":
+          description: The review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/review/done:
+    post:
+      operationId: completeReview
+      summary: Mark the review as done
+      description: Records the date of the review (RG-71); proposals left untouched come back next time (RG-73).
+      tags: [review]
+      responses:
+        "200":
+          description: The recorded date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDone"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/categories:
+    get:
+      operationId: listCategories
+      summary: Category tree
+      description: Every category of the user, active and proposed, flat with `parent_id` (two levels, RG-51).
+      tags: [classification]
+      responses:
+        "200":
+          description: The categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createCategory
+      summary: Create a category
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryCreate"
+      responses:
+        "201":
+          description: The created category, `active`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "400":
+          description: "`category-too-deep`, or a request that breaks the contract."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: "`name-taken`."
+          $ref: "#/components/responses/Problem"
+
+  /api/categories/{category_id}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    patch:
+      operationId: updateCategory
+      summary: Rename, move, recolour a category, or accept a proposal
+      description: Setting `status` to `active` accepts a proposed category; renaming a proposed category also accepts it (RG-72).
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryPatch"
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "400":
+          description: "`category-too-deep`, or a request that breaks the contract."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`name-taken` (RG-74)."
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteCategory
+      summary: Delete an empty category
+      tags: [classification]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`category-not-empty`."
+          $ref: "#/components/responses/Problem"
+
+  /api/categories/{category_id}/merge:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    post:
+      operationId: mergeCategory
+      summary: Merge a category into another
+      description: Moves every item and subcategory of the category into the target, then deletes it (RG-72, RG-74); a merge that would create a third level is refused (RG-51).
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryMerge"
+      responses:
+        "200":
+          description: The target category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "400":
+          description: "`invalid-merge-target`, `category-too-deep`, or a request that breaks the contract."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/content-types:
+    get:
+      operationId: listContentTypes
+      summary: Content types
+      description: Every content type, active and proposed, with the number of items of the user.
+      tags: [classification]
+      responses:
+        "200":
+          description: The content types.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentTypeList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/content-types/{type_key}:
+    parameters:
+      - $ref: "#/components/parameters/ContentTypeKeyPath"
+    patch:
+      operationId: updateContentType
+      summary: Rename or accept a proposed content type
+      description: Accepts a proposed type by setting `status` to `active`; renaming a proposed type also accepts it (RG-72).
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentTypePatch"
+      responses:
+        "200":
+          description: The updated content type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentType"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/content-types/{type_key}/merge:
+    parameters:
+      - $ref: "#/components/parameters/ContentTypeKeyPath"
+    post:
+      operationId: mergeContentType
+      summary: Merge a proposed content type into another
+      description: Moves the items of the proposed type into the target and queues them for reanalysis, since their fiche is generic (RG-72).
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentTypeMerge"
+      responses:
+        "200":
+          description: The target content type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentType"
+        "400":
+          description: "`invalid-merge-target`, or a request that breaks the contract."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`type-not-proposed`."
+          $ref: "#/components/responses/Problem"
+
+  /api/tags:
+    get:
+      operationId: listTags
+      summary: Tags with their counts
+      tags: [classification]
+      responses:
+        "200":
+          description: The tags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/tags/{tag_id}:
+    parameters:
+      - $ref: "#/components/parameters/TagId"
+    patch:
+      operationId: updateTag
+      summary: Rename a tag
+      description: The name is normalised (RG-58); a name already taken is refused, merging is the explicit gesture (RG-74).
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagPatch"
+      responses:
+        "200":
+          description: The renamed tag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`name-taken`."
+          $ref: "#/components/responses/Problem"
+
+  /api/tags/{tag_id}/merge:
+    parameters:
+      - $ref: "#/components/parameters/TagId"
+    post:
+      operationId: mergeTag
+      summary: Merge a tag into another
+      tags: [classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMerge"
+      responses:
+        "200":
+          description: The target tag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: "`invalid-merge-target`, or a request that breaks the contract."
+          $ref: "#/components/responses/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/sync:
+    get:
+      operationId: syncChanges
+      summary: Changes for the offline cache
+      description: |
+        Without `sync_token`, everything; with it, what changed since (ADR-0018, ADR-0035).
+        Rows come in change order, page by page; only the last page (`next_cursor` null)
+        carries the new `sync_token`, to send next time. Items never carry `content_text`.
+      tags: [sync]
+      parameters:
+        - name: sync_token
+          in: query
+          description: Token of the previous sync, as returned by its last page.
+          schema:
+            type: string
+            minLength: 1
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "410":
+          description: "`sync-expired`: drop the cache and sync again without a token."
+          $ref: "#/components/responses/Problem"
+
+  /api/export:
+    get:
+      operationId: exportArchive
+      summary: Markdown export
+      description: A zip archive with one Markdown file per item, in one folder per category, with front matter, fiche, annotations and images (RG-91). Generated on demand, never stored.
+      tags: [sync]
+      responses:
+        "200":
+          description: The archive.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/stats:
+    get:
+      operationId: getStats
+      summary: Queue, failures and AI cost
+      description: Items by processing status, queue size, failures and the cost of the current month (RG-82).
+      tags: [system]
+      responses:
+        "200":
+          description: The statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       description: Static API token shared by the backend (`API_TOKEN`) and the app, injected at build time (ADR-0016).
+
   parameters:
     Cursor:
       name: cursor
@@ -74,15 +759,54 @@ components:
       name: limit
       in: query
       required: false
-      description: Maximum number of items in the page.
+      description: Maximum number of entries in the page.
       schema:
         type: integer
         minimum: 1
         maximum: 100
         default: 50
+    ItemId:
+      name: item_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Ulid"
+    AssetId:
+      name: asset_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Ulid"
+    CategoryId:
+      name: category_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    TagId:
+      name: tag_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    ContentTypeKeyPath:
+      name: type_key
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/ContentTypeKey"
+
   responses:
+    Problem:
+      description: A problem document; its `type` tells which.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     BadRequest:
-      description: The request is invalid.
+      description: The request breaks this contract (`about:blank`).
       content:
         application/problem+json:
           schema:
@@ -94,17 +818,12 @@ components:
           schema:
             $ref: "#/components/schemas/Problem"
     NotFound:
-      description: The resource does not exist, or belongs to another user.
+      description: The resource does not exist, or belongs to another user (RG-90).
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
-    InternalError:
-      description: Unexpected server error; the cause is in the server logs.
-      content:
-        application/problem+json:
-          schema:
-            $ref: "#/components/schemas/Problem"
+
   schemas:
     Problem:
       type: object
@@ -135,6 +854,7 @@ components:
           format: uri-reference
           description: Path of the request that failed.
           examples: ["/api/items/01JB8Z6Q4M1X2Y3Z4A5B6C7D8E/analyze"]
+
     Health:
       type: object
       required: [status, version]
@@ -147,6 +867,647 @@ components:
           type: string
           description: Version of the running backend (git revision, or `dev`).
           examples: ["dev"]
-    NextCursor:
-      type: [string, "null"]
-      description: Cursor of the next page, to pass as `cursor`; `null` on the last page. Paginated responses are objects `{ items, next_cursor }`.
+
+    Ulid:
+      type: string
+      description: ULID, sortable by creation time.
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+      examples: ["01JB8Z6Q4M1X2Y3Z4A5B6C7D8E"]
+
+    ContentTypeKey:
+      type: string
+      description: Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+      pattern: "^[a-z][a-z0-9_]{1,30}$"
+      examples: ["recipe"]
+
+    ItemKind:
+      type: string
+      description: What was captured (glossary "Forme de l'élément").
+      enum: [link, image, note]
+    CaptureSource:
+      type: string
+      description: Where the capture comes from (`rss` arrives with V2).
+      enum: [share, manual]
+    ProcessingStatus:
+      type: string
+      description: Where the item is in the pipeline (glossary "Statut de traitement").
+      enum: [queued, extracted, submitted, analyzed, failed]
+    ReadStatus:
+      type: string
+      description: Where the user is in reading (glossary "Statut de lecture").
+      enum: [to_read, in_progress, read]
+    ExtractionMode:
+      type: string
+      description: "`full`: main content extracted; `fallback`: metadata only (RG-23); `none`: image or note."
+      enum: [full, fallback, none]
+    Freshness:
+      type: string
+      enum: [dated, timeless]
+    ProposalStatus:
+      type: string
+      description: "`proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57)."
+      enum: [active, proposed]
+    CorrectedField:
+      type: string
+      description: A field the user corrected by hand (RG-60).
+      enum: [content_type, category, tags]
+
+    Asset:
+      type: object
+      description: An image of an item, stored on the NAS.
+      required: [id, mime_type, width, height, size_bytes]
+      properties:
+        id:
+          $ref: "#/components/schemas/Ulid"
+        mime_type:
+          type: string
+          examples: ["image/jpeg"]
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+        size_bytes:
+          type: integer
+          format: int64
+
+    ItemSummary:
+      type: object
+      description: An item as shown in a list (cards of the library and of the review).
+      required: [id, kind, title, url, site_name, status, is_private, content_type, category_id, tag_ids, is_pinned, read_status, read_progress, reading_minutes, content_ok, created_at, updated_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Ulid"
+        kind:
+          $ref: "#/components/schemas/ItemKind"
+        title:
+          type: string
+        url:
+          type: [string, "null"]
+          description: Original URL, as captured (link items).
+        site_name:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ProcessingStatus"
+        is_private:
+          type: boolean
+        content_type:
+          description: Content type key; null until analysed or sorted.
+          anyOf:
+            - $ref: "#/components/schemas/ContentTypeKey"
+            - type: "null"
+        category_id:
+          type: [integer, "null"]
+          format: int64
+          description: Category; null means À trier.
+        tag_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        is_pinned:
+          type: boolean
+        read_status:
+          $ref: "#/components/schemas/ReadStatus"
+        read_progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        reading_minutes:
+          type: [integer, "null"]
+          description: Reading time of the original, computed at extraction (RG-25).
+        content_ok:
+          type: [boolean, "null"]
+          description: False when the AI found the content too poor (RG-37); null until analysed.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Item:
+      type: object
+      description: An item with everything shown on its fiche screen and kept in the offline cache. Never carries the extracted content.
+      required: [id, kind, source, title, url, site_name, user_note, is_private, status, extraction_mode, content_truncated, reading_minutes, content_type, category_id, tag_ids, content_ok, content_issue, language, freshness, model, prompt_version, schema_version, user_edited, annotations, is_pinned, read_status, read_progress, attempts, last_error, assets, created_at, updated_at, extracted_at, analyzed_at, read_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Ulid"
+        kind:
+          $ref: "#/components/schemas/ItemKind"
+        source:
+          $ref: "#/components/schemas/CaptureSource"
+        title:
+          type: string
+          description: Original title before analysis, then the title written by the AI.
+        url:
+          type: [string, "null"]
+          description: Original URL, as captured (link items).
+        site_name:
+          type: [string, "null"]
+        user_note:
+          type: [string, "null"]
+          description: Capture note; the content itself for a note item (RG-03).
+        is_private:
+          type: boolean
+          description: Never sent to the AI (RG-12).
+        status:
+          $ref: "#/components/schemas/ProcessingStatus"
+        extraction_mode:
+          anyOf:
+            - $ref: "#/components/schemas/ExtractionMode"
+            - type: "null"
+        content_truncated:
+          type: boolean
+          description: The extracted content exceeded the limit and was cut (RG-24).
+        reading_minutes:
+          type: [integer, "null"]
+        content_type:
+          description: Content type key; null until analysed or sorted.
+          anyOf:
+            - $ref: "#/components/schemas/ContentTypeKey"
+            - type: "null"
+        category_id:
+          type: [integer, "null"]
+          format: int64
+          description: Category; null means À trier.
+        tag_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        fiche:
+          $ref: "./fiches.gen.json#/components/schemas/Fiche"
+        content_ok:
+          type: [boolean, "null"]
+        content_issue:
+          type: [string, "null"]
+          description: What is missing, according to the AI (RG-37).
+        language:
+          type: [string, "null"]
+          description: Language of the original, ISO 639-1.
+        freshness:
+          anyOf:
+            - $ref: "#/components/schemas/Freshness"
+            - type: "null"
+        model:
+          type: [string, "null"]
+          description: Model that wrote the fiche (RG-64).
+        prompt_version:
+          type: [integer, "null"]
+        schema_version:
+          type: [integer, "null"]
+          description: Version of the fiche schema that produced the fiche (RG-64).
+        user_edited:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrectedField"
+        annotations:
+          type: [string, "null"]
+        is_pinned:
+          type: boolean
+        read_status:
+          $ref: "#/components/schemas/ReadStatus"
+        read_progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        attempts:
+          type: integer
+        last_error:
+          type: [string, "null"]
+          description: Why the last analysis failed, shown with the Relancer button (RG-35, RG-36).
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Asset"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        extracted_at:
+          type: [string, "null"]
+          format: date-time
+        analyzed_at:
+          type: [string, "null"]
+          format: date-time
+        read_at:
+          type: [string, "null"]
+          format: date-time
+
+    ItemPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemSummary"
+        next_cursor:
+          type: [string, "null"]
+
+    CaptureRequest:
+      type: object
+      description: A link or a note. Exactly one of `url` and `note`; a note holds no `user_note` (RG-07).
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          description: "`http` or `https` URL (RG-02)."
+          examples: ["https://example.com/article"]
+        note:
+          type: string
+          description: Text of a note item.
+        user_note:
+          type: string
+          description: Capture note of a link (RG-03).
+        is_private:
+          type: boolean
+          default: false
+        client_id:
+          $ref: "#/components/schemas/Ulid"
+          description: Chosen by the device; a capture replayed with the same id returns the existing item (RG-08).
+
+    CaptureImageRequest:
+      type: object
+      description: An image capture (screenshot or photo), 20 MB at most (RG-02).
+      required: [image]
+      properties:
+        image:
+          type: string
+          format: binary
+        user_note:
+          type: string
+        is_private:
+          type: boolean
+          default: false
+        client_id:
+          $ref: "#/components/schemas/Ulid"
+
+    ItemPatch:
+      type: object
+      description: Fields to change; absent fields stay as they are, `null` clears a nullable field.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        content_type:
+          $ref: "#/components/schemas/ContentTypeKey"
+        category_id:
+          type: [integer, "null"]
+          format: int64
+          description: New category; null moves the item to À trier.
+        tags:
+          type: array
+          description: Replaces the tags of the item; names are normalised (RG-58), new ones are created.
+          items:
+            type: string
+            minLength: 1
+        is_pinned:
+          type: boolean
+        annotations:
+          type: [string, "null"]
+        user_note:
+          type: [string, "null"]
+        is_private:
+          type: boolean
+
+    ReadingProgress:
+      type: object
+      description: The reading position, a forced read status, or both.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        read_progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        read_status:
+          $ref: "#/components/schemas/ReadStatus"
+
+    Category:
+      type: object
+      required: [id, name, description, parent_id, status, proposal_reason, color, display_color, item_count, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+          description: Helps the AI file the next items (RG-52).
+        parent_id:
+          type: [integer, "null"]
+          format: int64
+          description: Root category when null (two levels at most, RG-51).
+        status:
+          $ref: "#/components/schemas/ProposalStatus"
+        proposal_reason:
+          type: [string, "null"]
+          description: Why the AI proposed it.
+        color:
+          type: [string, "null"]
+          description: Accent colour set on this category; null inherits from the root (RG-59).
+        display_color:
+          type: string
+          description: Colour to display, after inheritance (RG-59).
+          examples: ["#3A7D44"]
+        item_count:
+          type: integer
+          description: Items in the category and its subcategories.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CategoryList:
+      type: object
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    CategoryCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        parent_id:
+          type: [integer, "null"]
+          format: int64
+        description:
+          type: [string, "null"]
+        color:
+          type: [string, "null"]
+
+    CategoryPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+        parent_id:
+          type: [integer, "null"]
+          format: int64
+          description: New parent; null makes it a root category.
+        description:
+          type: [string, "null"]
+        color:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [active]
+          description: "`active` accepts a proposed category."
+
+    CategoryMerge:
+      type: object
+      additionalProperties: false
+      required: [target_id]
+      properties:
+        target_id:
+          type: integer
+          format: int64
+
+    ContentType:
+      type: object
+      required: [key, name, status, has_template, proposal_reason, item_count]
+      properties:
+        key:
+          $ref: "#/components/schemas/ContentTypeKey"
+        name:
+          type: string
+          description: Name shown in the app, in French.
+        status:
+          $ref: "#/components/schemas/ProposalStatus"
+        has_template:
+          type: boolean
+          description: False for a type rendered with the generic template (RG-57).
+        proposal_reason:
+          type: [string, "null"]
+        item_count:
+          type: integer
+
+    ContentTypeList:
+      type: object
+      required: [content_types]
+      properties:
+        content_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentType"
+
+    ContentTypePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum: [active]
+          description: "`active` accepts a proposed type."
+
+    ContentTypeMerge:
+      type: object
+      additionalProperties: false
+      required: [target_key]
+      properties:
+        target_key:
+          $ref: "#/components/schemas/ContentTypeKey"
+
+    Tag:
+      type: object
+      required: [id, name, item_count]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: Lowercase, words separated by hyphens, no accent (RG-58).
+          examples: ["spring-boot"]
+        item_count:
+          type: integer
+
+    TagList:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+
+    TagPatch:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Normalised by the backend like any tag (RG-58).
+
+    TagMerge:
+      type: object
+      additionalProperties: false
+      required: [target_id]
+      properties:
+        target_id:
+          type: integer
+          format: int64
+
+    Review:
+      type: object
+      required: [items, proposed_categories, proposed_content_types, last_review_at]
+      properties:
+        items:
+          type: array
+          description: Items analysed since the last review (RG-70).
+          items:
+            $ref: "#/components/schemas/ItemSummary"
+        proposed_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        proposed_content_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentType"
+        last_review_at:
+          type: [string, "null"]
+          format: date-time
+
+    ReviewDone:
+      type: object
+      required: [last_review_at]
+      properties:
+        last_review_at:
+          type: string
+          format: date-time
+
+    Stats:
+      type: object
+      required: [items_by_status, queue_size, failed_count, month_cost_usd, monthly_budget_usd, budget_reached]
+      properties:
+        items_by_status:
+          type: object
+          required: [queued, extracted, submitted, analyzed, failed]
+          properties:
+            queued:
+              type: integer
+            extracted:
+              type: integer
+            submitted:
+              type: integer
+            analyzed:
+              type: integer
+            failed:
+              type: integer
+        queue_size:
+          type: integer
+          description: Items waiting for the next batch.
+        failed_count:
+          type: integer
+        month_cost_usd:
+          type: number
+          description: AI cost of the current month, from the tokens really used (RG-80, RG-82).
+        monthly_budget_usd:
+          type: number
+        budget_reached:
+          type: boolean
+          description: No analysis until the 1st of next month (RG-81).
+
+    ItemTombstone:
+      type: object
+      description: A deleted item; nothing but its id stays (RG-79).
+      required: [id, deleted_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Ulid"
+        deleted_at:
+          type: string
+          format: date-time
+
+    IdTombstone:
+      type: object
+      description: A deleted category or tag.
+      required: [id, deleted_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        deleted_at:
+          type: string
+          format: date-time
+
+    KeyTombstone:
+      type: object
+      description: A deleted (merged) content type; its id is its key.
+      required: [id, deleted_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/ContentTypeKey"
+        deleted_at:
+          type: string
+          format: date-time
+
+    SyncPage:
+      type: object
+      description: One page of changes. The `item_count` of categories, content types and tags reflects the moment the row changed; the app recomputes the counts from its cache rather than relying on them after a delta sync.
+      required: [items, categories, content_types, tags, deleted, next_cursor, sync_token]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        content_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentType"
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        deleted:
+          type: object
+          required: [items, categories, content_types, tags]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ItemTombstone"
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/IdTombstone"
+            content_types:
+              type: array
+              items:
+                $ref: "#/components/schemas/KeyTombstone"
+            tags:
+              type: array
+              items:
+                $ref: "#/components/schemas/IdTombstone"
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor of the next page of this sync; null on the last page.
+        sync_token:
+          type: [string, "null"]
+          description: Token to send at the next sync; set on the last page only.

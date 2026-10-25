@@ -1,6 +1,6 @@
 # ADR-0017 — Contrat d'API OpenAPI comme source de vérité
 
-- **Statut** : Accepté
+- **Statut** : Accepté — précisé par [ADR-0031](0031-generation-depuis-les-contrats.md) et [ADR-0035](0035-contrat-identifiants-et-synchronisation.md)
 - **Date** : 2026-10-11
 
 ## Contexte

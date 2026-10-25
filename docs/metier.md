@@ -90,7 +90,7 @@ stateDiagram-v2
 ```
 
 - Un **élément privé** s'arrête à `extracted` : il n'est jamais soumis à l'IA (RG-12).
-- Une **fiche incomplète** reste `analyzed` mais est remise dans la file une seule fois (RG-36).
+- Une réponse de l'IA **coupée** par son plafond de sortie ramène l'élément à `extracted` pour une seule nouvelle tentative avec un plafond doublé, puis à `failed` si elle est encore coupée (RG-36).
 
 ### Statut de lecture
 
@@ -114,6 +114,8 @@ stateDiagram-v2
 - **RG-04** — **Doublons.** Si l'**URL normalisée** d'une capture correspond à un élément existant du même utilisateur, aucun nouvel élément n'est créé : l'élément existant est renvoyé. Si la nouvelle capture porte une note, celle-ci est ajoutée à la suite de la note existante, datée. Les images et les notes ne sont jamais considérées comme des doublons.
 - **RG-05** — **Normalisation d'URL** : schéma et hôte en minuscules, fragment (`#…`) retiré, paramètres de tracking retirés (`utm_*`, `fbclid`, `gclid`, `igsh`, `si`, `ref`), slash final retiré, paramètres restants triés. L'URL d'origine est conservée telle quelle pour l'ouverture.
 - **RG-06** — Une capture faite **hors ligne** depuis l'appli est mise en attente sur le téléphone et envoyée automatiquement au retour du réseau. Depuis l'extension de partage, une capture hors ligne échoue avec un message clair et la possibilité de copier le lien.
+- **RG-07** — **Capture ambiguë.** Une capture qui contient à la fois une URL et une note, ou une note et une note de capture, est refusée : la forme de l'élément doit être sans ambiguïté. *(Ajoutée le 25 octobre 2026.)*
+- **RG-08** — **Capture rejouée.** Une capture peut porter un identifiant choisi par l'appareil qui l'envoie. Si cet identifiant a déjà servi pour une capture du même utilisateur, aucun nouvel élément n'est créé : l'élément existant est renvoyé. Une capture mise en attente hors ligne (RG-06) et rejouée deux fois ne crée donc jamais de doublon, même pour une note ou une image. *(Ajoutée le 25 octobre 2026.)*
 
 ### Élément privé
 
@@ -137,10 +139,10 @@ stateDiagram-v2
 - **RG-30** — Les éléments en attente sont analysés **une fois par nuit**, en un seul batch (2 h par défaut). Un élément capturé dans la journée est analysé au plus tard le lendemain matin, sauf budget atteint (RG-81).
 - **RG-31** — S'il n'y a rien à analyser, aucun appel n'est fait.
 - **RG-32** — Un batch contient au maximum 200 éléments. Le surplus attend la nuit suivante, les plus anciens en premier.
-- **RG-33** — L'**analyse immédiate** d'un élément est possible à la demande, au plein tarif. Elle respecte RG-12 et RG-81.
+- **RG-33** — L'**analyse immédiate** d'un élément est possible à la demande, au plein tarif. Elle respecte RG-12 et RG-81. Elle est refusée tant que l'extraction n'est pas terminée (`queued`) et quand l'élément fait déjà partie du batch de la nuit (`submitted`), pour ne pas payer deux fois. *(Complétée le 25 octobre 2026.)*
 - **RG-34** — L'analyse produit, pour chaque élément : un type de contenu, une catégorie, 2 à 5 tags, un titre, une fiche au format du type, la langue de l'original, la fraîcheur, et un indicateur de contenu pauvre.
 - **RG-35** — Une réponse de l'IA qui ne respecte pas le schéma attendu est rejetée entièrement : rien n'est écrit, l'élément compte une tentative. Après 3 tentatives, il passe en `failed` et apparaît dans À trier et dans Réglages avec un bouton « Relancer ».
-- **RG-36** — **Fiche incomplète.** Si l'IA atteint son plafond de sortie, la fiche est enregistrée, marquée incomplète, et l'élément est réanalysé **une seule fois** la nuit suivante avec un plafond doublé. Si elle reste incomplète, elle est gardée telle quelle avec la mention visible.
+- **RG-36** — **Fiche incomplète.** Si l'IA atteint son plafond de sortie, sa réponse est coupée et inutilisable : rien n'est enregistré, et l'élément est remis dans la file **une seule fois**, avec un plafond doublé, pour la nuit suivante. S'il s'agit d'une réanalyse, la fiche précédente reste en place en attendant. Si la réponse est encore coupée, l'élément passe en `failed` avec la raison « fiche trop longue » ; le contenu extrait reste conservé. *(Modifiée le 25 octobre 2026 : auparavant, la fiche coupée était enregistrée et marquée incomplète.)*
 - **RG-37** — **Contenu pauvre.** Quand l'IA signale un contenu insuffisant, la fiche contient seulement ce qui est connu ; l'appli affiche « contenu partiel » et propose d'ouvrir l'original. L'IA ne doit **jamais inventer** d'information pour compléter.
 
 ### Fiche
@@ -179,7 +181,7 @@ stateDiagram-v2
 - **RG-71** — Par défaut, tout est considéré comme correct : l'utilisateur n'agit que sur ce qui est faux. Terminer la revue enregistre sa date.
 - **RG-72** — Une proposition peut être **acceptée** (elle devient active), **renommée** (et acceptée), ou **fusionnée** dans une catégorie ou un type existant (ses éléments y sont déplacés, la proposition disparaît). Fusionner un type proposé dans un type existant remet ses éléments en file d'analyse, puisque leur fiche est au format générique.
 - **RG-73** — La revue n'est jamais bloquante. Les propositions non traitées restent utilisables et réapparaissent à la revue suivante.
-- **RG-74** — L'utilisateur peut aussi fusionner deux catégories actives, ou deux tags, en dehors de la revue.
+- **RG-74** — L'utilisateur peut aussi fusionner deux catégories actives, ou deux tags, en dehors de la revue. Renommer une catégorie ou un tag vers un nom déjà pris (sous le même parent pour une catégorie) est refusé : la fusion reste le geste explicite pour réunir deux catégories ou deux tags. *(Complétée le 25 octobre 2026.)*
 
 ### Lecture et organisation
 

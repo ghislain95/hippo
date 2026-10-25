@@ -11,6 +11,7 @@
 # Generated files: collapsed in pull request diffs, never edited by hand
 # (regenerate with `make generate`).
 *.gen.go linguist-generated=true
+*.gen.json linguist-generated=true
 app/src/api/schema.gen.ts linguist-generated=true
 backend/internal/analysis/schema/classify-item.bundled.json linguist-generated=true
 **/package-lock.json linguist-generated=true

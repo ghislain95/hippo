@@ -1,6 +1,6 @@
 # ADR-0031 — Génération de code depuis les contrats
 
-- **Statut** : Accepté
+- **Statut** : Accepté — pipeline précisé par [ADR-0035](0035-contrat-identifiants-et-synchronisation.md) (fiches dans le contrat, assemblage par `redocly bundle`, `make generate` à la place de `go generate`)
 - **Date** : 2026-10-25
 - **Précise** : [ADR-0006](0006-sortie-structuree.md) et [ADR-0017](0017-contrat-openapi.md)
 

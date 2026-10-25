@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -37,6 +38,11 @@ func NewServer(opts Options) http.Handler {
 			writeProblem(w, r, http.StatusBadRequest, problemTypeBlank, "Bad request", "La requête est invalide.")
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			if errors.Is(err, errNotImplemented) {
+				opts.Logger.DebugContext(r.Context(), "operation not implemented", slog.String("route", routeOf(r.Context())))
+				writeProblem(w, r, http.StatusNotImplemented, problemTypeNotImplemented, "Not implemented", "Cette fonction n'est pas encore disponible.")
+				return
+			}
 			opts.Logger.ErrorContext(r.Context(), "handler failed", slog.String("error", err.Error()))
 			writeProblem(w, r, http.StatusInternalServerError, problemTypeBlank, "Internal server error", "Erreur interne du serveur.")
 		},
@@ -62,8 +68,10 @@ func NewServer(opts Options) http.Handler {
 	return handler
 }
 
-// handlers implements StrictServerInterface.
+// handlers implements StrictServerInterface. Operations no story has implemented yet come from
+// the embedded notImplemented stubs (stubs.go).
 type handlers struct {
+	notImplemented
 	store   Pinger
 	version string
 }

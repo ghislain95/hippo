@@ -6,7 +6,7 @@
 
 ## Statut
 
-**Setup terminé, développement des fonctionnalités pas encore commencé** (25 octobre 2026). La documentation décrit la V1 à construire ; le squelette du code (backend Go, appli Expo, contrat OpenAPI, CI) compile et passe ses vérifications. Prochaine étape : le contrat complet de l'API (story E0-05), premier change OpenSpec.
+**Setup terminé, développement des fonctionnalités pas encore commencé** (25 octobre 2026). La documentation décrit la V1 à construire ; le squelette du code (backend Go, appli Expo, contrat OpenAPI, CI) compile et passe ses vérifications. Le contrat complet de l'API (story E0-05) est écrit, premier change OpenSpec : chaque route répond `501` jusqu'à la story qui l'implémente. Prochaines étapes : le prototype iOS (E1) et la capture (E2).
 
 ## Ce que fait Hippo
 

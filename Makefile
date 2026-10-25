@@ -7,9 +7,17 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
 
 # Generated files: never edited by hand, checked up to date by `make check-generated`.
-GENERATED := backend/internal/httpapi/api.gen.go \
+GENERATED := api/fiches.gen.json \
+	api/openapi.bundled.gen.json \
+	backend/internal/httpapi/api.gen.go \
 	backend/internal/analysis/schema/classify-item.bundled.json \
 	app/src/api/schema.gen.ts
+
+# Fiche schemas → bundled classify_item schema and OpenAPI fiche components (ADR-0031, ADR-0035).
+SCHEMABUNDLE := cd backend && go run ./cmd/schemabundle -schemas ../docs/prompt/schemas \
+	-examples ../docs/prompt/schemas/examples \
+	-out internal/analysis/schema/classify-item.bundled.json \
+	-openapi-out ../api/fiches.gen.json
 
 # infra/.env is optional for the local targets: without it, variables come from the shell.
 LOCAL_ENV_FILE := infra/.env
@@ -38,8 +46,10 @@ check: check-secrets check-docs check-tooling check-openspec lint-api check-sche
 # --- Code generation -----------------------------------------------------------
 
 .PHONY: generate
-generate: ## Regenerate the code built from api/openapi.yaml and docs/prompt/schemas/
-	cd backend && go generate ./...
+generate: ## Regenerate the code built from api/openapi.yaml and docs/prompt/schemas/ (order matters)
+	$(SCHEMABUNDLE)
+	cd api && npx --no-install redocly bundle openapi.yaml --ext json --output openapi.bundled.gen.json
+	cd backend/internal/httpapi && go tool oapi-codegen -config oapi-codegen.yaml ../../../api/openapi.bundled.gen.json
 	cd api && npm run --silent generate
 
 .PHONY: check-generated
@@ -112,10 +122,8 @@ image: ## Build the backend Docker image (hippo:local)
 # --- Fiche schemas -----------------------------------------------------------
 
 .PHONY: check-schemas
-check-schemas: ## Validate the fiche examples and check the bundled schema is up to date
-	cd backend && go run ./cmd/schemabundle -schemas ../docs/prompt/schemas \
-		-examples ../docs/prompt/schemas/examples \
-		-out internal/analysis/schema/classify-item.bundled.json -check
+check-schemas: ## Validate the fiche examples and check both schema outputs are up to date
+	$(SCHEMABUNDLE) -check
 
 # --- App ---------------------------------------------------------------------
 

@@ -74,9 +74,9 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 
 ## Modèle de données
 
-La fiche est stockée telle que l'IA l'a renvoyée, en JSON validé : c'est la source de vérité de l'affichage. Le Markdown n'est jamais stocké, il est produit à l'export ([ADR-0007](adr/0007-fiche-json-source-de-verite.md)). Chaque table métier porte un `user_id` ; toutes les tables synchronisées vers l'appli portent `updated_at`, et les suppressions laissent une trace `deleted_at` pendant 30 jours ([ADR-0018](adr/0018-lecture-hors-ligne.md)).
+La fiche est stockée telle que l'IA l'a renvoyée, en JSON validé : c'est la source de vérité de l'affichage. Le Markdown n'est jamais stocké, il est produit à l'export ([ADR-0007](adr/0007-fiche-json-source-de-verite.md)). Chaque table métier porte un `user_id` ; toutes les tables synchronisées vers l'appli (éléments, catégories, types de contenu, tags) portent `updated_at` et une **séquence de modification** `change_seq`, entier croissant commun à toute la base (un seul écrivain), incrémenté à chaque écriture, qui ordonne la synchronisation ; les suppressions laissent une trace `deleted_at` pendant 30 jours, sans aucun contenu ([ADR-0018](adr/0018-lecture-hors-ligne.md), [ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)).
 
-Les identifiants sont des ULID (`TEXT`), les dates en ISO 8601 UTC.
+Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) : ULID (`TEXT`) pour les éléments, les images et les batchs ; entiers pour les catégories et les tags ; les types de contenu sont désignés par leur clé dans l'API. Les dates sont en ISO 8601 UTC.
 
 **users** — `id`, `name`, `api_token_hash`, `created_at`. Une ligne en V1, créée au premier démarrage.
 
@@ -92,6 +92,7 @@ Les identifiants sont des ULID (`TEXT`), les dates en ISO 8601 UTC.
 | normalized_url | TEXT, nullable | URL normalisée (RG-05), unique par utilisateur |
 | site_name | TEXT, nullable | Nom du site, issu de l'extraction |
 | user_note | TEXT, nullable | Note de capture (contenu de l'élément pour `kind = note`) |
+| client_id | TEXT, nullable | Identifiant de capture choisi par l'appareil, unique par utilisateur (RG-08) |
 | is_private | INTEGER (0/1) | 1 = jamais envoyé à l'IA ; 0 par défaut |
 | status | TEXT | `queued`, `extracted`, `submitted`, `analyzed`, `failed` |
 | extraction_mode | TEXT, nullable | `full`, `fallback`, `none` |
@@ -105,8 +106,7 @@ Les identifiants sont des ULID (`TEXT`), les dates en ISO 8601 UTC.
 | search_text | TEXT | Fiche aplatie en texte, pour la recherche |
 | content_ok | INTEGER (0/1), nullable | 0 = contenu pauvre (RG-37) |
 | content_issue | TEXT, nullable | Ce qui manque, selon l'IA |
-| fiche_incomplete | INTEGER (0/1) | Le plafond de sortie a été atteint (RG-36) |
-| incomplete_retried | INTEGER (0/1) | La relance unique a déjà eu lieu |
+| incomplete_retried | INTEGER (0/1) | La seconde tentative avec le plafond doublé a déjà eu lieu (RG-36) |
 | language | TEXT, nullable | Langue de l'original |
 | freshness | TEXT, nullable | `dated` ou `timeless` |
 | model, prompt_version, schema_version | TEXT, INTEGER, INTEGER | Traçabilité (RG-64) |
@@ -118,6 +118,7 @@ Les identifiants sont des ULID (`TEXT`), les dates en ISO 8601 UTC.
 | attempts, last_error | INTEGER, TEXT | Suivi des échecs |
 | batch_id | TEXT, nullable | Batch Anthropic en cours |
 | created_at, updated_at, extracted_at, analyzed_at, read_at, deleted_at | TEXT | Horodatage |
+| change_seq | INTEGER | Séquence de modification, pour la synchronisation |
 
 **categories** — arborescence de 2 niveaux (RG-51).
 
@@ -129,7 +130,7 @@ Les identifiants sont des ULID (`TEXT`), les dates en ISO 8601 UTC.
 | status | TEXT | `active` ou `proposed` |
 | proposal_reason | TEXT, nullable | Justification donnée par l'IA |
 | color | TEXT, nullable | Couleur d'accent ; héritée du parent si null (RG-59) |
-| created_at, updated_at, deleted_at | TEXT | Horodatage |
+| created_at, updated_at, deleted_at, change_seq | TEXT, INTEGER | Horodatage et séquence de modification |
 
 Unicité : `(user_id, parent_id, nom normalisé)`.
 
@@ -141,10 +142,11 @@ Unicité : `(user_id, parent_id, nom normalisé)`.
 | status | TEXT | `active` ou `proposed` |
 | has_template | INTEGER (0/1) | 0 = fiche et template `generic` |
 | proposal_reason | TEXT, nullable | Justification donnée par l'IA |
+| updated_at, deleted_at, change_seq | TEXT, INTEGER | Synchronisés vers l'appli ; un type fusionné laisse une trace `deleted_at` (RG-72) |
 
 **Autres tables**
 
-- **tags** (`id`, `user_id`, `name` unique par utilisateur) et **item_tags** (`item_id`, `tag_id`).
+- **tags** (`id` entier, `user_id`, `name` unique par utilisateur, `updated_at`, `deleted_at`, `change_seq` ; un tag fusionné laisse une trace) et **item_tags** (`item_id`, `tag_id`).
 - **assets** : images (`id`, `item_id`, `user_id`, chemin relatif sur disque, type MIME, largeur, hauteur, taille).
 - **batches** : `id` Anthropic, `user_id`, statut (`in_progress`, `ended`, `failed`), nombre d'éléments, tokens d'entrée, de sortie et de cache, `cost_usd`, dates. Les analyses immédiates sont enregistrées dans une table **analysis_calls** de même forme, pour le calcul du budget.
 - **settings** : réglages clé-valeur par utilisateur, dont `last_review_at`.
@@ -160,7 +162,7 @@ Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois pa
 2. **Extraction** — en arrière-plan, juste après : page web via go-readability (timeout 15 s), transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-25). Une file en mémoire traite les extractions une par une ; au démarrage, les éléments restés `queued` sont repris.
 3. **Envoi du batch** — à 2 h (`BATCH_SCHEDULE`), les éléments `extracted` **non privés** partent dans un seul batch, 200 au maximum, après vérification du budget (RG-30 à RG-32, RG-81). Statut `submitted`.
 4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
-5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des fiches incomplètes (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
+5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
 
 L'**analyse immédiate** (`POST /api/items/{id}/analyze`) envoie la même requête en appel direct.
 
@@ -169,33 +171,36 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 **Budget de tokens**
 
 - Entrée : le contenu extrait seul, jamais le HTML, jusqu'à ~120 000 caractères ; images redimensionnées à 1 568 px sur leur plus grand côté avant envoi.
-- Sortie : plafond de 4 000 tokens, 8 000 pour la relance unique d'une fiche incomplète ; la longueur réelle suit la richesse du contenu.
+- Sortie : plafond de 4 000 tokens, 8 000 pour la seconde tentative d'une réponse coupée (RG-36) ; la longueur réelle suit la richesse du contenu.
 - Cache de prompt sur la partie fixe, le référentiel et l'outil.
 
 ## API REST
 
-Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md)). Toutes les routes sont sous `/api` et exigent `Authorization: Bearer <token>`, sauf `/healthz`. JSON en `snake_case`, erreurs au format problem+json, pagination par curseur.
+Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md), [ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) ; il porte aussi le catalogue des types d'erreur. Toutes les routes sont sous `/api` et exigent `Authorization: Bearer <token>`, sauf `/healthz`. JSON en `snake_case`, erreurs au format problem+json, pagination par curseur. Une route déclarée mais pas encore implémentée répond `501`. Le tableau ci-dessous résume le contrat ; en cas d'écart, le contrat gagne.
 
 | Méthode | Route | Rôle |
 | --- | --- | --- |
-| POST | /api/items | Capturer : JSON `{url?, note?, user_note?, is_private?}`, ou multipart avec une image |
-| GET | /api/items | Lister : `q`, `type`, `category`, `tag`, `status`, `read_status`, `pinned`, `unsorted` ; curseur |
-| GET | /api/items/{id} | Détail complet avec la fiche et les images |
-| PATCH | /api/items/{id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé |
-| PUT | /api/items/{id}/progress | Position et statut de lecture |
-| DELETE | /api/items/{id} | Supprimer |
-| POST | /api/items/{id}/analyze | Analyse immédiate |
-| POST | /api/items/{id}/retry | Remettre un élément `failed` en file |
-| GET | /api/assets/{id} | Récupérer une image |
+| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?}`, ou multipart avec une image ; `201` nouvel élément, `200` doublon ou capture rejouée (RG-04, RG-07, RG-08) |
+| GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
+| GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
+| PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |
+| PUT | /api/items/{item_id}/progress | Position et statut de lecture |
+| DELETE | /api/items/{item_id} | Supprimer |
+| POST | /api/items/{item_id}/analyze | Analyse immédiate |
+| POST | /api/items/{item_id}/retry | Remettre un élément `failed` en file |
+| GET | /api/assets/{asset_id} | Récupérer une image |
 | GET | /api/review | Éléments analysés depuis la dernière revue, propositions |
 | POST | /api/review/done | Marquer la revue comme faite |
-| GET, POST, PATCH, DELETE | /api/categories | Gérer l'arborescence ; accepter ou renommer une proposition |
-| POST | /api/categories/{id}/merge | Fusionner une catégorie dans une autre |
-| GET, PATCH | /api/content-types | Accepter ou renommer un type proposé |
-| POST | /api/content-types/{id}/merge | Fusionner un type proposé dans un type existant |
-| GET, PATCH | /api/tags | Tags avec compteurs ; renommer |
-| POST | /api/tags/{id}/merge | Fusionner deux tags |
-| GET | /api/sync | Changements depuis une date, pour le cache hors ligne |
+| GET, POST | /api/categories | Arborescence ; créer une catégorie |
+| PATCH, DELETE | /api/categories/{category_id} | Renommer, déplacer, recolorer, accepter une proposition ; supprimer une catégorie vide |
+| POST | /api/categories/{category_id}/merge | Fusionner une catégorie dans une autre |
+| GET | /api/content-types | Types de contenu |
+| PATCH | /api/content-types/{type_key} | Renommer ou accepter un type proposé |
+| POST | /api/content-types/{type_key}/merge | Fusionner un type proposé dans un type existant |
+| GET | /api/tags | Tags avec compteurs |
+| PATCH | /api/tags/{tag_id} | Renommer un tag (nom déjà pris refusé, RG-74) |
+| POST | /api/tags/{tag_id}/merge | Fusionner deux tags |
+| GET | /api/sync | Changements depuis un `sync_token`, pour le cache hors ligne ; `410` si le jeton a plus de 30 jours ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) |
 | GET | /api/export | Archive Markdown |
 | GET | /api/stats | Éléments par statut, file, échecs, coût du mois |
 | GET | /healthz | État du service, sans authentification |
@@ -207,7 +212,7 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 | Écran | Contenu |
 | --- | --- |
 | Bibliothèque (accueil) | Recherche, filtres (type, catégorie, À lire, épinglés, À trier), cartes avec titre, site, type, pastille de couleur, badge « en attente » ; bandeau « Reprendre la lecture » |
-| Fiche | Template du type, barre de progression, reprise de position, mentions (partiel, tronqué, incomplet), épingle, annotations, type, catégorie et tags modifiables, ouvrir l'original, réanalyser, supprimer |
+| Fiche | Template du type, barre de progression, reprise de position, mentions (partiel, tronqué), épingle, annotations, type, catégorie et tags modifiables, ouvrir l'original, réanalyser, supprimer |
 | Capture | URL, note (dictée iOS possible), image depuis la photothèque, interrupteur « Privé » décoché |
 | Revue | Éléments analysés depuis la dernière revue, propositions en évidence ; accepter, renommer, fusionner |
 | Explorer | Arborescence des catégories, types, nuage de tags, avec compteurs |

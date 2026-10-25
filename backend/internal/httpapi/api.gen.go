@@ -9,9 +9,246 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"strings"
+	"time"
+
+	"github.com/oapi-codegen/nullable"
+	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for CaptureSource.
+const (
+	Manual CaptureSource = "manual"
+	Share  CaptureSource = "share"
+)
+
+// Valid indicates whether the value is a known member of the CaptureSource enum.
+func (e CaptureSource) Valid() bool {
+	switch e {
+	case Manual:
+		return true
+	case Share:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CategoryPatchStatus.
+const (
+	CategoryPatchStatusActive CategoryPatchStatus = "active"
+)
+
+// Valid indicates whether the value is a known member of the CategoryPatchStatus enum.
+func (e CategoryPatchStatus) Valid() bool {
+	switch e {
+	case CategoryPatchStatusActive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContentTypePatchStatus.
+const (
+	ContentTypePatchStatusActive ContentTypePatchStatus = "active"
+)
+
+// Valid indicates whether the value is a known member of the ContentTypePatchStatus enum.
+func (e ContentTypePatchStatus) Valid() bool {
+	switch e {
+	case ContentTypePatchStatusActive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CorrectedField.
+const (
+	CorrectedFieldCategory    CorrectedField = "category"
+	CorrectedFieldContentType CorrectedField = "content_type"
+	CorrectedFieldTags        CorrectedField = "tags"
+)
+
+// Valid indicates whether the value is a known member of the CorrectedField enum.
+func (e CorrectedField) Valid() bool {
+	switch e {
+	case CorrectedFieldCategory:
+		return true
+	case CorrectedFieldContentType:
+		return true
+	case CorrectedFieldTags:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExtractionMode.
+const (
+	Fallback ExtractionMode = "fallback"
+	Full     ExtractionMode = "full"
+	None     ExtractionMode = "none"
+)
+
+// Valid indicates whether the value is a known member of the ExtractionMode enum.
+func (e ExtractionMode) Valid() bool {
+	switch e {
+	case Fallback:
+		return true
+	case Full:
+		return true
+	case None:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheGenericTemplate.
+const (
+	Generic FicheGenericTemplate = "generic"
+)
+
+// Valid indicates whether the value is a known member of the FicheGenericTemplate enum.
+func (e FicheGenericTemplate) Valid() bool {
+	switch e {
+	case Generic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheNoteTemplate.
+const (
+	FicheNoteTemplateNote FicheNoteTemplate = "note"
+)
+
+// Valid indicates whether the value is a known member of the FicheNoteTemplate enum.
+func (e FicheNoteTemplate) Valid() bool {
+	switch e {
+	case FicheNoteTemplateNote:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FichePlaceTemplate.
+const (
+	Place FichePlaceTemplate = "place"
+)
+
+// Valid indicates whether the value is a known member of the FichePlaceTemplate enum.
+func (e FichePlaceTemplate) Valid() bool {
+	switch e {
+	case Place:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheRecipeTemplate.
+const (
+	Recipe FicheRecipeTemplate = "recipe"
+)
+
+// Valid indicates whether the value is a known member of the FicheRecipeTemplate enum.
+func (e FicheRecipeTemplate) Valid() bool {
+	switch e {
+	case Recipe:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheResourceTemplate.
+const (
+	Resource FicheResourceTemplate = "resource"
+)
+
+// Valid indicates whether the value is a known member of the FicheResourceTemplate enum.
+func (e FicheResourceTemplate) Valid() bool {
+	switch e {
+	case Resource:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheTechArticleTemplate.
+const (
+	TechArticle FicheTechArticleTemplate = "tech_article"
+)
+
+// Valid indicates whether the value is a known member of the FicheTechArticleTemplate enum.
+func (e FicheTechArticleTemplate) Valid() bool {
+	switch e {
+	case TechArticle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheTipTemplate.
+const (
+	Tip FicheTipTemplate = "tip"
+)
+
+// Valid indicates whether the value is a known member of the FicheTipTemplate enum.
+func (e FicheTipTemplate) Valid() bool {
+	switch e {
+	case Tip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FicheTutorialTemplate.
+const (
+	Tutorial FicheTutorialTemplate = "tutorial"
+)
+
+// Valid indicates whether the value is a known member of the FicheTutorialTemplate enum.
+func (e FicheTutorialTemplate) Valid() bool {
+	switch e {
+	case Tutorial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Freshness.
+const (
+	Dated    Freshness = "dated"
+	Timeless Freshness = "timeless"
+)
+
+// Valid indicates whether the value is a known member of the Freshness enum.
+func (e Freshness) Valid() bool {
+	switch e {
+	case Dated:
+		return true
+	case Timeless:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthStatus.
 const (
@@ -28,6 +265,504 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for ItemKind.
+const (
+	ItemKindImage ItemKind = "image"
+	ItemKindLink  ItemKind = "link"
+	ItemKindNote  ItemKind = "note"
+)
+
+// Valid indicates whether the value is a known member of the ItemKind enum.
+func (e ItemKind) Valid() bool {
+	switch e {
+	case ItemKindImage:
+		return true
+	case ItemKindLink:
+		return true
+	case ItemKindNote:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProcessingStatus.
+const (
+	Analyzed  ProcessingStatus = "analyzed"
+	Extracted ProcessingStatus = "extracted"
+	Failed    ProcessingStatus = "failed"
+	Queued    ProcessingStatus = "queued"
+	Submitted ProcessingStatus = "submitted"
+)
+
+// Valid indicates whether the value is a known member of the ProcessingStatus enum.
+func (e ProcessingStatus) Valid() bool {
+	switch e {
+	case Analyzed:
+		return true
+	case Extracted:
+		return true
+	case Failed:
+		return true
+	case Queued:
+		return true
+	case Submitted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProposalStatus.
+const (
+	ProposalStatusActive   ProposalStatus = "active"
+	ProposalStatusProposed ProposalStatus = "proposed"
+)
+
+// Valid indicates whether the value is a known member of the ProposalStatus enum.
+func (e ProposalStatus) Valid() bool {
+	switch e {
+	case ProposalStatusActive:
+		return true
+	case ProposalStatusProposed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadStatus.
+const (
+	InProgress ReadStatus = "in_progress"
+	Read       ReadStatus = "read"
+	ToRead     ReadStatus = "to_read"
+)
+
+// Valid indicates whether the value is a known member of the ReadStatus enum.
+func (e ReadStatus) Valid() bool {
+	switch e {
+	case InProgress:
+		return true
+	case Read:
+		return true
+	case ToRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Asset An image of an item, stored on the NAS.
+type Asset struct {
+	Height nullable.Nullable[int] `json:"height"`
+
+	// Id ULID, sortable by creation time.
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	Id Ulid `json:"id"`
+
+	// MimeType Examples: image/jpeg
+	MimeType  string                 `json:"mime_type"`
+	SizeBytes int64                  `json:"size_bytes"`
+	Width     nullable.Nullable[int] `json:"width"`
+}
+
+// CaptureImageRequest An image capture (screenshot or photo), 20 MB at most (RG-02).
+type CaptureImageRequest struct {
+	// ClientId ULID, sortable by creation time.
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	ClientId  *Ulid              `json:"client_id,omitempty"`
+	Image     openapi_types.File `json:"image"`
+	IsPrivate *bool              `json:"is_private,omitempty"`
+	UserNote  *string            `json:"user_note,omitempty"`
+}
+
+// CaptureRequest A link or a note. Exactly one of `url` and `note`; a note holds no `user_note` (RG-07).
+type CaptureRequest struct {
+	// ClientId Chosen by the device; a capture replayed with the same id returns the existing item (RG-08).
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	ClientId  *Ulid `json:"client_id,omitempty"`
+	IsPrivate *bool `json:"is_private,omitempty"`
+
+	// Note Text of a note item.
+	Note *string `json:"note,omitempty"`
+
+	// Url `http` or `https` URL (RG-02).
+	//
+	// Examples: https://example.com/article
+	Url *string `json:"url,omitempty"`
+
+	// UserNote Capture note of a link (RG-03).
+	UserNote *string `json:"user_note,omitempty"`
+}
+
+// CaptureSource Where the capture comes from (`rss` arrives with V2).
+type CaptureSource string
+
+// Category defines model for Category.
+type Category struct {
+	// Color Accent colour set on this category; null inherits from the root (RG-59).
+	Color     nullable.Nullable[string] `json:"color"`
+	CreatedAt time.Time                 `json:"created_at"`
+
+	// Description Helps the AI file the next items (RG-52).
+	Description nullable.Nullable[string] `json:"description"`
+
+	// DisplayColor Colour to display, after inheritance (RG-59).
+	//
+	// Examples: #3A7D44
+	DisplayColor string `json:"display_color"`
+	Id           int64  `json:"id"`
+
+	// ItemCount Items in the category and its subcategories.
+	ItemCount int    `json:"item_count"`
+	Name      string `json:"name"`
+
+	// ParentId Root category when null (two levels at most, RG-51).
+	ParentId nullable.Nullable[int64] `json:"parent_id"`
+
+	// ProposalReason Why the AI proposed it.
+	ProposalReason nullable.Nullable[string] `json:"proposal_reason"`
+
+	// Status `proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57).
+	Status    ProposalStatus `json:"status"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+// CategoryCreate defines model for CategoryCreate.
+type CategoryCreate struct {
+	Color       nullable.Nullable[string] `json:"color,omitempty"`
+	Description nullable.Nullable[string] `json:"description,omitempty"`
+	Name        string                    `json:"name"`
+	ParentId    nullable.Nullable[int64]  `json:"parent_id,omitempty"`
+}
+
+// CategoryList defines model for CategoryList.
+type CategoryList struct {
+	Categories []Category `json:"categories"`
+}
+
+// CategoryMerge defines model for CategoryMerge.
+type CategoryMerge struct {
+	TargetId int64 `json:"target_id"`
+}
+
+// CategoryPatch defines model for CategoryPatch.
+type CategoryPatch struct {
+	Color       nullable.Nullable[string] `json:"color,omitempty"`
+	Description nullable.Nullable[string] `json:"description,omitempty"`
+	Name        *string                   `json:"name,omitempty"`
+
+	// ParentId New parent; null makes it a root category.
+	ParentId nullable.Nullable[int64] `json:"parent_id,omitempty"`
+
+	// Status `active` accepts a proposed category.
+	Status *CategoryPatchStatus `json:"status,omitempty"`
+}
+
+// CategoryPatchStatus `active` accepts a proposed category.
+type CategoryPatchStatus string
+
+// ContentType defines model for ContentType.
+type ContentType struct {
+	// HasTemplate False for a type rendered with the generic template (RG-57).
+	HasTemplate bool `json:"has_template"`
+	ItemCount   int  `json:"item_count"`
+
+	// Key Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+	//
+	// Examples: recipe
+	Key ContentTypeKey `json:"key"`
+
+	// Name Name shown in the app, in French.
+	Name           string                    `json:"name"`
+	ProposalReason nullable.Nullable[string] `json:"proposal_reason"`
+
+	// Status `proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57).
+	Status ProposalStatus `json:"status"`
+}
+
+// ContentTypeKey Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+//
+// Examples: recipe
+type ContentTypeKey = string
+
+// ContentTypeList defines model for ContentTypeList.
+type ContentTypeList struct {
+	ContentTypes []ContentType `json:"content_types"`
+}
+
+// ContentTypeMerge defines model for ContentTypeMerge.
+type ContentTypeMerge struct {
+	// TargetKey Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+	//
+	// Examples: recipe
+	TargetKey ContentTypeKey `json:"target_key"`
+}
+
+// ContentTypePatch defines model for ContentTypePatch.
+type ContentTypePatch struct {
+	Name *string `json:"name,omitempty"`
+
+	// Status `active` accepts a proposed type.
+	Status *ContentTypePatchStatus `json:"status,omitempty"`
+}
+
+// ContentTypePatchStatus `active` accepts a proposed type.
+type ContentTypePatchStatus string
+
+// CorrectedField A field the user corrected by hand (RG-60).
+type CorrectedField string
+
+// ExtractionMode `full`: main content extracted; `fallback`: metadata only (RG-23); `none`: image or note.
+type ExtractionMode string
+
+// Fiche Fiche of an item, in the format of its template (docs/prompt/schemas/fiches). Render it by its template, never by the content type of the item.
+type Fiche struct {
+	union json.RawMessage
+}
+
+// FicheCodeBlock defines model for FicheCodeBlock.
+type FicheCodeBlock struct {
+	// Caption Courte légende facultative expliquant ce que fait ce code.
+	Caption nullable.Nullable[string] `json:"caption,omitempty"`
+
+	// Code Code, commande ou configuration recopié À L'IDENTIQUE depuis la source. Ne jamais reformuler, tronquer ni traduire.
+	Code string `json:"code"`
+
+	// Language Langage pour la coloration : java, go, sql, bash, yaml, json, typescript, etc. « text » si inconnu.
+	Language string `json:"language"`
+}
+
+// FicheGeneric defines model for FicheGeneric.
+type FicheGeneric struct {
+	// KeyPoints Points clés à retenir.
+	KeyPoints FicheTextList `json:"key_points"`
+
+	// Sections Le contenu détaillé, organisé en sections. Liste vide si le résumé suffit.
+	Sections []FicheSection `json:"sections"`
+
+	// Summary L'essentiel en quelques phrases.
+	Summary  FicheText            `json:"summary"`
+	Template FicheGenericTemplate `json:"template"`
+}
+
+// FicheGenericTemplate defines model for FicheGeneric.Template.
+type FicheGenericTemplate string
+
+// FicheLink defines model for FicheLink.
+type FicheLink struct {
+	Label string `json:"label"`
+
+	// Url Uniquement une URL présente dans la source. Ne jamais en inventer.
+	Url string `json:"url"`
+}
+
+// FicheNote defines model for FicheNote.
+type FicheNote struct {
+	// Idea L'idée reformulée proprement, fidèle à ce que Ghislain a écrit ou dicté. Corriger la forme (dictée, fautes), jamais le fond.
+	Idea FicheText `json:"idea"`
+
+	// KeyPoints Points clés de la note. Liste vide si la note tient en une idée.
+	KeyPoints FicheTextList `json:"key_points"`
+
+	// Leads Pistes à creuser ou questions ouvertes que la note mentionne. Liste vide si aucune : ne pas en inventer.
+	Leads    FicheTextList     `json:"leads"`
+	Template FicheNoteTemplate `json:"template"`
+}
+
+// FicheNoteTemplate defines model for FicheNote.Template.
+type FicheNoteTemplate string
+
+// FichePlace defines model for FichePlace.
+type FichePlace struct {
+	// Address Adresse complète si la source la donne. null sinon : ne jamais deviner une adresse.
+	Address nullable.Nullable[string] `json:"address"`
+
+	// BestTime Meilleur moment pour y aller, si la source le dit. null sinon.
+	BestTime nullable.Nullable[string] `json:"best_time"`
+
+	// City Ville. null si inconnue.
+	City nullable.Nullable[string] `json:"city"`
+
+	// MapsQuery Texte à chercher dans Plans pour trouver le lieu : nom + adresse ou ville.
+	MapsQuery string `json:"maps_query"`
+	Name      string `json:"name"`
+
+	// PlaceKind Nature du lieu en un ou deux mots : restaurant, bar, café, musée, parc, balade, boutique, ville, hébergement…
+	PlaceKind string `json:"place_kind"`
+
+	// PracticalInfo Infos pratiques données par la source : horaires, prix, réservation, accès. Liste vide si aucune.
+	PracticalInfo FicheTextList      `json:"practical_info"`
+	Template      FichePlaceTemplate `json:"template"`
+
+	// Website Site officiel s'il figure dans la source.
+	Website nullable.Nullable[FicheLink] `json:"website"`
+
+	// WhatToDo Ce qu'on y fait, ce qui le rend intéressant, ce qu'il faut commander ou voir.
+	WhatToDo FicheText `json:"what_to_do"`
+}
+
+// FichePlaceTemplate defines model for FichePlace.Template.
+type FichePlaceTemplate string
+
+// FicheRecipe defines model for FicheRecipe.
+type FicheRecipe struct {
+	// CookMinutes Temps de cuisson en minutes. null si la source ne le donne pas : ne pas estimer.
+	CookMinutes nullable.Nullable[int] `json:"cook_minutes"`
+
+	// Ingredients Tous les ingrédients, avec leurs quantités exactes.
+	Ingredients []struct {
+		// Group Sous-partie de la recette si la source en a (« Pâte », « Garniture »).
+		Group nullable.Nullable[string] `json:"group,omitempty"`
+		Name  string                    `json:"name"`
+		Note  nullable.Nullable[string] `json:"note,omitempty"`
+
+		// Quantity Quantité et unité telles que données (« 200 g », « 1/2 c. à café », « une pincée »). null si non précisée.
+		Quantity nullable.Nullable[string] `json:"quantity"`
+	} `json:"ingredients"`
+
+	// PrepMinutes Temps de préparation en minutes. null si la source ne le donne pas : ne pas estimer.
+	PrepMinutes nullable.Nullable[int] `json:"prep_minutes"`
+
+	// Servings Nombre de portions tel que donné (« 4 personnes », « 12 cookies »). null si inconnu.
+	Servings nullable.Nullable[string] `json:"servings"`
+
+	// Steps Toutes les étapes, dans l'ordre, avec températures et durées.
+	Steps    FicheTextList       `json:"steps"`
+	Template FicheRecipeTemplate `json:"template"`
+
+	// Tips Conseils, variantes et conservation mentionnés par la source. Liste vide si aucun.
+	Tips FicheTextList `json:"tips"`
+}
+
+// FicheRecipeTemplate defines model for FicheRecipe.Template.
+type FicheRecipeTemplate string
+
+// FicheResource defines model for FicheResource.
+type FicheResource struct {
+	// Alternatives Alternatives citées par la source. Liste vide si aucune : ne pas en ajouter de sa propre initiative.
+	Alternatives []struct {
+		Name string                    `json:"name"`
+		Note nullable.Nullable[string] `json:"note,omitempty"`
+	} `json:"alternatives"`
+	Name string `json:"name"`
+
+	// Pricing Licence ou prix si la source le précise (« open source, MIT », « gratuit jusqu'à 3 projets »). null sinon.
+	Pricing  nullable.Nullable[string] `json:"pricing"`
+	Template FicheResourceTemplate     `json:"template"`
+
+	// Url Lien principal de la ressource s'il figure dans la source.
+	Url nullable.Nullable[string] `json:"url"`
+
+	// UseCases À quoi ça sert concrètement.
+	UseCases FicheTextList `json:"use_cases"`
+
+	// WhatItIs Ce que c'est, en une ou deux phrases (outil en ligne de commande, librairie Java, service SaaS, repo…).
+	WhatItIs FicheText `json:"what_it_is"`
+
+	// WhenToUse Dans quel cas le choisir plutôt qu'autre chose, si la source permet de le dire. null sinon.
+	WhenToUse nullable.Nullable[string] `json:"when_to_use"`
+}
+
+// FicheResourceTemplate defines model for FicheResource.Template.
+type FicheResourceTemplate string
+
+// FicheSection defines model for FicheSection.
+type FicheSection struct {
+	// Body Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown.
+	Body FicheText `json:"body"`
+
+	// Code Extraits de code liés à cette section, recopiés à l'identique.
+	Code    *[]FicheCodeBlock `json:"code,omitempty"`
+	Heading string            `json:"heading"`
+}
+
+// FicheTechArticle defines model for FicheTechArticle.
+type FicheTechArticle struct {
+	// Details Les détails techniques, organisés en sections. AUCUNE information utile ne doit manquer : versions, chiffres, options, commandes, code, comparaisons, benchmarks.
+	Details []FicheSection `json:"details"`
+
+	// KeyChanges Ce qui change ou ce qu'il faut retenir, une idée par entrée. Liste vide si l'article ne décrit pas de changement.
+	KeyChanges FicheTextList `json:"key_changes"`
+
+	// Links Liens utiles présents dans la source (documentation, JEP, repo). Liste vide si aucun.
+	Links []FicheLink `json:"links"`
+
+	// Pitfalls Limites, pièges, incompatibilités, avertissements mentionnés par la source. Liste vide si aucun.
+	Pitfalls FicheTextList            `json:"pitfalls"`
+	Template FicheTechArticleTemplate `json:"template"`
+
+	// Tldr L'essentiel en quelques lignes (2 à 5 phrases) : de quoi il s'agit et pourquoi ça compte.
+	Tldr FicheText `json:"tldr"`
+
+	// Versions Produits et versions cités comme sujet de l'article (affichés en badges). Liste vide si aucun.
+	Versions []struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"versions"`
+}
+
+// FicheTechArticleTemplate defines model for FicheTechArticle.Template.
+type FicheTechArticleTemplate string
+
+// FicheText Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown.
+type FicheText = string
+
+// FicheTextList defines model for FicheTextList.
+type FicheTextList = []FicheText
+
+// FicheTip defines model for FicheTip.
+type FicheTip struct {
+	// Materials Matériel ou produits nécessaires, avec les quantités si la source les donne. Liste vide si aucun.
+	Materials FicheTextList `json:"materials"`
+
+	// Steps Les étapes courtes, dans l'ordre. Liste vide si l'astuce tient en une phrase.
+	Steps    FicheTextList    `json:"steps"`
+	Template FicheTipTemplate `json:"template"`
+
+	// Tip L'astuce en une phrase claire.
+	Tip FicheText `json:"tip"`
+
+	// Warnings Précautions mentionnées par la source (surfaces à éviter, mélanges dangereux…). Liste vide si aucune.
+	Warnings FicheTextList `json:"warnings"`
+}
+
+// FicheTipTemplate defines model for FicheTip.Template.
+type FicheTipTemplate string
+
+// FicheTutorial defines model for FicheTutorial.
+type FicheTutorial struct {
+	// ExpectedResult Comment vérifier que ça a marché. null si la source ne le dit pas.
+	ExpectedResult nullable.Nullable[string] `json:"expected_result"`
+
+	// Goal Ce qu'on obtient à la fin, en une ou deux phrases.
+	Goal FicheText `json:"goal"`
+
+	// Prerequisites Ce qu'il faut avoir ou savoir avant de commencer, avec les versions si la source les donne. Liste vide si aucun.
+	Prerequisites FicheTextList `json:"prerequisites"`
+
+	// Steps Toutes les étapes, dans l'ordre. Ne jamais en fusionner au point de perdre une action.
+	Steps []struct {
+		// Body Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown.
+		Body  FicheText         `json:"body"`
+		Code  *[]FicheCodeBlock `json:"code,omitempty"`
+		Title string            `json:"title"`
+	} `json:"steps"`
+	Template FicheTutorialTemplate `json:"template"`
+
+	// Troubleshooting Erreurs courantes et solutions données par la source. Liste vide si aucune.
+	Troubleshooting FicheTextList `json:"troubleshooting"`
+}
+
+// FicheTutorialTemplate defines model for FicheTutorial.Template.
+type FicheTutorialTemplate string
+
+// Freshness defines model for Freshness.
+type Freshness string
+
 // Health defines model for Health.
 type Health struct {
 	// Status Always `ok` when the response is 200.
@@ -42,8 +777,177 @@ type Health struct {
 // HealthStatus Always `ok` when the response is 200.
 type HealthStatus string
 
-// NextCursor Cursor of the next page, to pass as `cursor`; `null` on the last page. Paginated responses are objects `{ items, next_cursor }`.
-type NextCursor = string
+// IdTombstone A deleted category or tag.
+type IdTombstone struct {
+	DeletedAt time.Time `json:"deleted_at"`
+	Id        int64     `json:"id"`
+}
+
+// Item An item with everything shown on its fiche screen and kept in the offline cache. Never carries the extracted content.
+type Item struct {
+	AnalyzedAt  nullable.Nullable[time.Time] `json:"analyzed_at"`
+	Annotations nullable.Nullable[string]    `json:"annotations"`
+	Assets      []Asset                      `json:"assets"`
+	Attempts    int                          `json:"attempts"`
+
+	// CategoryId Category; null means À trier.
+	CategoryId nullable.Nullable[int64] `json:"category_id"`
+
+	// ContentIssue What is missing, according to the AI (RG-37).
+	ContentIssue nullable.Nullable[string] `json:"content_issue"`
+	ContentOk    nullable.Nullable[bool]   `json:"content_ok"`
+
+	// ContentTruncated The extracted content exceeded the limit and was cut (RG-24).
+	ContentTruncated bool `json:"content_truncated"`
+
+	// ContentType Content type key; null until analysed or sorted.
+	ContentType    nullable.Nullable[ContentTypeKey] `json:"content_type"`
+	CreatedAt      time.Time                         `json:"created_at"`
+	ExtractedAt    nullable.Nullable[time.Time]      `json:"extracted_at"`
+	ExtractionMode nullable.Nullable[ExtractionMode] `json:"extraction_mode"`
+
+	// Fiche Fiche of an item, in the format of its template (docs/prompt/schemas/fiches). Render it by its template, never by the content type of the item.
+	Fiche     *Fiche                       `json:"fiche,omitempty"`
+	Freshness nullable.Nullable[Freshness] `json:"freshness"`
+
+	// Id ULID, sortable by creation time.
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	Id       Ulid `json:"id"`
+	IsPinned bool `json:"is_pinned"`
+
+	// IsPrivate Never sent to the AI (RG-12).
+	IsPrivate bool `json:"is_private"`
+
+	// Kind What was captured (glossary "Forme de l'élément").
+	Kind ItemKind `json:"kind"`
+
+	// Language Language of the original, ISO 639-1.
+	Language nullable.Nullable[string] `json:"language"`
+
+	// LastError Why the last analysis failed, shown with the Relancer button (RG-35, RG-36).
+	LastError nullable.Nullable[string] `json:"last_error"`
+
+	// Model Model that wrote the fiche (RG-64).
+	Model         nullable.Nullable[string]    `json:"model"`
+	PromptVersion nullable.Nullable[int]       `json:"prompt_version"`
+	ReadAt        nullable.Nullable[time.Time] `json:"read_at"`
+	ReadProgress  float32                      `json:"read_progress"`
+
+	// ReadStatus Where the user is in reading (glossary "Statut de lecture").
+	ReadStatus     ReadStatus             `json:"read_status"`
+	ReadingMinutes nullable.Nullable[int] `json:"reading_minutes"`
+
+	// SchemaVersion Version of the fiche schema that produced the fiche (RG-64).
+	SchemaVersion nullable.Nullable[int]    `json:"schema_version"`
+	SiteName      nullable.Nullable[string] `json:"site_name"`
+
+	// Source Where the capture comes from (`rss` arrives with V2).
+	Source CaptureSource `json:"source"`
+
+	// Status Where the item is in the pipeline (glossary "Statut de traitement").
+	Status ProcessingStatus `json:"status"`
+	TagIds []int64          `json:"tag_ids"`
+
+	// Title Original title before analysis, then the title written by the AI.
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Url Original URL, as captured (link items).
+	Url        nullable.Nullable[string] `json:"url"`
+	UserEdited []CorrectedField          `json:"user_edited"`
+
+	// UserNote Capture note; the content itself for a note item (RG-03).
+	UserNote nullable.Nullable[string] `json:"user_note"`
+}
+
+// ItemKind What was captured (glossary "Forme de l'élément").
+type ItemKind string
+
+// ItemPage defines model for ItemPage.
+type ItemPage struct {
+	Items      []ItemSummary             `json:"items"`
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+}
+
+// ItemPatch Fields to change; absent fields stay as they are, `null` clears a nullable field.
+type ItemPatch struct {
+	Annotations nullable.Nullable[string] `json:"annotations,omitempty"`
+
+	// CategoryId New category; null moves the item to À trier.
+	CategoryId nullable.Nullable[int64] `json:"category_id,omitempty"`
+
+	// ContentType Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+	//
+	// Examples: recipe
+	ContentType *ContentTypeKey `json:"content_type,omitempty"`
+	IsPinned    *bool           `json:"is_pinned,omitempty"`
+	IsPrivate   *bool           `json:"is_private,omitempty"`
+
+	// Tags Replaces the tags of the item; names are normalised (RG-58), new ones are created.
+	Tags     *[]string                 `json:"tags,omitempty"`
+	UserNote nullable.Nullable[string] `json:"user_note,omitempty"`
+}
+
+// ItemSummary An item as shown in a list (cards of the library and of the review).
+type ItemSummary struct {
+	// CategoryId Category; null means À trier.
+	CategoryId nullable.Nullable[int64] `json:"category_id"`
+
+	// ContentOk False when the AI found the content too poor (RG-37); null until analysed.
+	ContentOk nullable.Nullable[bool] `json:"content_ok"`
+
+	// ContentType Content type key; null until analysed or sorted.
+	ContentType nullable.Nullable[ContentTypeKey] `json:"content_type"`
+	CreatedAt   time.Time                         `json:"created_at"`
+
+	// Id ULID, sortable by creation time.
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	Id        Ulid `json:"id"`
+	IsPinned  bool `json:"is_pinned"`
+	IsPrivate bool `json:"is_private"`
+
+	// Kind What was captured (glossary "Forme de l'élément").
+	Kind         ItemKind `json:"kind"`
+	ReadProgress float32  `json:"read_progress"`
+
+	// ReadStatus Where the user is in reading (glossary "Statut de lecture").
+	ReadStatus ReadStatus `json:"read_status"`
+
+	// ReadingMinutes Reading time of the original, computed at extraction (RG-25).
+	ReadingMinutes nullable.Nullable[int]    `json:"reading_minutes"`
+	SiteName       nullable.Nullable[string] `json:"site_name"`
+
+	// Status Where the item is in the pipeline (glossary "Statut de traitement").
+	Status    ProcessingStatus `json:"status"`
+	TagIds    []int64          `json:"tag_ids"`
+	Title     string           `json:"title"`
+	UpdatedAt time.Time        `json:"updated_at"`
+
+	// Url Original URL, as captured (link items).
+	Url nullable.Nullable[string] `json:"url"`
+}
+
+// ItemTombstone A deleted item; nothing but its id stays (RG-79).
+type ItemTombstone struct {
+	DeletedAt time.Time `json:"deleted_at"`
+
+	// Id ULID, sortable by creation time.
+	//
+	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+	Id Ulid `json:"id"`
+}
+
+// KeyTombstone A deleted (merged) content type; its id is its key.
+type KeyTombstone struct {
+	DeletedAt time.Time `json:"deleted_at"`
+
+	// Id Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+	//
+	// Examples: recipe
+	Id ContentTypeKey `json:"id"`
+}
 
 // Problem Error body (RFC 9457).
 type Problem struct {
@@ -73,17 +977,139 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// ProcessingStatus Where the item is in the pipeline (glossary "Statut de traitement").
+type ProcessingStatus string
+
+// ProposalStatus `proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57).
+type ProposalStatus string
+
+// ReadStatus Where the user is in reading (glossary "Statut de lecture").
+type ReadStatus string
+
+// ReadingProgress The reading position, a forced read status, or both.
+type ReadingProgress struct {
+	ReadProgress *float32 `json:"read_progress,omitempty"`
+
+	// ReadStatus Where the user is in reading (glossary "Statut de lecture").
+	ReadStatus *ReadStatus `json:"read_status,omitempty"`
+}
+
+// Review defines model for Review.
+type Review struct {
+	// Items Items analysed since the last review (RG-70).
+	Items                []ItemSummary                `json:"items"`
+	LastReviewAt         nullable.Nullable[time.Time] `json:"last_review_at"`
+	ProposedCategories   []Category                   `json:"proposed_categories"`
+	ProposedContentTypes []ContentType                `json:"proposed_content_types"`
+}
+
+// ReviewDone defines model for ReviewDone.
+type ReviewDone struct {
+	LastReviewAt time.Time `json:"last_review_at"`
+}
+
+// Stats defines model for Stats.
+type Stats struct {
+	// BudgetReached No analysis until the 1st of next month (RG-81).
+	BudgetReached bool `json:"budget_reached"`
+	FailedCount   int  `json:"failed_count"`
+	ItemsByStatus struct {
+		Analyzed  int `json:"analyzed"`
+		Extracted int `json:"extracted"`
+		Failed    int `json:"failed"`
+		Queued    int `json:"queued"`
+		Submitted int `json:"submitted"`
+	} `json:"items_by_status"`
+
+	// MonthCostUsd AI cost of the current month, from the tokens really used (RG-80, RG-82).
+	MonthCostUsd     float32 `json:"month_cost_usd"`
+	MonthlyBudgetUsd float32 `json:"monthly_budget_usd"`
+
+	// QueueSize Items waiting for the next batch.
+	QueueSize int `json:"queue_size"`
+}
+
+// SyncPage One page of changes. The `item_count` of categories, content types and tags reflects the moment the row changed; the app recomputes the counts from its cache rather than relying on them after a delta sync.
+type SyncPage struct {
+	Categories   []Category    `json:"categories"`
+	ContentTypes []ContentType `json:"content_types"`
+	Deleted      struct {
+		Categories   []IdTombstone   `json:"categories"`
+		ContentTypes []KeyTombstone  `json:"content_types"`
+		Items        []ItemTombstone `json:"items"`
+		Tags         []IdTombstone   `json:"tags"`
+	} `json:"deleted"`
+	Items []Item `json:"items"`
+
+	// NextCursor Cursor of the next page of this sync; null on the last page.
+	NextCursor nullable.Nullable[string] `json:"next_cursor"`
+
+	// SyncToken Token to send at the next sync; set on the last page only.
+	SyncToken nullable.Nullable[string] `json:"sync_token"`
+	Tags      []Tag                     `json:"tags"`
+}
+
+// Tag defines model for Tag.
+type Tag struct {
+	Id        int64 `json:"id"`
+	ItemCount int   `json:"item_count"`
+
+	// Name Lowercase, words separated by hyphens, no accent (RG-58).
+	//
+	// Examples: spring-boot
+	Name string `json:"name"`
+}
+
+// TagList defines model for TagList.
+type TagList struct {
+	Tags []Tag `json:"tags"`
+}
+
+// TagMerge defines model for TagMerge.
+type TagMerge struct {
+	TargetId int64 `json:"target_id"`
+}
+
+// TagPatch defines model for TagPatch.
+type TagPatch struct {
+	// Name Normalised by the backend like any tag (RG-58).
+	Name string `json:"name"`
+}
+
+// Ulid ULID, sortable by creation time.
+//
+// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+type Ulid = string
+
+// AssetId ULID, sortable by creation time.
+//
+// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+type AssetId = Ulid
+
+// CategoryId defines model for CategoryId.
+type CategoryId = int64
+
+// ContentTypeKeyPath Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+//
+// Examples: recipe
+type ContentTypeKeyPath = ContentTypeKey
+
 // Cursor defines model for Cursor.
 type Cursor = string
+
+// ItemId ULID, sortable by creation time.
+//
+// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+type ItemId = Ulid
 
 // Limit defines model for Limit.
 type Limit = int
 
+// TagId defines model for TagId.
+type TagId = int64
+
 // BadRequest Error body (RFC 9457).
 type BadRequest = Problem
-
-// InternalError Error body (RFC 9457).
-type InternalError = Problem
 
 // NotFound Error body (RFC 9457).
 type NotFound = Problem
@@ -91,8 +1117,476 @@ type NotFound = Problem
 // Unauthorized Error body (RFC 9457).
 type Unauthorized = Problem
 
+// ListItemsParams defines parameters for ListItems.
+type ListItemsParams struct {
+	// Q Full-text search terms.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Type Content type key.
+	Type *ContentTypeKey `form:"type,omitempty" json:"type,omitempty"`
+
+	// Category Category id; includes its subcategories.
+	Category *int64 `form:"category,omitempty" json:"category,omitempty"`
+
+	// Tag Tag id; repeat the parameter to require several tags.
+	Tag *[]int64 `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Status Processing status.
+	Status     *ProcessingStatus `form:"status,omitempty" json:"status,omitempty"`
+	ReadStatus *ReadStatus       `form:"read_status,omitempty" json:"read_status,omitempty"`
+
+	// Pinned Only pinned items.
+	Pinned *bool `form:"pinned,omitempty" json:"pinned,omitempty"`
+
+	// Unsorted Only items without a category (À trier).
+	Unsorted *bool `form:"unsorted,omitempty" json:"unsorted,omitempty"`
+
+	// Cursor Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of entries in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SyncChangesParams defines parameters for SyncChanges.
+type SyncChangesParams struct {
+	// SyncToken Token of the previous sync, as returned by its last page.
+	SyncToken *string `form:"sync_token,omitempty" json:"sync_token,omitempty"`
+
+	// Cursor Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of entries in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateCategoryJSONRequestBody defines body for CreateCategory for application/json ContentType.
+type CreateCategoryJSONRequestBody = CategoryCreate
+
+// UpdateCategoryJSONRequestBody defines body for UpdateCategory for application/json ContentType.
+type UpdateCategoryJSONRequestBody = CategoryPatch
+
+// MergeCategoryJSONRequestBody defines body for MergeCategory for application/json ContentType.
+type MergeCategoryJSONRequestBody = CategoryMerge
+
+// UpdateContentTypeJSONRequestBody defines body for UpdateContentType for application/json ContentType.
+type UpdateContentTypeJSONRequestBody = ContentTypePatch
+
+// MergeContentTypeJSONRequestBody defines body for MergeContentType for application/json ContentType.
+type MergeContentTypeJSONRequestBody = ContentTypeMerge
+
+// CreateItemJSONRequestBody defines body for CreateItem for application/json ContentType.
+type CreateItemJSONRequestBody = CaptureRequest
+
+// CreateItemMultipartRequestBody defines body for CreateItem for multipart/form-data ContentType.
+type CreateItemMultipartRequestBody = CaptureImageRequest
+
+// UpdateItemJSONRequestBody defines body for UpdateItem for application/json ContentType.
+type UpdateItemJSONRequestBody = ItemPatch
+
+// UpdateReadingProgressJSONRequestBody defines body for UpdateReadingProgress for application/json ContentType.
+type UpdateReadingProgressJSONRequestBody = ReadingProgress
+
+// UpdateTagJSONRequestBody defines body for UpdateTag for application/json ContentType.
+type UpdateTagJSONRequestBody = TagPatch
+
+// MergeTagJSONRequestBody defines body for MergeTag for application/json ContentType.
+type MergeTagJSONRequestBody = TagMerge
+
+// AsFicheGeneric returns the union data inside the Fiche as a FicheGeneric
+func (t Fiche) AsFicheGeneric() (FicheGeneric, error) {
+	var body FicheGeneric
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheGeneric overwrites any union data inside the Fiche as the provided FicheGeneric
+func (t *Fiche) FromFicheGeneric(v FicheGeneric) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"generic"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheGeneric performs a merge with any union data inside the Fiche, using the provided FicheGeneric
+func (t *Fiche) MergeFicheGeneric(v FicheGeneric) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"generic"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheNote returns the union data inside the Fiche as a FicheNote
+func (t Fiche) AsFicheNote() (FicheNote, error) {
+	var body FicheNote
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheNote overwrites any union data inside the Fiche as the provided FicheNote
+func (t *Fiche) FromFicheNote(v FicheNote) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"note"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheNote performs a merge with any union data inside the Fiche, using the provided FicheNote
+func (t *Fiche) MergeFicheNote(v FicheNote) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"note"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFichePlace returns the union data inside the Fiche as a FichePlace
+func (t Fiche) AsFichePlace() (FichePlace, error) {
+	var body FichePlace
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFichePlace overwrites any union data inside the Fiche as the provided FichePlace
+func (t *Fiche) FromFichePlace(v FichePlace) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"place"}`))
+	t.union = b
+	return err
+}
+
+// MergeFichePlace performs a merge with any union data inside the Fiche, using the provided FichePlace
+func (t *Fiche) MergeFichePlace(v FichePlace) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"place"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheRecipe returns the union data inside the Fiche as a FicheRecipe
+func (t Fiche) AsFicheRecipe() (FicheRecipe, error) {
+	var body FicheRecipe
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheRecipe overwrites any union data inside the Fiche as the provided FicheRecipe
+func (t *Fiche) FromFicheRecipe(v FicheRecipe) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"recipe"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheRecipe performs a merge with any union data inside the Fiche, using the provided FicheRecipe
+func (t *Fiche) MergeFicheRecipe(v FicheRecipe) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"recipe"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheResource returns the union data inside the Fiche as a FicheResource
+func (t Fiche) AsFicheResource() (FicheResource, error) {
+	var body FicheResource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheResource overwrites any union data inside the Fiche as the provided FicheResource
+func (t *Fiche) FromFicheResource(v FicheResource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"resource"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheResource performs a merge with any union data inside the Fiche, using the provided FicheResource
+func (t *Fiche) MergeFicheResource(v FicheResource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"resource"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheTechArticle returns the union data inside the Fiche as a FicheTechArticle
+func (t Fiche) AsFicheTechArticle() (FicheTechArticle, error) {
+	var body FicheTechArticle
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheTechArticle overwrites any union data inside the Fiche as the provided FicheTechArticle
+func (t *Fiche) FromFicheTechArticle(v FicheTechArticle) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tech_article"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheTechArticle performs a merge with any union data inside the Fiche, using the provided FicheTechArticle
+func (t *Fiche) MergeFicheTechArticle(v FicheTechArticle) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tech_article"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheTip returns the union data inside the Fiche as a FicheTip
+func (t Fiche) AsFicheTip() (FicheTip, error) {
+	var body FicheTip
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheTip overwrites any union data inside the Fiche as the provided FicheTip
+func (t *Fiche) FromFicheTip(v FicheTip) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tip"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheTip performs a merge with any union data inside the Fiche, using the provided FicheTip
+func (t *Fiche) MergeFicheTip(v FicheTip) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tip"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFicheTutorial returns the union data inside the Fiche as a FicheTutorial
+func (t Fiche) AsFicheTutorial() (FicheTutorial, error) {
+	var body FicheTutorial
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFicheTutorial overwrites any union data inside the Fiche as the provided FicheTutorial
+func (t *Fiche) FromFicheTutorial(v FicheTutorial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tutorial"}`))
+	t.union = b
+	return err
+}
+
+// MergeFicheTutorial performs a merge with any union data inside the Fiche, using the provided FicheTutorial
+func (t *Fiche) MergeFicheTutorial(v FicheTutorial) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"template":"tutorial"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Fiche) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"template"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t Fiche) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "generic":
+		return t.AsFicheGeneric()
+	case "note":
+		return t.AsFicheNote()
+	case "place":
+		return t.AsFichePlace()
+	case "recipe":
+		return t.AsFicheRecipe()
+	case "resource":
+		return t.AsFicheResource()
+	case "tech_article":
+		return t.AsFicheTechArticle()
+	case "tip":
+		return t.AsFicheTip()
+	case "tutorial":
+		return t.AsFicheTutorial()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t Fiche) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Fiche) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetAsset Download an image
+	// (GET /api/assets/{asset_id})
+	GetAsset(w http.ResponseWriter, r *http.Request, assetId AssetId)
+	// ListCategories Category tree
+	// (GET /api/categories)
+	ListCategories(w http.ResponseWriter, r *http.Request)
+	// CreateCategory Create a category
+	// (POST /api/categories)
+	CreateCategory(w http.ResponseWriter, r *http.Request)
+	// DeleteCategory Delete an empty category
+	// (DELETE /api/categories/{category_id})
+	DeleteCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId)
+	// UpdateCategory Rename, move, recolour a category, or accept a proposal
+	// (PATCH /api/categories/{category_id})
+	UpdateCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId)
+	// MergeCategory Merge a category into another
+	// (POST /api/categories/{category_id}/merge)
+	MergeCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId)
+	// ListContentTypes Content types
+	// (GET /api/content-types)
+	ListContentTypes(w http.ResponseWriter, r *http.Request)
+	// UpdateContentType Rename or accept a proposed content type
+	// (PATCH /api/content-types/{type_key})
+	UpdateContentType(w http.ResponseWriter, r *http.Request, typeKey ContentTypeKeyPath)
+	// MergeContentType Merge a proposed content type into another
+	// (POST /api/content-types/{type_key}/merge)
+	MergeContentType(w http.ResponseWriter, r *http.Request, typeKey ContentTypeKeyPath)
+	// ExportArchive Markdown export
+	// (GET /api/export)
+	ExportArchive(w http.ResponseWriter, r *http.Request)
+	// ListItems List, filter and search items
+	// (GET /api/items)
+	ListItems(w http.ResponseWriter, r *http.Request, params ListItemsParams)
+	// CreateItem Capture an item
+	// (POST /api/items)
+	CreateItem(w http.ResponseWriter, r *http.Request)
+	// DeleteItem Delete an item
+	// (DELETE /api/items/{item_id})
+	DeleteItem(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// GetItem Item detail
+	// (GET /api/items/{item_id})
+	GetItem(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// UpdateItem Correct, pin, annotate an item
+	// (PATCH /api/items/{item_id})
+	UpdateItem(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// AnalyzeItem Analyse an item now
+	// (POST /api/items/{item_id}/analyze)
+	AnalyzeItem(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// UpdateReadingProgress Reading position and status
+	// (PUT /api/items/{item_id}/progress)
+	UpdateReadingProgress(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// RetryItem Queue a failed item again
+	// (POST /api/items/{item_id}/retry)
+	RetryItem(w http.ResponseWriter, r *http.Request, itemId ItemId)
+	// GetReview What to review
+	// (GET /api/review)
+	GetReview(w http.ResponseWriter, r *http.Request)
+	// CompleteReview Mark the review as done
+	// (POST /api/review/done)
+	CompleteReview(w http.ResponseWriter, r *http.Request)
+	// GetStats Queue, failures and AI cost
+	// (GET /api/stats)
+	GetStats(w http.ResponseWriter, r *http.Request)
+	// SyncChanges Changes for the offline cache
+	// (GET /api/sync)
+	SyncChanges(w http.ResponseWriter, r *http.Request, params SyncChangesParams)
+	// ListTags Tags with their counts
+	// (GET /api/tags)
+	ListTags(w http.ResponseWriter, r *http.Request)
+	// UpdateTag Rename a tag
+	// (PATCH /api/tags/{tag_id})
+	UpdateTag(w http.ResponseWriter, r *http.Request, tagId TagId)
+	// MergeTag Merge a tag into another
+	// (POST /api/tags/{tag_id}/merge)
+	MergeTag(w http.ResponseWriter, r *http.Request, tagId TagId)
 	// GetHealth Service health
 	// (GET /healthz)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -106,6 +1600,705 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetAsset operation middleware
+func (siw *ServerInterfaceWrapper) GetAsset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "asset_id" -------------
+	var assetId AssetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "asset_id", r.PathValue("asset_id"), &assetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "asset_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAsset(w, r, assetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCategories operation middleware
+func (siw *ServerInterfaceWrapper) ListCategories(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCategories(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCategory operation middleware
+func (siw *ServerInterfaceWrapper) CreateCategory(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCategory(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCategory operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCategory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "category_id" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "category_id", r.PathValue("category_id"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCategory(w, r, categoryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCategory operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCategory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "category_id" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "category_id", r.PathValue("category_id"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCategory(w, r, categoryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MergeCategory operation middleware
+func (siw *ServerInterfaceWrapper) MergeCategory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "category_id" -------------
+	var categoryId CategoryId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "category_id", r.PathValue("category_id"), &categoryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeCategory(w, r, categoryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListContentTypes operation middleware
+func (siw *ServerInterfaceWrapper) ListContentTypes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListContentTypes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateContentType operation middleware
+func (siw *ServerInterfaceWrapper) UpdateContentType(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey ContentTypeKeyPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateContentType(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MergeContentType operation middleware
+func (siw *ServerInterfaceWrapper) MergeContentType(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "type_key" -------------
+	var typeKey ContentTypeKeyPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "type_key", r.PathValue("type_key"), &typeKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type_key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeContentType(w, r, typeKey)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExportArchive operation middleware
+func (siw *ServerInterfaceWrapper) ExportArchive(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExportArchive(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListItems operation middleware
+func (siw *ServerInterfaceWrapper) ListItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListItemsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "tag" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tag", r.URL.Query(), &params.Tag, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tag"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "read_status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "read_status", r.URL.Query(), &params.ReadStatus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "read_status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "read_status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pinned" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pinned", r.URL.Query(), &params.Pinned, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pinned"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pinned", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unsorted" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unsorted", r.URL.Query(), &params.Unsorted, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unsorted"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unsorted", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListItems(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateItem operation middleware
+func (siw *ServerInterfaceWrapper) CreateItem(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateItem(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteItem operation middleware
+func (siw *ServerInterfaceWrapper) DeleteItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetItem operation middleware
+func (siw *ServerInterfaceWrapper) GetItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateItem operation middleware
+func (siw *ServerInterfaceWrapper) UpdateItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AnalyzeItem operation middleware
+func (siw *ServerInterfaceWrapper) AnalyzeItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AnalyzeItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateReadingProgress operation middleware
+func (siw *ServerInterfaceWrapper) UpdateReadingProgress(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateReadingProgress(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetryItem operation middleware
+func (siw *ServerInterfaceWrapper) RetryItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "item_id" -------------
+	var itemId ItemId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "item_id", r.PathValue("item_id"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "item_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetryItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReview operation middleware
+func (siw *ServerInterfaceWrapper) GetReview(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteReview operation middleware
+func (siw *ServerInterfaceWrapper) CompleteReview(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteReview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetStats operation middleware
+func (siw *ServerInterfaceWrapper) GetStats(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStats(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncChanges operation middleware
+func (siw *ServerInterfaceWrapper) SyncChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SyncChangesParams
+
+	// ------------- Optional query parameter "sync_token" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sync_token", r.URL.Query(), &params.SyncToken, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sync_token"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sync_token", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncChanges(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTags operation middleware
+func (siw *ServerInterfaceWrapper) ListTags(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTags(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTag operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tag_id" -------------
+	var tagId TagId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tag_id", r.PathValue("tag_id"), &tagId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTag(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MergeTag operation middleware
+func (siw *ServerInterfaceWrapper) MergeTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tag_id" -------------
+	var tagId TagId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tag_id", r.PathValue("tag_id"), &tagId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeTag(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +2434,31 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/assets/{asset_id}", wrapper.GetAsset)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/categories", wrapper.ListCategories)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/categories", wrapper.CreateCategory)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/categories/{category_id}", wrapper.DeleteCategory)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/categories/{category_id}", wrapper.UpdateCategory)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/categories/{category_id}/merge", wrapper.MergeCategory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/content-types", wrapper.ListContentTypes)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/content-types/{type_key}", wrapper.UpdateContentType)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/content-types/{type_key}/merge", wrapper.MergeContentType)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/export", wrapper.ExportArchive)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/items", wrapper.ListItems)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/items", wrapper.CreateItem)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/items/{item_id}", wrapper.DeleteItem)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/items/{item_id}", wrapper.GetItem)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/items/{item_id}", wrapper.UpdateItem)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/items/{item_id}/analyze", wrapper.AnalyzeItem)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/items/{item_id}/progress", wrapper.UpdateReadingProgress)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/items/{item_id}/retry", wrapper.RetryItem)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/review", wrapper.GetReview)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/review/done", wrapper.CompleteReview)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/stats", wrapper.GetStats)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/sync", wrapper.SyncChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tags", wrapper.ListTags)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/tags/{tag_id}", wrapper.UpdateTag)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/tags/{tag_id}/merge", wrapper.MergeTag)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealth)
 
 	return m
@@ -248,11 +2466,1544 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 type BadRequestApplicationProblemPlusJSONResponse Problem
 
-type InternalErrorApplicationProblemPlusJSONResponse Problem
-
 type NotFoundApplicationProblemPlusJSONResponse Problem
 
+type ProblemApplicationProblemPlusJSONResponse Problem
+
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
+
+type GetAssetRequestObject struct {
+	AssetId AssetId `json:"asset_id"`
+}
+
+type GetAssetResponseObject interface {
+	VisitGetAssetResponse(w http.ResponseWriter) error
+}
+
+type GetAsset200ImageResponse struct {
+	Body          io.Reader
+	ContentType   string
+	ContentLength int64
+}
+
+func (response GetAsset200ImageResponse) VisitGetAssetResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetAsset401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetAsset401ApplicationProblemPlusJSONResponse) VisitGetAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAsset404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetAsset404ApplicationProblemPlusJSONResponse) VisitGetAssetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCategoriesRequestObject struct {
+}
+
+type ListCategoriesResponseObject interface {
+	VisitListCategoriesResponse(w http.ResponseWriter) error
+}
+
+type ListCategories200JSONResponse CategoryList
+
+func (response ListCategories200JSONResponse) VisitListCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCategories401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListCategories401ApplicationProblemPlusJSONResponse) VisitListCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategoryRequestObject struct {
+	Body *CreateCategoryJSONRequestBody
+}
+
+type CreateCategoryResponseObject interface {
+	VisitCreateCategoryResponse(w http.ResponseWriter) error
+}
+
+type CreateCategory201JSONResponse Category
+
+func (response CreateCategory201JSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCategory400ApplicationProblemPlusJSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCategory401ApplicationProblemPlusJSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCategory409ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateCategory409ApplicationProblemPlusJSONResponse) VisitCreateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategoryRequestObject struct {
+	CategoryId CategoryId `json:"category_id"`
+}
+
+type DeleteCategoryResponseObject interface {
+	VisitDeleteCategoryResponse(w http.ResponseWriter) error
+}
+
+type DeleteCategory204Response struct {
+}
+
+func (response DeleteCategory204Response) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCategory401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCategory401ApplicationProblemPlusJSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategory404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCategory404ApplicationProblemPlusJSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCategory409ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCategory409ApplicationProblemPlusJSONResponse) VisitDeleteCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategoryRequestObject struct {
+	CategoryId CategoryId `json:"category_id"`
+	Body       *UpdateCategoryJSONRequestBody
+}
+
+type UpdateCategoryResponseObject interface {
+	VisitUpdateCategoryResponse(w http.ResponseWriter) error
+}
+
+type UpdateCategory200JSONResponse Category
+
+func (response UpdateCategory200JSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCategory400ApplicationProblemPlusJSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCategory401ApplicationProblemPlusJSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCategory404ApplicationProblemPlusJSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCategory409ApplicationProblemPlusJSONResponse Problem
+
+func (response UpdateCategory409ApplicationProblemPlusJSONResponse) VisitUpdateCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeCategoryRequestObject struct {
+	CategoryId CategoryId `json:"category_id"`
+	Body       *MergeCategoryJSONRequestBody
+}
+
+type MergeCategoryResponseObject interface {
+	VisitMergeCategoryResponse(w http.ResponseWriter) error
+}
+
+type MergeCategory200JSONResponse Category
+
+func (response MergeCategory200JSONResponse) VisitMergeCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeCategory400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response MergeCategory400ApplicationProblemPlusJSONResponse) VisitMergeCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeCategory401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MergeCategory401ApplicationProblemPlusJSONResponse) VisitMergeCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeCategory404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MergeCategory404ApplicationProblemPlusJSONResponse) VisitMergeCategoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListContentTypesRequestObject struct {
+}
+
+type ListContentTypesResponseObject interface {
+	VisitListContentTypesResponse(w http.ResponseWriter) error
+}
+
+type ListContentTypes200JSONResponse ContentTypeList
+
+func (response ListContentTypes200JSONResponse) VisitListContentTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListContentTypes401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListContentTypes401ApplicationProblemPlusJSONResponse) VisitListContentTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContentTypeRequestObject struct {
+	TypeKey ContentTypeKeyPath `json:"type_key"`
+	Body    *UpdateContentTypeJSONRequestBody
+}
+
+type UpdateContentTypeResponseObject interface {
+	VisitUpdateContentTypeResponse(w http.ResponseWriter) error
+}
+
+type UpdateContentType200JSONResponse ContentType
+
+func (response UpdateContentType200JSONResponse) VisitUpdateContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContentType400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContentType400ApplicationProblemPlusJSONResponse) VisitUpdateContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContentType401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContentType401ApplicationProblemPlusJSONResponse) VisitUpdateContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContentType404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContentType404ApplicationProblemPlusJSONResponse) VisitUpdateContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeContentTypeRequestObject struct {
+	TypeKey ContentTypeKeyPath `json:"type_key"`
+	Body    *MergeContentTypeJSONRequestBody
+}
+
+type MergeContentTypeResponseObject interface {
+	VisitMergeContentTypeResponse(w http.ResponseWriter) error
+}
+
+type MergeContentType200JSONResponse ContentType
+
+func (response MergeContentType200JSONResponse) VisitMergeContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeContentType400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response MergeContentType400ApplicationProblemPlusJSONResponse) VisitMergeContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeContentType401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MergeContentType401ApplicationProblemPlusJSONResponse) VisitMergeContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeContentType404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MergeContentType404ApplicationProblemPlusJSONResponse) VisitMergeContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeContentType409ApplicationProblemPlusJSONResponse Problem
+
+func (response MergeContentType409ApplicationProblemPlusJSONResponse) VisitMergeContentTypeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExportArchiveRequestObject struct {
+}
+
+type ExportArchiveResponseObject interface {
+	VisitExportArchiveResponse(w http.ResponseWriter) error
+}
+
+type ExportArchive200ApplicationzipResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ExportArchive200ApplicationzipResponse) VisitExportArchiveResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/zip")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ExportArchive401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ExportArchive401ApplicationProblemPlusJSONResponse) VisitExportArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListItemsRequestObject struct {
+	Params ListItemsParams
+}
+
+type ListItemsResponseObject interface {
+	VisitListItemsResponse(w http.ResponseWriter) error
+}
+
+type ListItems200JSONResponse ItemPage
+
+func (response ListItems200JSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListItems400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListItems400ApplicationProblemPlusJSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListItems401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListItems401ApplicationProblemPlusJSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItemRequestObject struct {
+	JSONBody      *CreateItemJSONRequestBody
+	MultipartBody *multipart.Reader
+}
+
+type CreateItemResponseObject interface {
+	VisitCreateItemResponse(w http.ResponseWriter) error
+}
+
+type CreateItem200JSONResponse Item
+
+func (response CreateItem200JSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem201JSONResponse Item
+
+func (response CreateItem201JSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response CreateItem400ApplicationProblemPlusJSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateItem401ApplicationProblemPlusJSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem413ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateItem413ApplicationProblemPlusJSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem415ApplicationProblemPlusJSONResponse Problem
+
+func (response CreateItem415ApplicationProblemPlusJSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteItemRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+}
+
+type DeleteItemResponseObject interface {
+	VisitDeleteItemResponse(w http.ResponseWriter) error
+}
+
+type DeleteItem204Response struct {
+}
+
+func (response DeleteItem204Response) VisitDeleteItemResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteItem401ApplicationProblemPlusJSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteItem404ApplicationProblemPlusJSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetItemRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+}
+
+type GetItemResponseObject interface {
+	VisitGetItemResponse(w http.ResponseWriter) error
+}
+
+type GetItem200JSONResponse Item
+
+func (response GetItem200JSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetItem401ApplicationProblemPlusJSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetItem404ApplicationProblemPlusJSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItemRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+	Body   *UpdateItemJSONRequestBody
+}
+
+type UpdateItemResponseObject interface {
+	VisitUpdateItemResponse(w http.ResponseWriter) error
+}
+
+type UpdateItem200JSONResponse Item
+
+func (response UpdateItem200JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateItem400ApplicationProblemPlusJSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateItem401ApplicationProblemPlusJSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateItem404ApplicationProblemPlusJSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnalyzeItemRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+}
+
+type AnalyzeItemResponseObject interface {
+	VisitAnalyzeItemResponse(w http.ResponseWriter) error
+}
+
+type AnalyzeItem200JSONResponse Item
+
+func (response AnalyzeItem200JSONResponse) VisitAnalyzeItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnalyzeItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response AnalyzeItem401ApplicationProblemPlusJSONResponse) VisitAnalyzeItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnalyzeItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AnalyzeItem404ApplicationProblemPlusJSONResponse) VisitAnalyzeItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AnalyzeItem409ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response AnalyzeItem409ApplicationProblemPlusJSONResponse) VisitAnalyzeItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateReadingProgressRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+	Body   *UpdateReadingProgressJSONRequestBody
+}
+
+type UpdateReadingProgressResponseObject interface {
+	VisitUpdateReadingProgressResponse(w http.ResponseWriter) error
+}
+
+type UpdateReadingProgress200JSONResponse Item
+
+func (response UpdateReadingProgress200JSONResponse) VisitUpdateReadingProgressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateReadingProgress400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateReadingProgress400ApplicationProblemPlusJSONResponse) VisitUpdateReadingProgressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateReadingProgress401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateReadingProgress401ApplicationProblemPlusJSONResponse) VisitUpdateReadingProgressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateReadingProgress404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateReadingProgress404ApplicationProblemPlusJSONResponse) VisitUpdateReadingProgressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryItemRequestObject struct {
+	ItemId ItemId `json:"item_id"`
+}
+
+type RetryItemResponseObject interface {
+	VisitRetryItemResponse(w http.ResponseWriter) error
+}
+
+type RetryItem200JSONResponse Item
+
+func (response RetryItem200JSONResponse) VisitRetryItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response RetryItem401ApplicationProblemPlusJSONResponse) VisitRetryItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RetryItem404ApplicationProblemPlusJSONResponse) VisitRetryItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryItem409ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response RetryItem409ApplicationProblemPlusJSONResponse) VisitRetryItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReviewRequestObject struct {
+}
+
+type GetReviewResponseObject interface {
+	VisitGetReviewResponse(w http.ResponseWriter) error
+}
+
+type GetReview200JSONResponse Review
+
+func (response GetReview200JSONResponse) VisitGetReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReview401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetReview401ApplicationProblemPlusJSONResponse) VisitGetReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteReviewRequestObject struct {
+}
+
+type CompleteReviewResponseObject interface {
+	VisitCompleteReviewResponse(w http.ResponseWriter) error
+}
+
+type CompleteReview200JSONResponse ReviewDone
+
+func (response CompleteReview200JSONResponse) VisitCompleteReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteReview401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteReview401ApplicationProblemPlusJSONResponse) VisitCompleteReviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatsRequestObject struct {
+}
+
+type GetStatsResponseObject interface {
+	VisitGetStatsResponse(w http.ResponseWriter) error
+}
+
+type GetStats200JSONResponse Stats
+
+func (response GetStats200JSONResponse) VisitGetStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStats401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStats401ApplicationProblemPlusJSONResponse) VisitGetStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncChangesRequestObject struct {
+	Params SyncChangesParams
+}
+
+type SyncChangesResponseObject interface {
+	VisitSyncChangesResponse(w http.ResponseWriter) error
+}
+
+type SyncChanges200JSONResponse SyncPage
+
+func (response SyncChanges200JSONResponse) VisitSyncChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncChanges400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SyncChanges400ApplicationProblemPlusJSONResponse) VisitSyncChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncChanges401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response SyncChanges401ApplicationProblemPlusJSONResponse) VisitSyncChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncChanges410ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response SyncChanges410ApplicationProblemPlusJSONResponse) VisitSyncChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTagsRequestObject struct {
+}
+
+type ListTagsResponseObject interface {
+	VisitListTagsResponse(w http.ResponseWriter) error
+}
+
+type ListTags200JSONResponse TagList
+
+func (response ListTags200JSONResponse) VisitListTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTags401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListTags401ApplicationProblemPlusJSONResponse) VisitListTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTagRequestObject struct {
+	TagId TagId `json:"tag_id"`
+	Body  *UpdateTagJSONRequestBody
+}
+
+type UpdateTagResponseObject interface {
+	VisitUpdateTagResponse(w http.ResponseWriter) error
+}
+
+type UpdateTag200JSONResponse Tag
+
+func (response UpdateTag200JSONResponse) VisitUpdateTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTag400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTag400ApplicationProblemPlusJSONResponse) VisitUpdateTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTag401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTag401ApplicationProblemPlusJSONResponse) VisitUpdateTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTag404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTag404ApplicationProblemPlusJSONResponse) VisitUpdateTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTag409ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTag409ApplicationProblemPlusJSONResponse) VisitUpdateTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeTagRequestObject struct {
+	TagId TagId `json:"tag_id"`
+	Body  *MergeTagJSONRequestBody
+}
+
+type MergeTagResponseObject interface {
+	VisitMergeTagResponse(w http.ResponseWriter) error
+}
+
+type MergeTag200JSONResponse Tag
+
+func (response MergeTag200JSONResponse) VisitMergeTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeTag400ApplicationProblemPlusJSONResponse struct {
+	ProblemApplicationProblemPlusJSONResponse
+}
+
+func (response MergeTag400ApplicationProblemPlusJSONResponse) VisitMergeTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeTag401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MergeTag401ApplicationProblemPlusJSONResponse) VisitMergeTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MergeTag404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MergeTag404ApplicationProblemPlusJSONResponse) VisitMergeTagResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetHealthRequestObject struct {
 }
@@ -291,6 +4042,81 @@ func (response GetHealth503ApplicationProblemPlusJSONResponse) VisitGetHealthRes
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetAsset Download an image
+	// (GET /api/assets/{asset_id})
+	GetAsset(ctx context.Context, request GetAssetRequestObject) (GetAssetResponseObject, error)
+	// ListCategories Category tree
+	// (GET /api/categories)
+	ListCategories(ctx context.Context, request ListCategoriesRequestObject) (ListCategoriesResponseObject, error)
+	// CreateCategory Create a category
+	// (POST /api/categories)
+	CreateCategory(ctx context.Context, request CreateCategoryRequestObject) (CreateCategoryResponseObject, error)
+	// DeleteCategory Delete an empty category
+	// (DELETE /api/categories/{category_id})
+	DeleteCategory(ctx context.Context, request DeleteCategoryRequestObject) (DeleteCategoryResponseObject, error)
+	// UpdateCategory Rename, move, recolour a category, or accept a proposal
+	// (PATCH /api/categories/{category_id})
+	UpdateCategory(ctx context.Context, request UpdateCategoryRequestObject) (UpdateCategoryResponseObject, error)
+	// MergeCategory Merge a category into another
+	// (POST /api/categories/{category_id}/merge)
+	MergeCategory(ctx context.Context, request MergeCategoryRequestObject) (MergeCategoryResponseObject, error)
+	// ListContentTypes Content types
+	// (GET /api/content-types)
+	ListContentTypes(ctx context.Context, request ListContentTypesRequestObject) (ListContentTypesResponseObject, error)
+	// UpdateContentType Rename or accept a proposed content type
+	// (PATCH /api/content-types/{type_key})
+	UpdateContentType(ctx context.Context, request UpdateContentTypeRequestObject) (UpdateContentTypeResponseObject, error)
+	// MergeContentType Merge a proposed content type into another
+	// (POST /api/content-types/{type_key}/merge)
+	MergeContentType(ctx context.Context, request MergeContentTypeRequestObject) (MergeContentTypeResponseObject, error)
+	// ExportArchive Markdown export
+	// (GET /api/export)
+	ExportArchive(ctx context.Context, request ExportArchiveRequestObject) (ExportArchiveResponseObject, error)
+	// ListItems List, filter and search items
+	// (GET /api/items)
+	ListItems(ctx context.Context, request ListItemsRequestObject) (ListItemsResponseObject, error)
+	// CreateItem Capture an item
+	// (POST /api/items)
+	CreateItem(ctx context.Context, request CreateItemRequestObject) (CreateItemResponseObject, error)
+	// DeleteItem Delete an item
+	// (DELETE /api/items/{item_id})
+	DeleteItem(ctx context.Context, request DeleteItemRequestObject) (DeleteItemResponseObject, error)
+	// GetItem Item detail
+	// (GET /api/items/{item_id})
+	GetItem(ctx context.Context, request GetItemRequestObject) (GetItemResponseObject, error)
+	// UpdateItem Correct, pin, annotate an item
+	// (PATCH /api/items/{item_id})
+	UpdateItem(ctx context.Context, request UpdateItemRequestObject) (UpdateItemResponseObject, error)
+	// AnalyzeItem Analyse an item now
+	// (POST /api/items/{item_id}/analyze)
+	AnalyzeItem(ctx context.Context, request AnalyzeItemRequestObject) (AnalyzeItemResponseObject, error)
+	// UpdateReadingProgress Reading position and status
+	// (PUT /api/items/{item_id}/progress)
+	UpdateReadingProgress(ctx context.Context, request UpdateReadingProgressRequestObject) (UpdateReadingProgressResponseObject, error)
+	// RetryItem Queue a failed item again
+	// (POST /api/items/{item_id}/retry)
+	RetryItem(ctx context.Context, request RetryItemRequestObject) (RetryItemResponseObject, error)
+	// GetReview What to review
+	// (GET /api/review)
+	GetReview(ctx context.Context, request GetReviewRequestObject) (GetReviewResponseObject, error)
+	// CompleteReview Mark the review as done
+	// (POST /api/review/done)
+	CompleteReview(ctx context.Context, request CompleteReviewRequestObject) (CompleteReviewResponseObject, error)
+	// GetStats Queue, failures and AI cost
+	// (GET /api/stats)
+	GetStats(ctx context.Context, request GetStatsRequestObject) (GetStatsResponseObject, error)
+	// SyncChanges Changes for the offline cache
+	// (GET /api/sync)
+	SyncChanges(ctx context.Context, request SyncChangesRequestObject) (SyncChangesResponseObject, error)
+	// ListTags Tags with their counts
+	// (GET /api/tags)
+	ListTags(ctx context.Context, request ListTagsRequestObject) (ListTagsResponseObject, error)
+	// UpdateTag Rename a tag
+	// (PATCH /api/tags/{tag_id})
+	UpdateTag(ctx context.Context, request UpdateTagRequestObject) (UpdateTagResponseObject, error)
+	// MergeTag Merge a tag into another
+	// (POST /api/tags/{tag_id}/merge)
+	MergeTag(ctx context.Context, request MergeTagRequestObject) (MergeTagResponseObject, error)
 	// GetHealth Service health
 	// (GET /healthz)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -333,6 +4159,720 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetAsset operation middleware
+func (sh *strictHandler) GetAsset(w http.ResponseWriter, r *http.Request, assetId AssetId) {
+	var request GetAssetRequestObject
+
+	request.AssetId = assetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAsset(ctx, request.(GetAssetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAsset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAssetResponseObject); ok {
+		if err := validResponse.VisitGetAssetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCategories operation middleware
+func (sh *strictHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	var request ListCategoriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCategories(ctx, request.(ListCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCategories")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCategoriesResponseObject); ok {
+		if err := validResponse.VisitListCategoriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCategory operation middleware
+func (sh *strictHandler) CreateCategory(w http.ResponseWriter, r *http.Request) {
+	var request CreateCategoryRequestObject
+
+	var body CreateCategoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCategory(ctx, request.(CreateCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCategory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCategoryResponseObject); ok {
+		if err := validResponse.VisitCreateCategoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCategory operation middleware
+func (sh *strictHandler) DeleteCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId) {
+	var request DeleteCategoryRequestObject
+
+	request.CategoryId = categoryId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCategory(ctx, request.(DeleteCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCategory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCategoryResponseObject); ok {
+		if err := validResponse.VisitDeleteCategoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCategory operation middleware
+func (sh *strictHandler) UpdateCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId) {
+	var request UpdateCategoryRequestObject
+
+	request.CategoryId = categoryId
+
+	var body UpdateCategoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCategory(ctx, request.(UpdateCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCategory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCategoryResponseObject); ok {
+		if err := validResponse.VisitUpdateCategoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MergeCategory operation middleware
+func (sh *strictHandler) MergeCategory(w http.ResponseWriter, r *http.Request, categoryId CategoryId) {
+	var request MergeCategoryRequestObject
+
+	request.CategoryId = categoryId
+
+	var body MergeCategoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MergeCategory(ctx, request.(MergeCategoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MergeCategory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MergeCategoryResponseObject); ok {
+		if err := validResponse.VisitMergeCategoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListContentTypes operation middleware
+func (sh *strictHandler) ListContentTypes(w http.ResponseWriter, r *http.Request) {
+	var request ListContentTypesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListContentTypes(ctx, request.(ListContentTypesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListContentTypes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListContentTypesResponseObject); ok {
+		if err := validResponse.VisitListContentTypesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateContentType operation middleware
+func (sh *strictHandler) UpdateContentType(w http.ResponseWriter, r *http.Request, typeKey ContentTypeKeyPath) {
+	var request UpdateContentTypeRequestObject
+
+	request.TypeKey = typeKey
+
+	var body UpdateContentTypeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateContentType(ctx, request.(UpdateContentTypeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateContentType")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateContentTypeResponseObject); ok {
+		if err := validResponse.VisitUpdateContentTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MergeContentType operation middleware
+func (sh *strictHandler) MergeContentType(w http.ResponseWriter, r *http.Request, typeKey ContentTypeKeyPath) {
+	var request MergeContentTypeRequestObject
+
+	request.TypeKey = typeKey
+
+	var body MergeContentTypeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MergeContentType(ctx, request.(MergeContentTypeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MergeContentType")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MergeContentTypeResponseObject); ok {
+		if err := validResponse.VisitMergeContentTypeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExportArchive operation middleware
+func (sh *strictHandler) ExportArchive(w http.ResponseWriter, r *http.Request) {
+	var request ExportArchiveRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExportArchive(ctx, request.(ExportArchiveRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExportArchive")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExportArchiveResponseObject); ok {
+		if err := validResponse.VisitExportArchiveResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListItems operation middleware
+func (sh *strictHandler) ListItems(w http.ResponseWriter, r *http.Request, params ListItemsParams) {
+	var request ListItemsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListItems(ctx, request.(ListItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListItemsResponseObject); ok {
+		if err := validResponse.VisitListItemsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateItem operation middleware
+func (sh *strictHandler) CreateItem(w http.ResponseWriter, r *http.Request) {
+	var request CreateItemRequestObject
+
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+
+		var body CreateItemJSONRequestBody
+		if err := runtime.BindJSONBody(r, &body); err != nil {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+		request.JSONBody = &body
+
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		if reader, err := r.MultipartReader(); err != nil {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+			return
+		} else {
+			request.MultipartBody = reader
+		}
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateItem(ctx, request.(CreateItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateItemResponseObject); ok {
+		if err := validResponse.VisitCreateItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteItem operation middleware
+func (sh *strictHandler) DeleteItem(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request DeleteItemRequestObject
+
+	request.ItemId = itemId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteItem(ctx, request.(DeleteItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteItemResponseObject); ok {
+		if err := validResponse.VisitDeleteItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetItem operation middleware
+func (sh *strictHandler) GetItem(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request GetItemRequestObject
+
+	request.ItemId = itemId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetItem(ctx, request.(GetItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetItemResponseObject); ok {
+		if err := validResponse.VisitGetItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateItem operation middleware
+func (sh *strictHandler) UpdateItem(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request UpdateItemRequestObject
+
+	request.ItemId = itemId
+
+	var body UpdateItemJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateItem(ctx, request.(UpdateItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateItemResponseObject); ok {
+		if err := validResponse.VisitUpdateItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AnalyzeItem operation middleware
+func (sh *strictHandler) AnalyzeItem(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request AnalyzeItemRequestObject
+
+	request.ItemId = itemId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AnalyzeItem(ctx, request.(AnalyzeItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AnalyzeItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AnalyzeItemResponseObject); ok {
+		if err := validResponse.VisitAnalyzeItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateReadingProgress operation middleware
+func (sh *strictHandler) UpdateReadingProgress(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request UpdateReadingProgressRequestObject
+
+	request.ItemId = itemId
+
+	var body UpdateReadingProgressJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateReadingProgress(ctx, request.(UpdateReadingProgressRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateReadingProgress")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateReadingProgressResponseObject); ok {
+		if err := validResponse.VisitUpdateReadingProgressResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RetryItem operation middleware
+func (sh *strictHandler) RetryItem(w http.ResponseWriter, r *http.Request, itemId ItemId) {
+	var request RetryItemRequestObject
+
+	request.ItemId = itemId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RetryItem(ctx, request.(RetryItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RetryItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RetryItemResponseObject); ok {
+		if err := validResponse.VisitRetryItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetReview operation middleware
+func (sh *strictHandler) GetReview(w http.ResponseWriter, r *http.Request) {
+	var request GetReviewRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReview(ctx, request.(GetReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReviewResponseObject); ok {
+		if err := validResponse.VisitGetReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteReview operation middleware
+func (sh *strictHandler) CompleteReview(w http.ResponseWriter, r *http.Request) {
+	var request CompleteReviewRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteReview(ctx, request.(CompleteReviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteReview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteReviewResponseObject); ok {
+		if err := validResponse.VisitCompleteReviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStats operation middleware
+func (sh *strictHandler) GetStats(w http.ResponseWriter, r *http.Request) {
+	var request GetStatsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStats(ctx, request.(GetStatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatsResponseObject); ok {
+		if err := validResponse.VisitGetStatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SyncChanges operation middleware
+func (sh *strictHandler) SyncChanges(w http.ResponseWriter, r *http.Request, params SyncChangesParams) {
+	var request SyncChangesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SyncChanges(ctx, request.(SyncChangesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SyncChanges")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SyncChangesResponseObject); ok {
+		if err := validResponse.VisitSyncChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTags operation middleware
+func (sh *strictHandler) ListTags(w http.ResponseWriter, r *http.Request) {
+	var request ListTagsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTags(ctx, request.(ListTagsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTags")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTagsResponseObject); ok {
+		if err := validResponse.VisitListTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTag operation middleware
+func (sh *strictHandler) UpdateTag(w http.ResponseWriter, r *http.Request, tagId TagId) {
+	var request UpdateTagRequestObject
+
+	request.TagId = tagId
+
+	var body UpdateTagJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTag(ctx, request.(UpdateTagRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTag")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTagResponseObject); ok {
+		if err := validResponse.VisitUpdateTagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MergeTag operation middleware
+func (sh *strictHandler) MergeTag(w http.ResponseWriter, r *http.Request, tagId TagId) {
+	var request MergeTagRequestObject
+
+	request.TagId = tagId
+
+	var body MergeTagJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MergeTag(ctx, request.(MergeTagRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MergeTag")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MergeTagResponseObject); ok {
+		if err := validResponse.VisitMergeTagResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetHealth operation middleware

@@ -7,7 +7,8 @@ import (
 
 // Problem types (RFC 9457). Business errors use urn:hippo:problem:<slug> (api/openapi.yaml).
 const (
-	problemTypeBlank = "about:blank"
+	problemTypeBlank          = "about:blank"
+	problemTypeNotImplemented = "urn:hippo:problem:not-implemented"
 )
 
 // writeProblem writes an application/problem+json response. detail is in French and can be

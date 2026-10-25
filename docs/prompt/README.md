@@ -19,7 +19,7 @@ system:
   [2] <referentiel> (types, catégories, tags)      ← cache (identique dans un batch)
 tools: [classify_item]                             ← cache
 tool_choice: { type: "tool", name: "classify_item" }
-max_tokens: 4000   (8000 pour la relance d'une fiche incomplète)
+max_tokens: 4000   (8000 pour la seconde tentative d'une réponse coupée)
 messages:
   user: <element>…</element> + <contenu>…</contenu> ou image(s)
 ```
@@ -27,7 +27,7 @@ messages:
 - **Batch de nuit** : une requête par élément dans un seul appel à l'API Message Batches, avec `custom_id` = id de l'élément.
 - **Analyse immédiate** : la même requête, en appel direct.
 - **Cache de prompt** : la partie fixe, le référentiel et l'outil sont identiques d'une requête à l'autre dans un batch ; on pose un point de cache (`cache_control`) après le référentiel. Le gain dans un batch n'est pas garanti mais ne coûte rien.
-- **Fiche incomplète** : détectée par `stop_reason = "max_tokens"` (RG-36).
+- **Fiche incomplète** : détectée par `stop_reason = "max_tokens"`. La réponse coupée n'est pas enregistrée ; l'élément est retenté une fois avec un plafond de 8 000, puis passe en échec « fiche trop longue » (RG-36).
 
 ## Assemblage du schéma de l'outil
 
@@ -70,3 +70,4 @@ Pour économiser des tokens et éviter des erreurs, l'IA ne fournit pas :
 2. Lancer le jeu de test (`/eval-prompt`) et comparer au dernier rapport.
 3. Ne déployer que si aucune régression de fidélité n'apparaît (voir [`eval-set.md`](eval-set.md)).
 4. Si un schéma de fiche change : mettre à jour le template de l'appli, le générateur Markdown et leurs tests dans le même changement.
+5. Lancer `make generate` : les fiches font partie du contrat d'API ([ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)), le serveur Go et les types TypeScript changent avec elles. Un changement incompatible d'une fiche est un changement cassant de l'API : réanalyser le type avant la nouvelle version de l'appli, ou ajouter un composant versionné.
