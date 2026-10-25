@@ -40,7 +40,9 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 
 - `api/openapi.yaml` fait foi ([ADR-0017](../adr/0017-contrat-openapi.md)) ; on le modifie **avant** le code, puis `make generate`.
 - `oapi-codegen` génère l'interface stricte du serveur (`StrictServerInterface`) et le routage `net/http` ([ADR-0031](../adr/0031-generation-depuis-les-contrats.md)). Le handler implémente cette interface : une route oubliée ou un type faux ne compile pas.
-- JSON en `snake_case`, dates ISO 8601 UTC (`time.Time` en UTC), identifiants ULID (`TEXT`).
+- JSON en `snake_case`, dates ISO 8601 UTC (`time.Time` en UTC). Identifiants ([ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)) : ULID (`TEXT`) pour les éléments, les images et les batchs ; entiers pour les catégories et les tags ; clé (`key`) pour les types de contenu.
+- **Nullabilité** : un scalaire nullable s'écrit `type: [T, "null"]` sur la propriété, une référence nullable `anyOf: [{$ref: …}, {type: "null"}]` ; la fiche est facultative plutôt que nullable. Jamais de schéma nullable nommé (oapi-codegen le rend non nullable), jamais `type: [object, "null"]` avec un `oneOf`. Dans un corps `PATCH`, un champ absent ne change rien et un `null` explicite efface (types `nullable.Nullable[T]`).
+- Les erreurs métier ont un type stable du catalogue de `api/openapi.yaml` ; une opération déclarée mais pas encore implémentée répond `501 not-implemented` (stub embarqué par `handlers`, remplacé par la story qui l'implémente).
 - Pagination par curseur : paramètres `cursor` et `limit`, réponse `{ "items": [...], "next_cursor": "…" | null }`. Le curseur est opaque pour le client.
 
 ## Erreurs
@@ -65,7 +67,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Tables déclarées `STRICT` : SQLite refuse une valeur du mauvais type au lieu de la convertir en silence.
 - Requêtes paramétrées (`?`) uniquement ; aucune concaténation de valeur.
 - `defer rows.Close()` et vérification de `rows.Err()`.
-- Les tables synchronisées portent `updated_at`, et les suppressions laissent `deleted_at` pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md)).
+- Les tables synchronisées (éléments, catégories, types de contenu, tags) portent `updated_at` et la séquence de modification `change_seq`, incrémentée à chaque écriture, qui ordonne la synchronisation ; les suppressions laissent une marque `deleted_at`, sans contenu, pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md), [ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)).
 
 ### Migrations
 
@@ -92,7 +94,12 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 
 | Fichier | Source | Commande |
 | --- | --- | --- |
-| `internal/httpapi/api.gen.go` | `api/openapi.yaml` | `make generate` (oapi-codegen) |
 | `internal/analysis/schema/classify-item.bundled.json` | `docs/prompt/schemas/` | `make generate` (schemabundle) |
+| `api/fiches.gen.json` (composants OpenAPI des fiches) | `docs/prompt/schemas/fiches/` | `make generate` (schemabundle) |
+| `api/openapi.bundled.gen.json` (contrat autonome) | `api/openapi.yaml` + `api/fiches.gen.json` | `make generate` (redocly bundle) |
+| `internal/httpapi/api.gen.go` | `api/openapi.bundled.gen.json` | `make generate` (oapi-codegen) |
+| `app/src/api/schema.gen.ts` | `api/openapi.bundled.gen.json` | `make generate` (openapi-typescript) |
+
+`make generate` les produit dans cet ordre (l'ordre compte, il mêle Go et Node).
 
 Jamais édité à la main (le hook `protect-files.sh` le refuse) ; la CI vérifie qu'il est à jour (`make check-generated`).

@@ -35,7 +35,7 @@ docs/prompt/schemas/              api/openapi.yaml (hand-written)
         v                      redocly bundle
  backend/internal/analysis/          |
  schema/classify-item.bundled.json   v
-                               api/openapi.bundled.gen.yaml (self-contained, generated)
+                               api/openapi.bundled.gen.json (self-contained, generated)
                                  |                     |
                            oapi-codegen          openapi-typescript
                                  v                     v
@@ -43,7 +43,7 @@ docs/prompt/schemas/              api/openapi.yaml (hand-written)
 ```
 
 - `schemabundle` gains a second output, `-openapi-out api/fiches.gen.json`: one component per fiche (`Fiche<PascalCaseKey>`: `FicheTechArticle`, `FicheGeneric`…), one per common definition (`FicheText`, `FicheTextList`, `FicheCodeBlock`, `FicheSection`, `FicheLink`), internal references rewritten to `#/components/schemas/...`, `$id` and `$schema` removed, `type: string` added next to each `template` `const` (otherwise Go types it `interface{}`), and a `Fiche` component: `oneOf` of the fiche components with `discriminator: {propertyName: template, mapping: {<const>: <component>}}` derived from the `template` constants. The mapping can therefore never drift from the schemas; a test asserts it covers every fiche file.
-- `api/openapi.yaml` references `./fiches.gen.json#/components/schemas/Fiche` only. `redocly bundle` copies the referenced components under their own names into `api/openapi.bundled.gen.yaml`, which both generators read.
+- `api/openapi.yaml` references `./fiches.gen.json#/components/schemas/Fiche` only. `redocly bundle` copies the referenced components under their own names into `api/openapi.bundled.gen.json`, which both generators read. It is JSON rather than YAML (changed during implementation) so that the Go test that walks every operation (`TestEveryOperationAnswers501`) reads it with the standard library, without a YAML dependency.
 - `make generate` runs, in order: `schemabundle` (both outputs), `redocly bundle`, oapi-codegen, openapi-typescript. The `go:generate` directives are removed: the order spans Go and Node, so the Makefile owns it. Every output is committed, listed in `GENERATED`, marked `linguist-generated` and protected by the hook.
 - **Alternatives**: wrapper components pointing at the fiche files (`FicheTechArticle: {$ref: ../docs/...}`) and a Redocly decorator stripping `$id` — two mechanisms instead of one, and the mapping written by hand. A free-form `fiche: object` — loses the typing ADR-0006 asks for.
 

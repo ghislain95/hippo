@@ -40,7 +40,7 @@ app/
 
 - Le format d'une fiche vient de son schéma (`docs/prompt/schemas/fiches/`) ; le template l'affiche, il ne l'interprète pas.
 - Un template par type de contenu, plus `generic` pour les types proposés ou sans template ([ADR-0011](../adr/0011-types-de-contenu-et-templates.md)). Un template doit savoir afficher toutes les versions de schéma encore présentes en base.
-- Code recopié tel quel, coloré et copiable ; versions en badges ; mentions « contenu partiel », « contenu tronqué », « fiche incomplète » visibles (RG-36, RG-37, RG-24).
+- Code recopié tel quel, coloré et copiable ; versions en badges ; mentions « contenu partiel » et « contenu tronqué » visibles (RG-37, RG-24) ; une fiche trop longue n'arrive jamais dans l'appli, l'élément est en échec avec sa raison (RG-36).
 - La fiche n'est jamais éditable (RG-44) ; l'original est à un geste (RG-45).
 - Chaque template a un test de rendu sur l'exemple de son type ([testing.md](testing.md)).
 

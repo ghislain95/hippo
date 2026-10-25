@@ -79,8 +79,10 @@ Objectif unique : **savoir si la chaîne iOS fonctionne avec un compte Apple gra
 
 > En tant que Ghislain, je veux envoyer un lien au backend et recevoir une confirmation immédiate, afin de capturer sans attendre.
 
-RG-01, RG-02, RG-03 · ADR-0003, ADR-0004, ADR-0016, ADR-0022
-- `POST /api/items` avec `{url, user_note?, is_private?}` crée un élément `queued`, `to_read`, et répond `201` avec l'élément en moins de 200 ms (hors réseau).
+RG-01, RG-02, RG-03, RG-07, RG-08 · ADR-0003, ADR-0004, ADR-0016, ADR-0022, ADR-0035
+- `POST /api/items` avec `{url, user_note?, is_private?, client_id?}` crée un élément `queued`, `to_read`, et répond `201` avec l'élément en moins de 200 ms (hors réseau).
+- Une URL et une note dans la même capture : `400 ambiguous-capture` (RG-07).
+- Une capture rejouée avec un `client_id` déjà utilisé renvoie `200` avec l'élément existant (RG-08).
 - Une URL invalide renvoie `400` au format problem+json.
 - Sans token ou avec un mauvais token : `401`. `/healthz` répond sans token.
 - L'élément porte le `user_id` de l'utilisateur authentifié.
@@ -95,15 +97,17 @@ RG-04, RG-05
 
 ### E2-03 — Capturer une note · M
 
-RG-01, RG-02
-- `POST /api/items` avec `{note}` crée un élément de forme `note` ; le texte vide est refusé.
+RG-01, RG-02, RG-07
+- `POST /api/items` avec `{note}` crée un élément de forme `note` ; le texte vide est refusé (`empty-note`).
+- Une note accompagnée d'une note de capture est refusée (`400 ambiguous-capture`, RG-07).
 
 ### E2-04 — Capturer une image · M
 
-RG-01, RG-02 · ADR-0004
+RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 - `POST /api/items` en multipart avec une image JPEG, PNG, HEIC ou WebP de 20 Mo maximum crée un élément `image` et une ligne `assets`.
+- Une image rejouée avec un `client_id` déjà utilisé renvoie `200` avec l'élément existant, sans nouvelle image (RG-08).
 - L'image est stockée sur disque dans le volume de données ; `GET /api/assets/{id}` la renvoie (authentifié).
-- Format ou taille refusés : `400` ou `413`.
+- Format ou taille refusés : `400 unsupported-image` ou `413 image-too-large`.
 
 ### E2-05 — Extraire une page web · M
 
@@ -164,17 +168,18 @@ RG-53 à RG-57 · ADR-0009
 RG-58
 - Les tags reçus sont normalisés, dédoublonnés et rattachés ; les tags existants sont réutilisés.
 
-### E3-05 — Relancer une fiche incomplète · S
+### E3-05 — Retenter une réponse coupée · S
 
-RG-36
-- `stop_reason = max_tokens` : fiche enregistrée, `fiche_incomplete = 1`, réanalyse unique la nuit suivante avec un plafond de 8 000 tokens.
-- Toujours incomplète : conservée, plus de relance automatique.
+RG-36 (modifiée le 25 octobre 2026)
+- `stop_reason = max_tokens` : rien n'est enregistré, l'élément revient à `extracted` pour une seule nouvelle tentative la nuit suivante avec un plafond de 8 000 tokens ; s'il s'agit d'une réanalyse, la fiche précédente reste en place.
+- Encore coupée : l'élément passe en `failed` avec la raison « fiche trop longue », le contenu extrait est conservé.
 
 ### E3-06 — Analyser un élément immédiatement · M
 
 RG-33, RG-12, RG-81
 - `POST /api/items/{id}/analyze` analyse l'élément en appel direct et renvoie l'élément mis à jour.
-- Refus `409` si l'élément est privé ; refus `409` avec le type d'erreur `budget-exceeded` si le budget du mois est atteint. Le message est affichable tel quel dans l'appli.
+- Refus `409` si l'élément est privé (`private-item`) ; refus `409` avec le type d'erreur `budget-exceeded` si le budget du mois est atteint. Le message est affichable tel quel dans l'appli.
+- Refus `409` tant que l'extraction n'est pas terminée (`not-ready`) et quand l'élément est déjà dans le batch de la nuit (`already-submitted`) (RG-33).
 
 ### E3-07 — Relancer et réanalyser · M
 
@@ -238,19 +243,22 @@ RG-70 à RG-73
 RG-51, RG-59, RG-72, RG-74
 - Créer, renommer, déplacer (dans la limite de 2 niveaux), changer la couleur et la description, supprimer une catégorie vide.
 - Accepter une proposition (`proposed` → `active`).
-- `POST /api/categories/{id}/merge` déplace tous les éléments (et sous-catégories) vers la cible puis supprime la source.
+- Renommer vers un nom déjà pris sous le même parent : `409 name-taken` (RG-74) ; créer une catégorie sous un nom déjà pris aussi (contrainte d'unicité du modèle de données).
+- `POST /api/categories/{id}/merge` déplace tous les éléments (et sous-catégories) vers la cible puis supprime la source ; une fusion dans elle-même ou dans sa propre sous-catégorie est refusée (`invalid-merge-target`), comme une fusion qui créerait un 3e niveau (`category-too-deep`).
 - Les catégories de départ ([`metier.md`](metier.md#6-catégories-de-départ)) sont créées au premier démarrage.
 
 ### E4-08 — Gérer les types et les tags · S
 
 RG-57, RG-74
 - Accepter ou renommer un type proposé ; fusionner un type proposé dans un type existant (les fiches concernées sont remises en file pour être réanalysées au bon format).
-- `GET /api/tags` avec compteurs ; renommer et fusionner des tags.
+- `GET /api/tags` avec compteurs ; renommer et fusionner des tags. Renommer un tag vers un nom déjà pris est refusé (`409 name-taken`, RG-74) ; fusionner un type qui n'est pas proposé aussi (`409 type-not-proposed`).
 
 ### E4-09 — Synchronisation pour le hors ligne · M
 
-ADR-0018
-- `GET /api/sync?since=` renvoie les éléments, catégories, types et tags créés, modifiés ou supprimés depuis la date, sans `content_text`.
+ADR-0018, ADR-0035
+- `GET /api/sync?sync_token=` renvoie, page par page, les éléments, catégories, types et tags créés ou modifiés depuis le jeton, et les suppressions (`{id, deleted_at}`), sans `content_text` ; seule la dernière page porte le nouveau jeton.
+- Les changements sont ordonnés par la séquence de modification, pas par l'heure.
+- Un jeton de plus de 30 jours renvoie `410 sync-expired` : l'appli resynchronise tout.
 
 ### E4-10 — Export Markdown · S
 
@@ -298,15 +306,15 @@ RG-95, RG-96
 RG-40 à RG-45, RG-75 à RG-78 · ADR-0011
 - Un template par type : code coloré et copiable pour `tech_article` et `tutorial` ; ingrédients à cocher et mode pas à pas écran allumé pour `recipe` ; bouton « Ouvrir dans Plans » pour `place` ; template `generic`.
 - Barre de progression, enregistrement et reprise de la position, passage automatique en Lu.
-- Mentions visibles : contenu partiel, contenu tronqué, fiche incomplète.
+- Mentions visibles : contenu partiel, contenu tronqué ; un élément en échec « fiche trop longue » affiche sa raison et le bouton Relancer.
 - Actions : ouvrir l'original, épingler, annoter, modifier type, catégorie et tags, réanalyser, supprimer.
 - Tests de rendu sur une fiche d'exemple par template.
 
 ### E5-05 — Capture dans l'appli · M
 
-RG-01 à RG-06
+RG-01 à RG-08
 - Coller une URL, écrire ou dicter une note, choisir une image dans la photothèque, interrupteur Privé.
-- Hors ligne : la capture est mise en file locale et envoyée au retour du réseau.
+- Hors ligne : la capture est mise en file locale et envoyée au retour du réseau, avec un `client_id` généré à la capture, pour qu'un renvoi ne crée jamais de doublon (RG-08).
 
 ### E5-06 — Revue · M
 
