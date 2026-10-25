@@ -1,0 +1,21 @@
+{
+  "type": { "key": "tip" },
+  "category": { "id": 20 },
+  "tags": ["menage", "vinaigre-blanc", "salle-de-bain"],
+  "title": "Détartrer une paroi de douche au vinaigre blanc",
+  "fiche": {
+    "template": "tip",
+    "tip": "Exemple fictif. Le vinaigre blanc chaud dissout le calcaire d'une paroi de douche.",
+    "steps": [
+      "Chauffer le vinaigre blanc sans le faire bouillir.",
+      "Le vaporiser sur la paroi et laisser agir **15 minutes**.",
+      "Rincer à l'eau claire et essuyer."
+    ],
+    "materials": ["50 cl de vinaigre blanc", "Un vaporisateur", "Un chiffon microfibre"],
+    "warnings": ["Ne pas utiliser sur la pierre naturelle."]
+  },
+  "language": "fr",
+  "freshness": "timeless",
+  "content_ok": true,
+  "content_issue": null
+}

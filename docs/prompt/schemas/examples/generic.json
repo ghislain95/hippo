@@ -1,0 +1,18 @@
+{
+  "type": { "proposed": { "key": "event", "name": "Évènement", "reason": "Exemple fictif : un évènement daté n'entre dans aucun type existant." } },
+  "category": { "proposed": { "name": "Conférences", "parent_id": 1, "description": "Conférences et meetups à suivre.", "reason": "Aucune catégorie ne regroupe les évènements tech." } },
+  "tags": ["conference", "go"],
+  "title": "Une conférence Go fictive à Lille",
+  "fiche": {
+    "template": "generic",
+    "summary": "Exemple fictif. Une journée de conférences sur Go, avec un atelier sur les tests.",
+    "sections": [
+      { "heading": "Programme", "body": "Le matin : performances. L'après-midi : atelier `go test`." }
+    ],
+    "key_points": ["Inscription avant la fin du mois."]
+  },
+  "language": "fr",
+  "freshness": "dated",
+  "content_ok": true,
+  "content_issue": null
+}

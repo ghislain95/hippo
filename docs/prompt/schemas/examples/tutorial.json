@@ -1,0 +1,34 @@
+{
+  "type": { "key": "tutorial" },
+  "category": { "id": 12 },
+  "tags": ["docker", "compose", "healthcheck"],
+  "title": "Ajouter un healthcheck à un service Docker Compose",
+  "fiche": {
+    "template": "tutorial",
+    "goal": "Exemple fictif. Faire redémarrer un conteneur dont l'application ne répond plus.",
+    "prerequisites": ["Docker Compose v2", "Un service qui expose une route de santé"],
+    "steps": [
+      {
+        "title": "Déclarer le healthcheck",
+        "body": "Ajouter le bloc `healthcheck` au service.",
+        "code": [
+          {
+            "language": "yaml",
+            "code": "healthcheck:\n  test: [\"CMD\", \"/app\", \"healthcheck\"]\n  interval: 30s\n  retries: 3",
+            "caption": null
+          }
+        ]
+      },
+      {
+        "title": "Vérifier l'état",
+        "body": "La colonne `STATUS` de `docker compose ps` affiche `healthy` après le premier contrôle réussi."
+      }
+    ],
+    "expected_result": "Le conteneur passe en `healthy`, et en `unhealthy` après trois échecs.",
+    "troubleshooting": ["Une image sans shell ne peut pas lancer `CMD-SHELL` : utiliser la forme `CMD`."]
+  },
+  "language": "fr",
+  "freshness": "timeless",
+  "content_ok": true,
+  "content_issue": null
+}

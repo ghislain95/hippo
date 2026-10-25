@@ -1,0 +1,28 @@
+{
+  "type": { "key": "recipe" },
+  "category": { "id": 24 },
+  "tags": ["pates", "vegetarien", "rapide"],
+  "title": "Pâtes au citron et au parmesan",
+  "fiche": {
+    "template": "recipe",
+    "servings": "2 personnes",
+    "prep_minutes": 5,
+    "cook_minutes": 10,
+    "ingredients": [
+      { "name": "spaghetti", "quantity": "200 g", "group": null, "note": null },
+      { "name": "citron non traité", "quantity": "1", "group": null, "note": "zeste et jus" },
+      { "name": "parmesan râpé", "quantity": "40 g", "group": null, "note": null },
+      { "name": "poivre", "quantity": null, "group": null, "note": "au goût" }
+    ],
+    "steps": [
+      "Exemple fictif. Cuire les pâtes dans une eau salée.",
+      "Mélanger le zeste, le jus et le parmesan avec deux louches d'eau de cuisson.",
+      "Ajouter les pâtes égouttées et poivrer."
+    ],
+    "tips": ["L'eau de cuisson rend la sauce crémeuse sans crème."]
+  },
+  "language": "fr",
+  "freshness": "timeless",
+  "content_ok": true,
+  "content_issue": null
+}

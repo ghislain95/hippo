@@ -1,0 +1,37 @@
+{
+  "type": { "key": "tech_article" },
+  "category": { "id": 2 },
+  "tags": ["spring-boot", "virtual-threads", "java"],
+  "title": "Spring Boot 3.2 active les virtual threads en une propriété",
+  "fiche": {
+    "template": "tech_article",
+    "tldr": "Exemple fictif. Spring Boot 3.2 peut exécuter les requêtes sur des **virtual threads** de Java 21 avec une seule propriété. Le gain vient surtout des services qui attendent des entrées-sorties.",
+    "key_changes": [
+      "Nouvelle propriété `spring.threads.virtual.enabled`.",
+      "Tomcat et Jetty utilisent un exécuteur de virtual threads quand elle est activée."
+    ],
+    "details": [
+      {
+        "heading": "Activer les virtual threads",
+        "body": "Il faut **Java 21** au minimum. La propriété s'ajoute dans `application.properties`.",
+        "code": [
+          {
+            "language": "properties",
+            "code": "spring.threads.virtual.enabled=true",
+            "caption": "Active les virtual threads pour le serveur web et les tâches planifiées."
+          }
+        ]
+      }
+    ],
+    "versions": [
+      { "name": "Spring Boot", "version": "3.2" },
+      { "name": "Java", "version": "21" }
+    ],
+    "pitfalls": ["Un bloc `synchronized` long épingle le virtual thread à son thread porteur."],
+    "links": [{ "label": "Notes de version (exemple)", "url": "https://example.com/spring-boot-3.2" }]
+  },
+  "language": "en",
+  "freshness": "dated",
+  "content_ok": true,
+  "content_issue": null
+}

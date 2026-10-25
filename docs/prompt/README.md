@@ -33,6 +33,11 @@ messages:
 
 Les fichiers de schéma utilisent des `$ref` entre fichiers pour rester lisibles. Le backend les **assemble au build** en un seul schéma autonome (sans `$ref` externe), utilisé à la fois comme `input_schema` de l'outil et pour la validation des réponses. La CI vérifie que l'assemblage est à jour.
 
+- Outil : `backend/cmd/schemabundle` ([ADR-0031](../adr/0031-generation-depuis-les-contrats.md)). Chaque fichier référencé devient une définition de `$defs` au nom stable : `fiche_<type>` pour une fiche, `common_<nom>` pour une définition de `_common.schema.json`.
+- Sortie : `backend/internal/analysis/schema/classify-item.bundled.json`, embarqué dans le binaire. Fichier généré : on ne l'édite jamais, on lance `make generate`.
+- **Exemples** : [`schemas/examples/`](schemas/examples/) contient une réponse `classify_item` complète et fictive par type de fiche. L'outil les valide contre le schéma assemblé et échoue s'il manque l'exemple d'un type. Ils servent aussi de fixtures aux tests de rendu des templates et de l'export Markdown.
+- Vérifier : `make check-schemas` (exemples valides, assemblage à jour).
+
 ## Validation d'une réponse
 
 Dans cet ordre ; le premier échec rejette toute la réponse (RG-35) :

@@ -7,7 +7,8 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
 
 # Generated files: never edited by hand, checked up to date by `make check-generated`.
-GENERATED := backend/internal/httpapi/api.gen.go
+GENERATED := backend/internal/httpapi/api.gen.go \
+	backend/internal/analysis/schema/classify-item.bundled.json
 
 # infra/.env is optional for the local targets: without it, variables come from the shell.
 LOCAL_ENV_FILE := infra/.env
@@ -30,7 +31,7 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec lint-api check-backend check-generated ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-generated ## Run every check the CI runs
 
 # --- Code generation -----------------------------------------------------------
 
@@ -102,3 +103,11 @@ dev: ## Run the backend locally on 127.0.0.1:8080 (variables from infra/.env if 
 .PHONY: image
 image: ## Build the backend Docker image (hippo:local)
 	docker build --build-arg VERSION=$(VERSION) -t hippo:local backend
+
+# --- Fiche schemas -----------------------------------------------------------
+
+.PHONY: check-schemas
+check-schemas: ## Validate the fiche examples and check the bundled schema is up to date
+	cd backend && go run ./cmd/schemabundle -schemas ../docs/prompt/schemas \
+		-examples ../docs/prompt/schemas/examples \
+		-out internal/analysis/schema/classify-item.bundled.json -check
