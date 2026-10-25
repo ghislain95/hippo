@@ -20,7 +20,7 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs ## Run every check the CI runs
+check: check-secrets check-docs check-tooling ## Run every check the CI runs
 
 # --- Repository-wide checks --------------------------------------------------
 
@@ -31,3 +31,10 @@ check-secrets: ## Scan the git history for secrets
 .PHONY: check-docs
 check-docs: ## Check the internal links of the Markdown files
 	lychee $(LYCHEE_FLAGS) './**/*.md'
+
+.PHONY: check-tooling
+check-tooling: ## Test the agent hooks and lint the shell scripts
+	bash .claude/hooks/block-git-writes.test.sh
+	bash .claude/hooks/protect-files.test.sh
+	shellcheck -S warning .claude/hooks/protect-files.sh .claude/hooks/protect-files.test.sh .claude/hooks/format-on-edit.sh
+	shellcheck -S error .claude/hooks/block-git-writes.sh .claude/hooks/block-git-writes.test.sh
