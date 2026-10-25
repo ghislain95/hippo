@@ -4,12 +4,12 @@ Phase 4 du setup de Hippo, 25 octobre 2026, branche `chore/setup`. Il fait suite
 
 ## 1. Ce qui a été mis en place
 
-Dix-huit commits atomiques ; après chacun, tout ce qui existait compilait et passait ses vérifications.
+Vingt-deux commits atomiques (dix-huit de mise en place, quatre de corrections après relecture) ; après chacun, tout ce qui existait compilait et passait ses vérifications.
 
 | Groupe | Fichiers | Contenu |
 | --- | --- | --- |
 | Hygiène du dépôt | `.gitignore`, `.gitattributes`, `.editorconfig`, `.worktreeinclude`, `.gitleaks.toml`, `lefthook.yml`, `Makefile` | Exclusions (secrets, données, natif Expo, état local de Claude Code) ; fichiers générés repliés dans les diffs ; pré-commit (gitleaks, format Go, ESLint, Prettier) ; **`make` comme point d'entrée unique** (`make help`, `make check` = la CI) |
-| Claude Code | `.claude/settings.json`, `.claude/hooks/`, `.claude/launch.json` | Permissions partagées (autorisé : make, go, npm, openspec, docker compose, git, gh pr… ; interdit : `.env`, fichier de settings local, dépôts voisins, force-push, push sur `main`, `rm -rf` hors du dépôt, sudo). Hooks : garde-fou git de wifisense (343 cas de test), `protect-files` (secrets, fichiers générés, dépôts voisins, `rm -r` ; 60 cas), formatage après édition |
+| Claude Code | `.claude/settings.json`, `.claude/hooks/`, `.claude/launch.json` | Permissions partagées (autorisé : make, go, npm, openspec, docker compose, git, gh pr… ; interdit : `.env`, fichier de settings local, dépôts voisins, force-push, push sur `main`, `rm -rf` hors du dépôt, sudo). Hooks : garde-fou git de wifisense (343 cas de test), `protect-files` (secrets, y compris les commandes qui affichent `.env` sans le nommer, fichiers générés, dépôts voisins, `rm -r` ; 82 cas), formatage après édition |
 | Agents | `.claude/agents/` | `architect`, `backend-dev`, `mobile-dev`, `tester`, `code-reviewer`, `prompt-engineer`, `doc-keeper`, `devops`, tous en `opus`, et le tableau de routage |
 | Skills | `.claude/skills/` | Hippo : `/eval-prompt`, `/new-content-type`, `/new-adr`, `/dod-check`, `/passation`. Repris de wifisense : `retro`, `domain-modeling`, `improve-codebase-architecture` (adaptés), `graphify`, skills de design et d'animation (inchangés, avec licence et source) |
 | OpenSpec | `openspec/`, `.claude/commands/opsx/`, `.claude/skills/openspec-*` | `openspec init` (CLI 1.14.0) ; `config.yaml` : sources de vérité, stack, règles d'or, langue, règles par artefact (story, `RG-xx`, ADR, impacts, « User QA », un test par scénario, contrat d'abord, `/dod-check` en dernière tâche) |
@@ -33,10 +33,27 @@ Dix-huit commits atomiques ; après chacun, tout ce qui existait compilait et pa
 | Tests Go sans cache, avec `-race` | ✅ 6 packages |
 | Tests de l'appli | ✅ 3 tests, couverture 100 % des lignes hors routes |
 | `make image` | ✅ 23,7 Mo |
-| `make up`, `/healthz`, `/api/items` | ✅ `healthy`, 200 `{"status":"ok"}`, 401 sans token, 404 avec token, **23 Mio** de RAM pour une limite de 128 Mo, logs sans token |
+| `make up`, `/healthz`, `/api/items` | ✅ `healthy`, 200 `{"status":"ok"}`, 401 sans token, 404 avec token, **23 Mio** de RAM pour une limite de 128 Mo, logs par motif de route, sans token ni chemin brut |
 | `make graph` | ✅ graph du code construit |
 | Development build iOS | ⏸ non compilé : Xcode n'est pas installé (§4) |
 | CI GitHub | ⏸ tournera sur la PR |
+
+### Relecture indépendante
+
+Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la branche (hors docs) et lancé les vérifications. 21 constats, tous corrigés dans quatre commits `fix(…)` :
+
+| Sévérité | Constat | Correction |
+| --- | --- | --- |
+| 🛑 | Le job `tooling` appelait `actionlint`, absent des runners GitHub : `ci-ok` aurait été rouge | Binaire épinglé installé, somme de contrôle vérifiée |
+| 🔴 | Des commandes autorisées affichaient `.env` sans le nommer (`grep -r`, `docker compose config`, `docker inspect`) | Bloquées par `protect-files` ; `docker inspect` passe dans les interdits |
+| 🟡 | `MONTHLY_BUDGET_USD=NaN` contournait RG-81 | `NaN` et `Inf` refusés |
+| 🟡 | Le placeholder de `API_TOKEN` passait la validation | Valeur vide dans l'exemple |
+| 🟡 | `make dev` cassait les horaires cron non cités | Valeurs entre guillemets |
+| 🟡 | Sur le NAS, `:8080` était joignable en HTTP depuis le tailnet, en contournant `tailscale serve` | `HTTP_ADDR=127.0.0.1:8080` |
+| 🟡 | Logs avec le chemin brut | Motif de route (`GET /healthz`) |
+| 🟡 | Pragmas SQLite et rotation du token non vérifiés par les tests | Tests ajoutés ; une faute de frappe dans un pragma fait échouer le test (vérifié) |
+| 🟡 | Erreur avalée dans `schemabundle`, permissions de `paths-filter`, filtres `api` et `docs`, allowlist gitleaks trop large | Corrigés |
+| 🔵 | Second Ctrl-C, schéma `Bearer` sensible à la casse, `Unwrap`, DSN non échappé, chemins `..` dans le hook, somme de contrôle de gitleaks, droits du volume | Corrigés ou documentés dans le compose |
 
 ## 2. Décisions prises
 
@@ -63,7 +80,7 @@ Dix-huit commits atomiques ; après chacun, tout ce qui existait compilait et pa
 | Variables techniques `HTTP_ADDR`, `DATA_DIR`, `LOG_LEVEL`, `HIPPO_IMAGE_TAG` ; `HIPPO_API_URL`, `HIPPO_API_TOKEN` pour le build de l'appli | `.env.example` | Absentes de la spec, nécessaires au squelette ; aucune règle métier |
 | openapi-typescript dans `api/` et non dans `app/` | ADR-0031, conventions de l'appli | Il exige TypeScript 5, Expo 58 est en TypeScript 6 |
 | Routes de l'appli dans `app/src/app/` | conventions de l'appli | Convention d'Expo SDK 58 |
-| `protect-files` lit les commandes comme le shell (lecteur de wifisense) | le hook et ses tests | Un heredoc ou un message de commit qui cite `.env` n'est pas une lecture |
+| `protect-files` lit les commandes comme le shell (lecteur de wifisense) et bloque les commandes qui affichent `.env` | le hook et ses tests, `workflow.md` | Un heredoc ou un message de commit qui cite `.env` n'est pas une lecture ; `git grep` et `rg` remplacent `grep -r` |
 | gitleaks autorise les séquences `0123456789abcdef` et `fedcba9876543210` | `.gitleaks.toml` | Tokens de test manifestement factices ; un vrai secret ne les contient pas |
 | Image multi-arch (amd64 pour le NAS, arm64 pour le Mac) | `image.yml` | La compilation croisée Go est gratuite |
 | Dependabot n'ouvre pas de PR pour les paquets du SDK Expo | `dependabot.yml` | Ils se mettent à jour ensemble, par `npx expo install --fix`, lors d'un change de montée de SDK |
@@ -73,7 +90,7 @@ Dix-huit commits atomiques ; après chacun, tout ce qui existait compilait et pa
 
 - **Nullabilité OpenAPI 3.1** : oapi-codegen 2.8.1 traduit `type: [string, "null"]` (`NextCursor`) en `string` non nullable. Le premier change du contrat devra vérifier ce rendu sur ses schémas nullables (le contrat de la spec en a beaucoup) et choisir la parade (`x-go-type-skip-optional-pointer`, pointeurs, ou rendu accepté).
 - **Mots-clés non standard dans l'`input_schema` de l'outil** : le schéma assemblé garde `x-schema-version` et les `$defs`. Leur acceptation par l'API Anthropic est à vérifier au premier appel réel (E3-01 ou E3-09), avant de compter dessus.
-- **Volume `./data` sur le NAS** : l'image tourne en utilisateur non root (uid 65532). Sur le Mac, Docker Desktop gère les droits ; sur le NAS, le dossier devra appartenir à cet utilisateur (E6-01, `docs/runbook-nas.md`).
+- **Volume `./data` sur le NAS** : l'image tourne en utilisateur non root (uid 65532). Sur le Mac, Docker Desktop gère les droits ; sur le NAS, le dossier devra lui appartenir (`sudo chown -R 65532:65532 data`, noté dans le compose ; procédure dans `docs/runbook-nas.md` en E6-01).
 - **Compte `gh`** : `gh` est connecté en `ghislain-sartorius-adeo` ; les PR doivent partir de `ghislain95` (token, §4).
 
 ## 3. Mise à jour de la backlog et du README
