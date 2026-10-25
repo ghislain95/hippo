@@ -80,7 +80,19 @@ for c in \
   "echo \"\$(case \$b in main) echo '\"';; esac)\" && git push origin main" \
   "(cd $MAIN && case \$x in a) :;; esac && git commit -m x)" \
   'gh pr merge 26' 'gh pr merge 26 --squash' 'gh pr merge 26 --rebase' 'gh pr merge 26 -s' \
-  'gh pr merge 26 --merge --admin' 'gh pr merge 26 --auto --merge'; do
+  'gh pr merge 26 --merge --admin' 'gh pr merge 26 --auto' 'gh pr merge 26 --auto --squash' \
+  'gh pr merge 26 --auto --rebase' 'gh pr merge 26 --auto --merge --admin' \
+  'gh pr merge --admin 26 --auto --merge' 'gh pr merge 26 --auto -s' 'gh pr merge 26 --auto -r' 'gh pr merge 26 --auto -ms' \
+  'gh pr merge 26 --disable-auto --squash' 'gh pr merge 26 --disable-auto --admin' \
+  'gh -R ghislain95/hippo pr merge 26 --auto --merge --admin' 'gh --repo ghislain95/hippo pr merge 26 --squash' \
+  'gh --repo=ghislain95/hippo pr merge 26' 'gh api -X PUT repos/o/r/pulls/26/merge' \
+  'gh -Ro/r pr merge 26 --squash' 'gh -R=o/r pr merge 26 --squash' \
+  'gh api --method PUT repos/o/r/pulls/26/merge' 'gh api -X PUT /repos/o/r/pulls/26/merge' \
+  'gh api https://api.github.com/repos/o/r/pulls/26/merge -X PUT' \
+  "gh api -H 'Accept: x' graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'" \
+  "gh api --hostname github.com graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'" \
+  "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'" \
+  "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: \"x\"}) { clientMutationId } }'"; do
   t 2 "$FEAT" "$c"
 done
 
@@ -161,6 +173,12 @@ for c in 'git pull --ff-only' 'git pull --ff-only origin main' 'git switch -c fe
          "git -C $FEAT push -u origin HEAD" \
          'git status' 'git fetch origin' 'git branch -d feat/merged' 'git push origin --delete feat/merged' \
          'git merge --abort' 'git merge-base main HEAD' 'git log --merges' 'gh pr merge 26 --merge --delete-branch' \
+         'gh pr merge 26 --auto --merge' 'gh pr merge 26 --auto --merge --delete-branch' 'gh pr merge 26 --disable-auto --merge' \
+         'gh pr merge 26 --disable-auto' 'gh pr merge --disable-auto' 'gh pr merge 26 --auto -m' 'gh pr merge 26 --auto=true --merge' \
+         'gh pr merge 26 --auto --merge --subject "x --admin -s y"' 'gh -R ghislain95/hippo pr merge 26 --auto --merge' \
+         'gh api repos/ghislain95/hippo/pulls/26' 'gh api repos/ghislain95/hippo/rules/branches/main' \
+         "cat > note.md <<'EOF'${NL}never call gh api graphql with mergePullRequest${NL}EOF" \
+         'gh pr create --title t --body "never gh api graphql enablePullRequestAutoMerge"' \
          'gh pr merge 26 --merge --subject "feat(x): y -s --squash (#26)"' 'git switch feat/rem && git commit -m x' \
          "(cd $FEAT && git commit -m x)" 'git reset' 'git reset HEAD' 'git reset HEAD a.txt' 'git reset feat/other -- a.txt' \
          'git switch -c feat/new 2>&1 && git add a.ts && git commit -m x' \

@@ -21,7 +21,8 @@ En cas de contradiction : `metier.md` pour le comportement, les ADR pour les cho
 2. Le change a-t-il touché un contrat, une convention, la stack, un terme ? Oui : mettre à jour la doc concernée (`docs/spec-v1.md`, `docs/dev/*.md`, `CLAUDE.md` d'un dossier). Non : le dire (« post-archive : aucun impact doc »).
 3. Glossaire : chaque concept nouveau a son entrée (terme, identifiant de code, définition).
 4. `## Purpose` des specs OpenSpec touchées ou créées : encore exact ?
-5. `make check-docs` : liens internes valides.
+5. Le change a-t-il touché `.github/workflows/ci.yml` ? Vérifier (`gh api repos/ghislain95/hippo/rules/branches/main`, lecture seule) que le ruleset de `main` exige toujours le check `ci-ok`, dont dépend l'auto-merge (ADR-0034) ; sinon le signaler à Ghislain.
+6. `make check-docs` : liens internes valides.
 
 ## Règles
 - Prose en français, identifiants en anglais ; phrases courtes, tableaux de référence, aucun marketing.

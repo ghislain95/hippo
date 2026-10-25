@@ -82,9 +82,11 @@ L'agent fusionne lui-même (`gh pr merge <n> --merge --delete-branch`) **seuleme
 
 Sinon il s'arrête, explique ce qui manque, et demande.
 
+Quand toutes les conditions tiennent sauf la fin de la CI, il demande la **fusion différée** (`gh pr merge <n> --auto --merge --delete-branch`, [ADR-0034](../adr/0034-auto-merge-github.md)) : GitHub fusionne dès que `ci-ok` est vert. Avant de pousser un nouveau commit sur cette PR, il désactive d'abord l'auto-merge (`--disable-auto`) et ne le réactive qu'après une relecture propre.
+
 ### 10. Nettoyage
 
-`git switch main && git pull --ff-only`, `git branch -d <branche>`. Depuis un worktree : seule la branche distante est supprimée (par `--delete-branch`) ; le worktree se nettoie depuis le checkout principal ou à l'archivage de la session.
+`git switch main && git pull --ff-only`, `git branch -d <branche>`. Après une fusion différée, au début de la session ou du change suivant : la branche distante est déjà supprimée par GitHub ; `git fetch --prune` puis la même séquence. Depuis un worktree : seule la branche distante est supprimée (par `--delete-branch`) ; le worktree se nettoie depuis le checkout principal ou à l'archivage de la session.
 
 ### Hotfix
 

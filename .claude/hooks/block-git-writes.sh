@@ -5,7 +5,8 @@
 # $-expanded ref), pushing without an explicit remote and branch, force-push; pull without
 # --ff-only, with rebase, or (on main) of another branch; history rewriting (rebase, amend, am,
 # commit-tree, filter-branch, reset to a revision, branch -f); sweeping stages (add -A/./*/-u,
-# commit -a); discarding work; --no-verify; `gh pr merge` other than a plain merge commit.
+# commit -a); discarding work; --no-verify; `gh pr merge` other than a plain merge commit
+# (`--merge`, optionally `--auto`: main requires ci-ok server-side, ADR-0034; never --admin).
 # The branch is the one checked out where the command really runs: the tool call's cwd, then each
 # `cd`/`pushd`/`popd` and `git -C <dir>` (subshells restore the directory), and a
 # `git switch|checkout <branch>` earlier in the same command — to main at once, to another branch
@@ -58,7 +59,9 @@ VALUE='("([^"\\]|\\.)*"|'"'"'[^'"'"']*'"'"'|(\\.|[^[:space:]\\])+)'
 GOPT="[[:space:]]+(-[cC][[:space:]]+${VALUE}|--[a-z-]+(=[^[:space:]]+)?|-[pP])"
 # A git invocation at a command position, optionally via rtk (retired, kept defensively) or an absolute path.
 GIT="${START}[[:space:]]*(rtk[[:space:]]+)?([^[:space:];&|()]*/)?git(${GOPT})*[[:space:]]+"
-GH="${START}[[:space:]]*([^[:space:];&|()]*/)?gh[[:space:]]+"
+# gh global options before the subcommand: -R/--repo <owner/repo>.
+GHOPT="[[:space:]]+(-R([[:space:]]*|=)${VALUE}|--repo(=|[[:space:]]+)${VALUE})"
+GH="${START}[[:space:]]*([^[:space:];&|()]*/)?gh(${GHOPT})*[[:space:]]+"
 # End of a subcommand word: whitespace, an operator, a redirection, or end of line.
 END='([[:space:]]|[;&|)<>]|$)'
 # Branches that only move through a merged PR.
@@ -284,12 +287,34 @@ check_push() {
   [ "$positional" -lt 2 ] && block "name the remote and the branch explicitly: git push -u origin <branch>"
 }
 
-# check_gh_merge <segment>: a plain merge commit, no bypass, no deferred merge.
+# check_gh_merge <segment>: a merge commit, optionally deferred with --auto (ADR-0034), never
+# --admin. `--disable-auto` alone (stopping a deferred merge) needs no merge method.
 check_gh_merge() {
+  case " $1 " in *" --disable-auto"*)
+    case " $1 " in *" --auto"*|*" --admin"*|*" --squash"*|*" -s "*|*" --rebase"*|*" -r "*) ;; *) return ;; esac
+    ;;
+  esac
   case " $1 " in *" --squash"*|*" -s "*|*" --rebase"*|*" -r "*) block "merge PRs with a merge commit only: gh pr merge <n> --merge" ;; esac
-  case " $1 " in *" --admin"*|*" --auto"*) block "never bypass or defer the merge conditions (--admin, --auto)" ;; esac
+  # --auto is allowed (ADR-0034): the ruleset of main requires ci-ok, so GitHub merges only once the
+  # CI is green. --admin would bypass that ruleset.
+  case " $1 " in *" --admin"*) block "never bypass the merge conditions (--admin)" ;; esac
   case " $1 " in *" --merge"*|*" -m "*) ;; *) block "merge PRs with a merge commit only: gh pr merge <n> --merge" ;; esac
 }
+
+# Merging through the REST or GraphQL API skips the checks of `gh pr merge`. The REST route is
+# a word of the command as the shell reads it; a GraphQL mutation sits inside a quoted string,
+# so it is looked for in the raw command, but only when `gh api graphql` really runs (a heredoc
+# or a message that merely mentions it is not a call). The mutation name is searched in the whole
+# raw command, so `gh api graphql … && git commit -m "…mergePullRequest…"` is blocked too: rare,
+# accepted. A query read from a file (-f query=@file) is out of scope: a deliberate step.
+# Even a read (GET) of the merge route is blocked; gh pr view reads the state.
+if printf '%s' "$CHECKED" | grep -qE "${GH}api[[:space:]]([^;&|]*[[:space:]])?[\"']?([^[:space:]\"']*/)?repos/[^[:space:]]*pulls/[^[:space:]/]+/merge"; then
+  block "merge PRs with gh pr merge <n> --merge (or --auto --merge), not through gh api; to read the state: gh pr view <n> --json state,mergedAt"
+fi
+if printf '%s' "$CHECKED" | grep -qE "${GH}api[[:space:]]([^;&|]*[[:space:]])?graphql${END}" &&
+  printf '%s' "$COMMAND" | grep -qE 'mergePullRequest|enablePullRequestAutoMerge'; then
+  block "merge PRs with gh pr merge <n> --merge (or --auto --merge), not through gh api graphql"
+fi
 
 # --- Blocked wherever they run.
 # History rewriting and raw commit creation.

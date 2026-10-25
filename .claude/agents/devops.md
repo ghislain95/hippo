@@ -19,6 +19,7 @@ ADR-0015 (Tailscale), ADR-0019 (Docker sur le NAS), ADR-0020 (sauvegardes), ADR-
 - Aucun secret dans une image, un workflow, un log ou un fichier versionné : `.env` (non versionné) sur le NAS, `GITHUB_TOKEN` en CI. Toute nouvelle variable est documentée dans `infra/.env.example`.
 - Workflows : `permissions` minimales, `timeout-minutes`, actions épinglées à une version majeure, chaque job derrière son filtre de chemin et agrégé dans `ci-ok`. Un job ajouté hors de `ci-ok` ne protège rien.
 - Versions épinglées (Go par `go.mod`, Node par `.nvmrc`, OpenSpec CLI, images de base).
+- Le ruleset de `main` doit continuer d'exiger le check `ci-ok` : l'auto-merge des agents en dépend (ADR-0034). Renommer le job `ci-ok`, le sortir du workflow ou changer sa logique demande de mettre le ruleset à jour dans le même mouvement (action de Ghislain).
 - Toute action qui touche GitHub hors PR (réglages du dépôt, secrets, protection de `main`) ou qui coûte de l'argent : demander à Ghislain.
 
 ## Vérifier

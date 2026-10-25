@@ -34,8 +34,9 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0026](0026-langues-doc-et-code.md) | Documentation en français, code en anglais | Accepté | Projet |
 | [0027](0027-depot-public.md) | Dépôt et image publics | Accepté | Projet, infra |
 | [0028](0028-langues-du-developpement.md) | Langues des artefacts de développement | Accepté | Projet |
-| [0029](0029-workflow-git-autonome.md) | Workflow git autonome des agents | Accepté | Projet |
+| [0029](0029-workflow-git-autonome.md) | Workflow git autonome des agents | Accepté, moment de la fusion amendé par 0034 | Projet |
 | [0030](0030-outillage-qualite.md) | Outillage de qualité | Accepté | Projet |
 | [0031](0031-generation-depuis-les-contrats.md) | Génération de code depuis les contrats | Accepté | Backend, appli |
 | [0032](0032-migrations-goose.md) | Migrations SQLite avec goose | Accepté | Backend |
 | [0033](0033-strategie-de-test.md) | Stratégie de test : Go standard et jest-expo | Accepté | Projet |
+| [0034](0034-auto-merge-github.md) | Fusion différée par l'auto-merge de GitHub | Accepté | Projet |

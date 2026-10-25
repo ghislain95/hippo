@@ -46,6 +46,7 @@ Sur la branche `<type>/<change-id>` :
 - **Conditions de fusion** (l'agent fusionne seul si toutes tiennent, sinon il demande) : `ci-ok` vert ; dernière relecture sans 🛑 ni 🔴 ; pour un change : `/opsx:verify` OK et change archivé ; si « User QA: yes » : QA validée par Ghislain.
 - Fusion en **merge commit** uniquement (ni squash ni rebase), qui garde les commits atomiques du change :
   `gh pr merge <n> --merge --delete-branch --subject "<sujet> (#<n>)"`.
+- **Fusion différée** ([ADR-0034](../adr/0034-auto-merge-github.md)) : une fois toutes les conditions remplies **sauf** la fin de la CI, l'agent lance `gh pr merge <n> --auto --merge --delete-branch --subject "<sujet> (#<n>)"` ; GitHub fusionne dès que `ci-ok` est vert (le ruleset de `main` l'exige). **Avant de pousser un nouveau commit** sur une PR dont l'auto-merge est actif : `gh pr merge <n> --disable-auto`, puis réactivation seulement après une relecture propre de ce commit (sinon GitHub pourrait fusionner un commit non relu dès que sa CI passe).
 - Après fusion : `git switch main && git pull --ff-only`, puis `git branch -d <branche>`.
 
 ## Accès GitHub
@@ -62,6 +63,6 @@ Sur la branche `<type>/<change-id>` :
 - la réécriture d'historique (`rebase`, `commit --amend`, `reset` vers une révision, `branch -f`…) ;
 - le staging en masse ; ce qui jette du travail (`reset --hard`, `clean -f`, `checkout .`, `restore .`, `stash drop`, `branch -D`) ;
 - `--no-verify` ;
-- `gh pr merge` autrement qu'en `--merge`.
+- `gh pr merge` autrement qu'en `--merge` (avec ou sans `--auto`) ou que `--disable-auto` seul, et toujours `--admin`, y compris derrière `gh -R/--repo` ; les fusions par `gh api` (route REST de fusion, mutations GraphQL de fusion) ; pour lire l'état d'une PR : `gh pr view <n> --json state,mergedAt`.
 
-Ses 343 cas de test tournent dans `make check-tooling` et en CI. Ne pas le contourner : un faux positif se règle par la bonne pratique (`git commit -F`, deux appels au lieu d'un).
+Ses 378 cas de test tournent dans `make check-tooling` et en CI. Ne pas le contourner : un faux positif se règle par la bonne pratique (`git commit -F`, deux appels au lieu d'un).
