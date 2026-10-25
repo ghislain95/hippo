@@ -11,7 +11,7 @@ ADR-0017 fait du contrat OpenAPI la source de vérité et demande un serveur Go 
 ## Décision
 
 - **Serveur Go** : `oapi-codegen` v2, cibles `std-http-server` et `strict-server` (interface stricte, routeur `net/http` de Go 1.22+), plus les modèles. Déclaré en `tool` dans `backend/go.mod`, lancé par `go generate`. Sortie : `backend/internal/httpapi/api.gen.go`.
-- **Client TypeScript** : `openapi-typescript` (types) et `openapi-fetch` (client typé, quelques Ko), en dépendances de l'appli. Sortie : `app/src/api/schema.gen.ts`.
+- **Client TypeScript** : `openapi-typescript` (types), installé dans `api/` avec l'outillage du contrat (il exige TypeScript 5 alors que l'appli est en TypeScript 6), et `openapi-fetch` (client typé, quelques Ko), en dépendance de l'appli. Sortie : `app/src/api/schema.gen.ts`.
 - **Lint du contrat** : Redocly CLI, en dépendance de `api/`.
 - **Schémas de fiches** : un outil Go du dépôt, `backend/cmd/schemabundle`, assemble `classify-item.schema.json` en un fichier autonome (`backend/internal/analysis/schema/classify-item.bundled.json`, embarqué dans le binaire) et valide les exemples de `docs/prompt/schemas/examples/` avec `santhosh-tekuri/jsonschema` (JSON Schema 2020-12), la librairie qui validera les réponses de l'IA.
 - `make generate` régénère tout ; `make check-generated` échoue si un fichier généré diffère de ce que produisent les sources. Les fichiers générés sont versionnés, marqués `linguist-generated`, et protégés contre l'édition par le hook des agents.

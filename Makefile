@@ -8,7 +8,8 @@ VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
 
 # Generated files: never edited by hand, checked up to date by `make check-generated`.
 GENERATED := backend/internal/httpapi/api.gen.go \
-	backend/internal/analysis/schema/classify-item.bundled.json
+	backend/internal/analysis/schema/classify-item.bundled.json \
+	app/src/api/schema.gen.ts
 
 # infra/.env is optional for the local targets: without it, variables come from the shell.
 LOCAL_ENV_FILE := infra/.env
@@ -27,17 +28,19 @@ help: ## List the available targets
 setup: ## Install the git hooks and the project dependencies (once per clone)
 	lefthook install
 	cd api && npm ci --no-fund --no-audit
+	cd app && npm ci --no-fund --no-audit
 
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-generated ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-app check-generated ## Run every check the CI runs
 
 # --- Code generation -----------------------------------------------------------
 
 .PHONY: generate
 generate: ## Regenerate the code built from api/openapi.yaml and docs/prompt/schemas/
 	cd backend && go generate ./...
+	cd api && npm run --silent generate
 
 .PHONY: check-generated
 check-generated: generate ## Fail if a generated file is not up to date with its source
@@ -48,8 +51,9 @@ check-generated: generate ## Fail if a generated file is not up to date with its
 	fi
 
 .PHONY: fmt
-fmt: ## Format the Go code (gofumpt, goimports)
+fmt: ## Format the Go code (gofumpt, goimports) and the app (Prettier)
 	cd backend && golangci-lint fmt ./...
+	cd app && npx --no-install prettier --write --log-level warn .
 
 # --- Repository-wide checks --------------------------------------------------
 
@@ -111,3 +115,31 @@ check-schemas: ## Validate the fiche examples and check the bundled schema is up
 	cd backend && go run ./cmd/schemabundle -schemas ../docs/prompt/schemas \
 		-examples ../docs/prompt/schemas/examples \
 		-out internal/analysis/schema/classify-item.bundled.json -check
+
+# --- App ---------------------------------------------------------------------
+
+EXPO_DOCTOR := expo-doctor@1.21.5
+
+.PHONY: check-app
+check-app: lint-app typecheck-app test-app ## Lint, type-check and test the app
+
+.PHONY: lint-app
+lint-app: ## Lint the app (ESLint, Prettier)
+	cd app && npx --no-install eslint . --max-warnings=0
+	cd app && npx --no-install prettier --check --log-level warn .
+
+.PHONY: typecheck-app
+typecheck-app: ## Type-check the app (tsc --noEmit)
+	cd app && npx --no-install tsc --noEmit
+
+.PHONY: test-app
+test-app: ## Run the app tests (jest-expo, React Native Testing Library)
+	cd app && npx --no-install jest --coverage --coverageReporters=text-summary
+
+.PHONY: doctor-app
+doctor-app: ## Check the Expo project configuration (expo-doctor)
+	cd app && npx --yes $(EXPO_DOCTOR)
+
+.PHONY: app
+app: ## Start the Expo dev server for the development build (HIPPO_API_URL, HIPPO_API_TOKEN)
+	cd app && npx --no-install expo start --dev-client

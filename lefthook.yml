@@ -13,8 +13,10 @@ pre-commit:
       run: golangci-lint fmt --diff {staged_files}
     app-lint:
       glob: "app/**/*.{ts,tsx,js}"
+      exclude:
+        - "*.gen.ts"
       root: "app/"
-      run: npx eslint --max-warnings=0 {staged_files}
+      run: npx eslint --max-warnings=0 --no-warn-ignored {staged_files}
     app-format:
       glob: "app/**/*.{ts,tsx,js,json,md,yml,yaml}"
       root: "app/"

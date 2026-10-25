@@ -10,7 +10,10 @@ Appli iPhone de capture et de lecture, Expo + React Native + TypeScript strict, 
 - Pas d'`any`, de `@ts-ignore` ni d'`eslint-disable` sans raison écrite.
 - Couleurs et tailles depuis le thème ; accessibilité (labels, Dynamic Type, contraste) ; écrans maquettés avant d'être codés.
 - Un test de rendu par template de fiche, sur l'exemple de son type.
-- Gestionnaire de paquets : **npm** (`package-lock.json`).
+- Gestionnaire de paquets : **npm** (`package-lock.json`) ; ajouter une dépendance par `npx expo install <paquet>`, jamais `npm install` (versions compatibles avec le SDK).
+- Expo change à chaque SDK : lire la doc de la version installée (`https://docs.expo.dev/versions/v58.0.0/`) et celle des librairies dans `node_modules/`, jamais de mémoire.
+- Routes dans `src/app/` (expo-router), rien d'autre dedans ; imports internes par l'alias `@/`.
+- React Native Testing Library 14 : `render` est asynchrone (`await render(...)`).
 
 ## Commandes (depuis la racine du dépôt)
 

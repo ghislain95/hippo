@@ -6,8 +6,8 @@ L'appli est une appli de lecture avant tout ([spec, « Application mobile »](..
 
 ```
 app/
-├── app/                    routes expo-router (un fichier = un écran) et _layout.tsx
 ├── src/
+│   ├── app/                routes expo-router (un fichier = un écran) et _layout.tsx
 │   ├── api/
 │   │   ├── schema.gen.ts   types générés depuis api/openapi.yaml (jamais édité)
 │   │   └── client.ts       client openapi-fetch : seul point d'accès HTTP
@@ -19,7 +19,8 @@ app/
 └── jest.config.js, eslint.config.js, tsconfig.json
 ```
 
-- Une route (`app/`) reste mince : elle assemble des composants de `src/features/`.
+- Une route (`src/app/`) reste mince : elle assemble des composants de `src/features/` ; aucun code hors route dans `src/app/` (convention d'Expo SDK 58).
+- Imports internes par l'alias `@/` (`@/api/client`, `@/features/health/ServerStatus`).
 - Ce qui sert à plusieurs fonctionnalités va dans `src/ui/` ; rien n'est dupliqué entre deux features.
 
 ## Données
@@ -60,7 +61,13 @@ app/
 
 ## Code généré
 
-`src/api/schema.gen.ts` est produit par `make generate` (openapi-typescript) depuis `api/openapi.yaml`. Le hook refuse son édition ; la CI vérifie qu'il est à jour.
+`src/api/schema.gen.ts` est produit par `make generate` depuis `api/openapi.yaml`, par openapi-typescript installé dans `api/` (il exige TypeScript 5, l'appli est en TypeScript 6). Le hook refuse son édition ; la CI vérifie qu'il est à jour.
+
+## Dépendances
+
+- Toujours `npx expo install <paquet>` (pas `npm install`) : il choisit la version compatible avec le SDK. Une dépendance nouvelle se demande à Ghislain (`docs/dev/workflow.md`).
+- Expo change à chaque SDK : avant d'écrire du code qui touche une API Expo ou React Native, lire la doc **de la version installée** (`https://docs.expo.dev/versions/v58.0.0/`), et la doc embarquée des librairies (`node_modules/<lib>/README.md`, `docs/`), plutôt que sa mémoire.
+- Pas d'EAS : l'appli se compile sur le Mac et s'installe avec SideStore (ADR-0013).
 
 ## Development build
 
