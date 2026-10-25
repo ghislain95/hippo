@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/tip.schema.json",
+  "title": "Fiche : astuce",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "tip", "steps", "materials", "warnings"],
+  "properties": {
+    "template": { "const": "tip" },
+    "tip": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "L'astuce en une phrase claire."
+    },
+    "steps": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Les étapes courtes, dans l'ordre. Liste vide si l'astuce tient en une phrase."
+    },
+    "materials": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Matériel ou produits nécessaires, avec les quantités si la source les donne. Liste vide si aucun."
+    },
+    "warnings": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Précautions mentionnées par la source (surfaces à éviter, mélanges dangereux…). Liste vide si aucune."
+    }
+  }
+}

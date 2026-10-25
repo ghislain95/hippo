@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/_common.schema.json",
+  "title": "Définitions communes aux fiches",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown."
+    },
+    "textList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/text" }
+    },
+    "codeBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "code"],
+      "properties": {
+        "language": {
+          "type": "string",
+          "description": "Langage pour la coloration : java, go, sql, bash, yaml, json, typescript, etc. « text » si inconnu."
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Code, commande ou configuration recopié À L'IDENTIQUE depuis la source. Ne jamais reformuler, tronquer ni traduire."
+        },
+        "caption": {
+          "type": ["string", "null"],
+          "description": "Courte légende facultative expliquant ce que fait ce code."
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "url"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "Uniquement une URL présente dans la source. Ne jamais en inventer."
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heading", "body"],
+      "properties": {
+        "heading": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "$ref": "#/$defs/text" },
+        "code": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/codeBlock" },
+          "description": "Extraits de code liés à cette section, recopiés à l'identique."
+        }
+      }
+    }
+  }
+}

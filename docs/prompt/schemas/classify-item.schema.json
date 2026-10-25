@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/classify-item.schema.json",
+  "title": "classify_item",
+  "description": "Range un élément du deuxième cerveau de Ghislain et rédige sa fiche. À appeler une seule fois par élément.",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "category", "tags", "title", "fiche", "language", "freshness", "content_ok", "content_issue"],
+  "properties": {
+    "type": {
+      "description": "Type de contenu : un type existant par sa clé, OU une proposition de nouveau type si aucun ne convient.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key"],
+          "properties": {
+            "key": { "type": "string", "description": "Clé d'un type existant de la liste fournie." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["proposed"],
+          "properties": {
+            "proposed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "name", "reason"],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{1,30}$",
+                  "description": "Clé en anglais, snake_case (ex. « event », « book »)."
+                },
+                "name": { "type": "string", "minLength": 1, "maxLength": 40, "description": "Nom affiché, en français." },
+                "reason": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Pourquoi aucun type existant ne convient, en une ligne." }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "category": {
+      "description": "Catégorie du sujet principal : une catégorie existante (active ou proposée) par son id, OU une proposition si aucune ne convient.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "integer", "description": "Id d'une catégorie de la liste fournie." }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["proposed"],
+          "properties": {
+            "proposed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "parent_id", "description", "reason"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 50, "description": "Nom court, en français." },
+                "parent_id": {
+                  "type": ["integer", "null"],
+                  "description": "Id d'une catégorie RACINE existante sous laquelle la placer, ou null pour une nouvelle catégorie racine. Deux niveaux maximum."
+                },
+                "description": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Ce que la catégorie doit contenir, pour bien ranger les prochains éléments." },
+                "reason": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Pourquoi aucune catégorie existante ne convient, en une ligne." }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 40 },
+      "description": "2 à 5 tags. Réutiliser en priorité les tags existants. Nouveau tag : minuscules, mots séparés par des tirets, sans accent."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "description": "Titre clair et informatif, en français sauf nom propre ou titre officiel. Pas de titre racoleur."
+    },
+    "fiche": {
+      "description": "Fiche au format du type choisi. Le champ « template » doit être égal à la clé du type ; pour un type proposé, utiliser « generic ».",
+      "anyOf": [
+        { "$ref": "fiches/tech_article.schema.json" },
+        { "$ref": "fiches/tutorial.schema.json" },
+        { "$ref": "fiches/tip.schema.json" },
+        { "$ref": "fiches/recipe.schema.json" },
+        { "$ref": "fiches/place.schema.json" },
+        { "$ref": "fiches/resource.schema.json" },
+        { "$ref": "fiches/note.schema.json" },
+        { "$ref": "fiches/generic.schema.json" }
+      ]
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}$",
+      "description": "Langue principale du contenu ORIGINAL, code ISO 639-1 (fr, en…)."
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["dated", "timeless"],
+      "description": "« dated » si le contenu vieillit (actualité, version d'un outil, prix, horaires) ; « timeless » sinon (concept, recette, astuce)."
+    },
+    "content_ok": {
+      "type": "boolean",
+      "description": "false si le contenu fourni est trop pauvre pour une vraie fiche (paywall, page vide, simple légende)."
+    },
+    "content_issue": {
+      "type": ["string", "null"],
+      "maxLength": 200,
+      "description": "Si content_ok est false : ce qui manque, en une phrase. Sinon null."
+    }
+  }
+}

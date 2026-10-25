@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/place.schema.json",
+  "title": "Fiche : lieu",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "name", "place_kind", "city", "address", "what_to_do", "practical_info", "best_time", "website", "maps_query"],
+  "properties": {
+    "template": { "const": "place" },
+    "name": { "type": "string", "minLength": 1 },
+    "place_kind": {
+      "type": "string",
+      "description": "Nature du lieu en un ou deux mots : restaurant, bar, café, musée, parc, balade, boutique, ville, hébergement…"
+    },
+    "city": {
+      "type": ["string", "null"],
+      "description": "Ville. null si inconnue."
+    },
+    "address": {
+      "type": ["string", "null"],
+      "description": "Adresse complète si la source la donne. null sinon : ne jamais deviner une adresse."
+    },
+    "what_to_do": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "Ce qu'on y fait, ce qui le rend intéressant, ce qu'il faut commander ou voir."
+    },
+    "practical_info": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Infos pratiques données par la source : horaires, prix, réservation, accès. Liste vide si aucune."
+    },
+    "best_time": {
+      "type": ["string", "null"],
+      "description": "Meilleur moment pour y aller, si la source le dit. null sinon."
+    },
+    "website": {
+      "anyOf": [{ "$ref": "_common.schema.json#/$defs/link" }, { "type": "null" }],
+      "description": "Site officiel s'il figure dans la source."
+    },
+    "maps_query": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Texte à chercher dans Plans pour trouver le lieu : nom + adresse ou ville."
+    }
+  }
+}

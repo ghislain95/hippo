@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/tutorial.schema.json",
+  "title": "Fiche : tuto",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "goal", "prerequisites", "steps", "expected_result", "troubleshooting"],
+  "properties": {
+    "template": { "const": "tutorial" },
+    "goal": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "Ce qu'on obtient à la fin, en une ou deux phrases."
+    },
+    "prerequisites": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Ce qu'il faut avoir ou savoir avant de commencer, avec les versions si la source les donne. Liste vide si aucun."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Toutes les étapes, dans l'ordre. Ne jamais en fusionner au point de perdre une action.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "body": { "$ref": "_common.schema.json#/$defs/text" },
+          "code": {
+            "type": "array",
+            "items": { "$ref": "_common.schema.json#/$defs/codeBlock" }
+          }
+        }
+      }
+    },
+    "expected_result": {
+      "type": ["string", "null"],
+      "description": "Comment vérifier que ça a marché. null si la source ne le dit pas."
+    },
+    "troubleshooting": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Erreurs courantes et solutions données par la source. Liste vide si aucune."
+    }
+  }
+}

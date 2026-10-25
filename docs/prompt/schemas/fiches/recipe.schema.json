@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/recipe.schema.json",
+  "title": "Fiche : recette",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "servings", "prep_minutes", "cook_minutes", "ingredients", "steps", "tips"],
+  "properties": {
+    "template": { "const": "recipe" },
+    "servings": {
+      "type": ["string", "null"],
+      "description": "Nombre de portions tel que donné (« 4 personnes », « 12 cookies »). null si inconnu."
+    },
+    "prep_minutes": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Temps de préparation en minutes. null si la source ne le donne pas : ne pas estimer."
+    },
+    "cook_minutes": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Temps de cuisson en minutes. null si la source ne le donne pas : ne pas estimer."
+    },
+    "ingredients": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Tous les ingrédients, avec leurs quantités exactes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "quantity"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "quantity": {
+            "type": ["string", "null"],
+            "description": "Quantité et unité telles que données (« 200 g », « 1/2 c. à café », « une pincée »). null si non précisée."
+          },
+          "group": {
+            "type": ["string", "null"],
+            "description": "Sous-partie de la recette si la source en a (« Pâte », « Garniture »)."
+          },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "steps": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "minItems": 1,
+      "description": "Toutes les étapes, dans l'ordre, avec températures et durées."
+    },
+    "tips": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Conseils, variantes et conservation mentionnés par la source. Liste vide si aucun."
+    }
+  }
+}

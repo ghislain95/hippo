@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/note.schema.json",
+  "title": "Fiche : note perso",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "idea", "key_points", "leads"],
+  "properties": {
+    "template": { "const": "note" },
+    "idea": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "L'idée reformulée proprement, fidèle à ce que Ghislain a écrit ou dicté. Corriger la forme (dictée, fautes), jamais le fond."
+    },
+    "key_points": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Points clés de la note. Liste vide si la note tient en une idée."
+    },
+    "leads": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Pistes à creuser ou questions ouvertes que la note mentionne. Liste vide si aucune : ne pas en inventer."
+    }
+  }
+}

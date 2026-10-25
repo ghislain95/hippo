@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/resource.schema.json",
+  "title": "Fiche : ressource",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "name", "what_it_is", "use_cases", "when_to_use", "url", "pricing", "alternatives"],
+  "properties": {
+    "template": { "const": "resource" },
+    "name": { "type": "string", "minLength": 1 },
+    "what_it_is": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "Ce que c'est, en une ou deux phrases (outil en ligne de commande, librairie Java, service SaaS, repo…)."
+    },
+    "use_cases": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "minItems": 1,
+      "description": "À quoi ça sert concrètement."
+    },
+    "when_to_use": {
+      "type": ["string", "null"],
+      "description": "Dans quel cas le choisir plutôt qu'autre chose, si la source permet de le dire. null sinon."
+    },
+    "url": {
+      "type": ["string", "null"],
+      "pattern": "^https?://",
+      "description": "Lien principal de la ressource s'il figure dans la source."
+    },
+    "pricing": {
+      "type": ["string", "null"],
+      "description": "Licence ou prix si la source le précise (« open source, MIT », « gratuit jusqu'à 3 projets »). null sinon."
+    },
+    "alternatives": {
+      "type": "array",
+      "description": "Alternatives citées par la source. Liste vide si aucune : ne pas en ajouter de sa propre initiative.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

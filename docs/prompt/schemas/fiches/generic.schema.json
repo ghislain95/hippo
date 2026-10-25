@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hippo.local/schemas/fiches/generic.schema.json",
+  "title": "Fiche : générique (type proposé)",
+  "x-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template", "summary", "sections", "key_points"],
+  "properties": {
+    "template": { "const": "generic" },
+    "summary": {
+      "$ref": "_common.schema.json#/$defs/text",
+      "description": "L'essentiel en quelques phrases."
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "_common.schema.json#/$defs/section" },
+      "description": "Le contenu détaillé, organisé en sections. Liste vide si le résumé suffit."
+    },
+    "key_points": {
+      "$ref": "_common.schema.json#/$defs/textList",
+      "description": "Points clés à retenir."
+    }
+  }
+}
