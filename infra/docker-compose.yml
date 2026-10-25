@@ -29,6 +29,9 @@ services:
     depends_on:
       - tailscale
     environment:
+      # Listen on loopback only: in the network of the sidecar, :8080 would be reachable in plain
+      # HTTP from the tailnet, around tailscale serve.
+      - HTTP_ADDR=127.0.0.1:8080
       - API_TOKEN=${API_TOKEN:?set API_TOKEN in infra/.env}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANALYSIS_MODEL=${ANALYSIS_MODEL:-claude-haiku-4-5}
@@ -37,6 +40,8 @@ services:
       - MONTHLY_BUDGET_USD=${MONTHLY_BUDGET_USD:-5}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TZ=${TZ:-Europe/Paris}
+    # The image runs as the distroless nonroot user (uid 65532): on the NAS, ./data must belong
+    # to it (sudo chown -R 65532:65532 data), or SQLite cannot create the database.
     volumes:
       - ./data:/data
     mem_limit: 128m
