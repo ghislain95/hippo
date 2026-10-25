@@ -37,6 +37,12 @@ const (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// After the first signal, restore the default handling: a second Ctrl-C during the drain
+	// stops the process at once.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	err := run(ctx, os.Args[1:], os.Getenv, os.Stdout)
 	stop()
 	if err != nil {

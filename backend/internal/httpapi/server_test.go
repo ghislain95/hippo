@@ -130,18 +130,21 @@ func TestAuthentication(t *testing.T) {
 		assertProblem(t, f.get(t, "/api/does-not-exist", testToken), http.StatusNotFound)
 	})
 
-	t.Run("never logs the token", func(t *testing.T) {
+	t.Run("never logs the token nor the requested path", func(t *testing.T) {
 		f := newFixture(t)
-		f.get(t, "/api/items", testToken)
+		f.get(t, "/api/items/private-note-title", testToken)
 		f.get(t, "/api/items?q=secret", "wrong-token-0123456789abcdef0123")
+		f.get(t, "/healthz", "")
 		logs := f.logs.String()
-		for _, leak := range []string{testToken, "wrong-token", "secret"} {
+		for _, leak := range []string{testToken, "wrong-token", "secret", "private-note-title"} {
 			if strings.Contains(logs, leak) {
 				t.Errorf("logs contain %q:\n%s", leak, logs)
 			}
 		}
-		if !strings.Contains(logs, `"status":401`) {
-			t.Errorf("logs do not record the request:\n%s", logs)
+		for _, want := range []string{`"status":401`, `"route":"-"`, `"route":"GET /healthz"`, `"route":"/"`} {
+			if !strings.Contains(logs, want) {
+				t.Errorf("logs do not contain %s:\n%s", want, logs)
+			}
 		}
 	})
 }

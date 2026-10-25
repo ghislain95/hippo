@@ -65,6 +65,8 @@ func TestLoad(t *testing.T) {
 		{"rejects an unknown log level", map[string]string{"API_TOKEN": validToken, "LOG_LEVEL": "verbose"}, "LOG_LEVEL"},
 		{"rejects a budget that is not a number", map[string]string{"API_TOKEN": validToken, "MONTHLY_BUDGET_USD": "five"}, "MONTHLY_BUDGET_USD"},
 		{"rejects a negative budget", map[string]string{"API_TOKEN": validToken, "MONTHLY_BUDGET_USD": "-1"}, "MONTHLY_BUDGET_USD"},
+		{"rejects a budget that is not a number value", map[string]string{"API_TOKEN": validToken, "MONTHLY_BUDGET_USD": "NaN"}, "MONTHLY_BUDGET_USD"},
+		{"rejects an infinite budget", map[string]string{"API_TOKEN": validToken, "MONTHLY_BUDGET_USD": "Inf"}, "MONTHLY_BUDGET_USD"},
 	}
 	for _, tc := range invalid {
 		t.Run(tc.name, func(t *testing.T) {

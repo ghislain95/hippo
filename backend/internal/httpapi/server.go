@@ -55,7 +55,7 @@ func NewServer(opts Options) http.Handler {
 		writeProblem(w, r, http.StatusNotFound, problemTypeBlank, "Not found", "Cette ressource n'existe pas.")
 	})
 
-	var handler http.Handler = mux
+	handler := recordRoute(mux)
 	handler = requireAuth(opts.Auth, "/api/", handler)
 	handler = recoverPanics(opts.Logger, handler)
 	handler = logRequests(opts.Logger, handler)

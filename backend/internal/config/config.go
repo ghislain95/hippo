@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -104,7 +105,8 @@ func parseBudget(raw string) (float64, error) {
 		return defaultMonthlyBudgetUSD, nil
 	}
 	budget, err := strconv.ParseFloat(raw, 64)
-	if err != nil || budget < 0 {
+	// NaN and Inf parse fine but would make every "spent >= budget" check false (RG-81).
+	if err != nil || budget < 0 || math.IsNaN(budget) || math.IsInf(budget, 0) {
 		return 0, fmt.Errorf("MONTHLY_BUDGET_USD %q: want a non-negative number of dollars", raw)
 	}
 	return budget, nil

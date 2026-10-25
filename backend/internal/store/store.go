@@ -53,7 +53,9 @@ func dsn(path string) string {
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "synchronous(NORMAL)")
 	query.Set("_txlock", "immediate")
-	return "file:" + path + "?" + query.Encode()
+	// A URI escapes the path, so a "?", "#" or "%" in DATA_DIR cannot corrupt the parameters.
+	uri := url.URL{Scheme: "file", OmitHost: true, Path: path, RawQuery: query.Encode()}
+	return uri.String()
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {

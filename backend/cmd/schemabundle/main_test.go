@@ -36,7 +36,11 @@ func TestBundle(t *testing.T) {
 
 	t.Run("defines every fiche type", func(t *testing.T) {
 		want := []string{"generic", "note", "place", "recipe", "resource", "tech_article", "tip", "tutorial"}
-		if got := ficheTemplates(bundled); strings.Join(got, ",") != strings.Join(want, ",") {
+		got, err := ficheTemplates(bundled)
+		if err != nil {
+			t.Fatalf("ficheTemplates: %v", err)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Errorf("fiche templates = %v, want %v", got, want)
 		}
 	})

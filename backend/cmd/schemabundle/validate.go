@@ -62,7 +62,11 @@ func ValidateExamples(bundled []byte, dir string) (int, error) {
 		templates[answer.Fiche.Template] = true
 	}
 
-	for _, template := range ficheTemplates(bundled) {
+	expected, err := ficheTemplates(bundled)
+	if err != nil {
+		return 0, err
+	}
+	for _, template := range expected {
 		if !templates[template] {
 			return 0, fmt.Errorf("no example for the %q fiche: add %s/%s.json", template, dir, template)
 		}
@@ -71,7 +75,7 @@ func ValidateExamples(bundled []byte, dir string) (int, error) {
 }
 
 // ficheTemplates lists the template constants of the fiche schemas in the bundle.
-func ficheTemplates(bundled []byte) []string {
+func ficheTemplates(bundled []byte) ([]string, error) {
 	var doc struct {
 		Defs map[string]struct {
 			Properties struct {
@@ -82,7 +86,7 @@ func ficheTemplates(bundled []byte) []string {
 		} `json:"$defs"`
 	}
 	if err := json.Unmarshal(bundled, &doc); err != nil {
-		return nil
+		return nil, fmt.Errorf("read the fiche templates of the bundle: %w", err)
 	}
 	var templates []string
 	for _, def := range doc.Defs {
@@ -91,5 +95,8 @@ func ficheTemplates(bundled []byte) []string {
 		}
 	}
 	sort.Strings(templates)
-	return templates
+	if len(templates) == 0 {
+		return nil, fmt.Errorf("the bundle defines no fiche template")
+	}
+	return templates, nil
 }

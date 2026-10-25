@@ -30,6 +30,16 @@ func TestRequireAuth(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts the Bearer scheme in any case", func(t *testing.T) {
+		seenOK = false
+		req := httptest.NewRequest(http.MethodGet, "/api/items", nil)
+		req.Header.Set("Authorization", "bearer "+token)
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		if !seenOK {
+			t.Error("a lowercase bearer scheme was rejected")
+		}
+	})
+
 	t.Run("rejects a token sent without the Bearer scheme", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/items", nil)
 		req.Header.Set("Authorization", token)

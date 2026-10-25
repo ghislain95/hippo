@@ -72,7 +72,7 @@ func TestEnsureSingleUser(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps the same user when the token is rotated", func(t *testing.T) {
+	t.Run("keeps the same user and stores the new hash when the token is rotated", func(t *testing.T) {
 		st := storetest.Open(t)
 		first, err := st.EnsureSingleUser(ctx, "old-hash")
 		if err != nil {
@@ -84,6 +84,9 @@ func TestEnsureSingleUser(t *testing.T) {
 		}
 		if rotated != first {
 			t.Errorf("rotation changed the user: %q, want %q", rotated, first)
+		}
+		if got := store.TokenHashForTest(t, st, first); got != "new-hash" {
+			t.Errorf("stored token hash = %q, want new-hash", got)
 		}
 	})
 }
