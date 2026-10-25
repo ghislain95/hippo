@@ -24,6 +24,448 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List, filter and search items
+         * @description Items of the user, newest first, pinned items first within a category (RG-77). `q`
+         *     searches the title, fiche, capture note, annotations and tags, ignoring case and
+         *     accents (RG-95); every filter combines with the others and with `q` (RG-96).
+         *     `category` includes its subcategories.
+         */
+        get: operations["listItems"];
+        put?: never;
+        /**
+         * Capture an item
+         * @description Creates an item from a link, a note (JSON body) or an image (multipart body) and answers
+         *     at once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same
+         *     normalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing
+         *     item with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds
+         *     no `user_note` (RG-07).
+         */
+        post: operations["createItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Item detail
+         * @description The item with its fiche and its images. An item of another user answers `404` (RG-90).
+         */
+        get: operations["getItem"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an item
+         * @description Deletes the item, its fiche, extracted content and images for good (RG-79); only a tombstone stays for the sync.
+         */
+        delete: operations["deleteItem"];
+        options?: never;
+        head?: never;
+        /**
+         * Correct, pin, annotate an item
+         * @description Changes the content type, category, tags, pin, annotations, capture note or private
+         *     flag. A change of content type, category or tags is recorded as a manual correction
+         *     (RG-60) that no reanalysis overwrites (RG-61). Unchecking private queues the item for
+         *     analysis again (RG-14).
+         */
+        patch: operations["updateItem"];
+        trace?: never;
+    };
+    "/api/items/{item_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reading position and status
+         * @description Records the reading position and moves the read status by RG-75, or forces read / unread.
+         */
+        put: operations["updateReadingProgress"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyse an item now
+         * @description Analyses the item at once, out of the nightly batch, at the full price (RG-33).
+         */
+        post: operations["analyzeItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a failed item again
+         * @description Puts a `failed` item back in the queue with its attempts reset (RG-35).
+         */
+        post: operations["retryItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download an image
+         * @description The image file of an item, as captured.
+         */
+        get: operations["getAsset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What to review
+         * @description Items analysed since the last review, and the proposed categories and content types (RG-70).
+         */
+        get: operations["getReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark the review as done
+         * @description Records the date of the review (RG-71); proposals left untouched come back next time (RG-73).
+         */
+        post: operations["completeReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Category tree
+         * @description Every category of the user, active and proposed, flat with `parent_id` (two levels, RG-51).
+         */
+        get: operations["listCategories"];
+        put?: never;
+        /** Create a category */
+        post: operations["createCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/categories/{category_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: components["parameters"]["CategoryId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an empty category */
+        delete: operations["deleteCategory"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, move, recolour a category, or accept a proposal
+         * @description Setting `status` to `active` accepts a proposed category; renaming a proposed category also accepts it (RG-72).
+         */
+        patch: operations["updateCategory"];
+        trace?: never;
+    };
+    "/api/categories/{category_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: components["parameters"]["CategoryId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a category into another
+         * @description Moves every item and subcategory of the category into the target, then deletes it (RG-72, RG-74); a merge that would create a third level is refused (RG-51).
+         */
+        post: operations["mergeCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/content-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Content types
+         * @description Every content type, active and proposed, with the number of items of the user.
+         */
+        get: operations["listContentTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/content-types/{type_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: components["parameters"]["ContentTypeKeyPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename or accept a proposed content type
+         * @description Accepts a proposed type by setting `status` to `active`; renaming a proposed type also accepts it (RG-72).
+         */
+        patch: operations["updateContentType"];
+        trace?: never;
+    };
+    "/api/content-types/{type_key}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: components["parameters"]["ContentTypeKeyPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a proposed content type into another
+         * @description Moves the items of the proposed type into the target and queues them for reanalysis, since their fiche is generic (RG-72).
+         */
+        post: operations["mergeContentType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tags with their counts */
+        get: operations["listTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags/{tag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a tag
+         * @description The name is normalised (RG-58); a name already taken is refused, merging is the explicit gesture (RG-74).
+         */
+        patch: operations["updateTag"];
+        trace?: never;
+    };
+    "/api/tags/{tag_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Merge a tag into another */
+        post: operations["mergeTag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Changes for the offline cache
+         * @description Without `sync_token`, everything; with it, what changed since (ADR-0018, ADR-0035).
+         *     Rows come in change order, page by page; only the last page (`next_cursor` null)
+         *     carries the new `sync_token`, to send next time. Items never carry `content_text`.
+         */
+        get: operations["syncChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Markdown export
+         * @description A zip archive with one Markdown file per item, in one folder per category, with front matter, fiche, annotations and images (RG-91). Generated on demand, never stored.
+         */
+        get: operations["exportArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Queue, failures and AI cost
+         * @description Items by processing status, queue size, failures and the cost of the current month (RG-82).
+         */
+        get: operations["getStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -70,11 +512,569 @@ export interface components {
              */
             version: string;
         };
-        /** @description Cursor of the next page, to pass as `cursor`; `null` on the last page. Paginated responses are objects `{ items, next_cursor }`. */
-        NextCursor: string | null;
+        /**
+         * @description ULID, sortable by creation time.
+         * @example 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
+         */
+        Ulid: string;
+        /**
+         * @description Key of a content type, in English snake_case (`tech_article`, `recipe`…).
+         * @example recipe
+         */
+        ContentTypeKey: string;
+        /**
+         * @description What was captured (glossary "Forme de l'élément").
+         * @enum {string}
+         */
+        ItemKind: "link" | "image" | "note";
+        /**
+         * @description Where the capture comes from (`rss` arrives with V2).
+         * @enum {string}
+         */
+        CaptureSource: "share" | "manual";
+        /**
+         * @description Where the item is in the pipeline (glossary "Statut de traitement").
+         * @enum {string}
+         */
+        ProcessingStatus: "queued" | "extracted" | "submitted" | "analyzed" | "failed";
+        /**
+         * @description Where the user is in reading (glossary "Statut de lecture").
+         * @enum {string}
+         */
+        ReadStatus: "to_read" | "in_progress" | "read";
+        /**
+         * @description `full`: main content extracted; `fallback`: metadata only (RG-23); `none`: image or note.
+         * @enum {string}
+         */
+        ExtractionMode: "full" | "fallback" | "none";
+        /** @enum {string} */
+        Freshness: "dated" | "timeless";
+        /**
+         * @description `proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57).
+         * @enum {string}
+         */
+        ProposalStatus: "active" | "proposed";
+        /**
+         * @description A field the user corrected by hand (RG-60).
+         * @enum {string}
+         */
+        CorrectedField: "content_type" | "category" | "tags";
+        /** @description An image of an item, stored on the NAS. */
+        Asset: {
+            id: components["schemas"]["Ulid"];
+            /** @example image/jpeg */
+            mime_type: string;
+            width: number | null;
+            height: number | null;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        /** @description An item as shown in a list (cards of the library and of the review). */
+        ItemSummary: {
+            id: components["schemas"]["Ulid"];
+            kind: components["schemas"]["ItemKind"];
+            title: string;
+            /** @description Original URL, as captured (link items). */
+            url: string | null;
+            site_name: string | null;
+            status: components["schemas"]["ProcessingStatus"];
+            is_private: boolean;
+            /** @description Content type key; null until analysed or sorted. */
+            content_type: components["schemas"]["ContentTypeKey"] | null;
+            /**
+             * Format: int64
+             * @description Category; null means À trier.
+             */
+            category_id: number | null;
+            tag_ids: number[];
+            is_pinned: boolean;
+            read_status: components["schemas"]["ReadStatus"];
+            read_progress: number;
+            /** @description Reading time of the original, computed at extraction (RG-25). */
+            reading_minutes: number | null;
+            /** @description False when the AI found the content too poor (RG-37); null until analysed. */
+            content_ok: boolean | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description An item with everything shown on its fiche screen and kept in the offline cache. Never carries the extracted content. */
+        Item: {
+            id: components["schemas"]["Ulid"];
+            kind: components["schemas"]["ItemKind"];
+            source: components["schemas"]["CaptureSource"];
+            /** @description Original title before analysis, then the title written by the AI. */
+            title: string;
+            /** @description Original URL, as captured (link items). */
+            url: string | null;
+            site_name: string | null;
+            /** @description Capture note; the content itself for a note item (RG-03). */
+            user_note: string | null;
+            /** @description Never sent to the AI (RG-12). */
+            is_private: boolean;
+            status: components["schemas"]["ProcessingStatus"];
+            extraction_mode: components["schemas"]["ExtractionMode"] | null;
+            /** @description The extracted content exceeded the limit and was cut (RG-24). */
+            content_truncated: boolean;
+            reading_minutes: number | null;
+            /** @description Content type key; null until analysed or sorted. */
+            content_type: components["schemas"]["ContentTypeKey"] | null;
+            /**
+             * Format: int64
+             * @description Category; null means À trier.
+             */
+            category_id: number | null;
+            tag_ids: number[];
+            fiche?: components["schemas"]["Fiche"];
+            content_ok: boolean | null;
+            /** @description What is missing, according to the AI (RG-37). */
+            content_issue: string | null;
+            /** @description Language of the original, ISO 639-1. */
+            language: string | null;
+            freshness: components["schemas"]["Freshness"] | null;
+            /** @description Model that wrote the fiche (RG-64). */
+            model: string | null;
+            prompt_version: number | null;
+            /** @description Version of the fiche schema that produced the fiche (RG-64). */
+            schema_version: number | null;
+            user_edited: components["schemas"]["CorrectedField"][];
+            annotations: string | null;
+            is_pinned: boolean;
+            read_status: components["schemas"]["ReadStatus"];
+            read_progress: number;
+            attempts: number;
+            /** @description Why the last analysis failed, shown with the Relancer button (RG-35, RG-36). */
+            last_error: string | null;
+            assets: components["schemas"]["Asset"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            extracted_at: string | null;
+            /** Format: date-time */
+            analyzed_at: string | null;
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        ItemPage: {
+            items: components["schemas"]["ItemSummary"][];
+            next_cursor: string | null;
+        };
+        /** @description A link or a note. Exactly one of `url` and `note`; a note holds no `user_note` (RG-07). */
+        CaptureRequest: {
+            /**
+             * @description `http` or `https` URL (RG-02).
+             * @example https://example.com/article
+             */
+            url?: string;
+            /** @description Text of a note item. */
+            note?: string;
+            /** @description Capture note of a link (RG-03). */
+            user_note?: string;
+            /** @default false */
+            is_private: boolean;
+            /** @description Chosen by the device; a capture replayed with the same id returns the existing item (RG-08). */
+            client_id?: components["schemas"]["Ulid"];
+        };
+        /** @description An image capture (screenshot or photo), 20 MB at most (RG-02). */
+        CaptureImageRequest: {
+            /** Format: binary */
+            image: string;
+            user_note?: string;
+            /** @default false */
+            is_private: boolean;
+            client_id?: components["schemas"]["Ulid"];
+        };
+        /** @description Fields to change; absent fields stay as they are, `null` clears a nullable field. */
+        ItemPatch: {
+            content_type?: components["schemas"]["ContentTypeKey"];
+            /**
+             * Format: int64
+             * @description New category; null moves the item to À trier.
+             */
+            category_id?: number | null;
+            /** @description Replaces the tags of the item; names are normalised (RG-58), new ones are created. */
+            tags?: string[];
+            is_pinned?: boolean;
+            annotations?: string | null;
+            user_note?: string | null;
+            is_private?: boolean;
+        };
+        /** @description The reading position, a forced read status, or both. */
+        ReadingProgress: {
+            read_progress?: number;
+            read_status?: components["schemas"]["ReadStatus"];
+        };
+        Category: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /** @description Helps the AI file the next items (RG-52). */
+            description: string | null;
+            /**
+             * Format: int64
+             * @description Root category when null (two levels at most, RG-51).
+             */
+            parent_id: number | null;
+            status: components["schemas"]["ProposalStatus"];
+            /** @description Why the AI proposed it. */
+            proposal_reason: string | null;
+            /** @description Accent colour set on this category; null inherits from the root (RG-59). */
+            color: string | null;
+            /**
+             * @description Colour to display, after inheritance (RG-59).
+             * @example #3A7D44
+             */
+            display_color: string;
+            /** @description Items in the category and its subcategories. */
+            item_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CategoryList: {
+            categories: components["schemas"]["Category"][];
+        };
+        CategoryCreate: {
+            name: string;
+            /** Format: int64 */
+            parent_id?: number | null;
+            description?: string | null;
+            color?: string | null;
+        };
+        CategoryPatch: {
+            name?: string;
+            /**
+             * Format: int64
+             * @description New parent; null makes it a root category.
+             */
+            parent_id?: number | null;
+            description?: string | null;
+            color?: string | null;
+            /**
+             * @description `active` accepts a proposed category.
+             * @enum {string}
+             */
+            status?: "active";
+        };
+        CategoryMerge: {
+            /** Format: int64 */
+            target_id: number;
+        };
+        ContentType: {
+            key: components["schemas"]["ContentTypeKey"];
+            /** @description Name shown in the app, in French. */
+            name: string;
+            status: components["schemas"]["ProposalStatus"];
+            /** @description False for a type rendered with the generic template (RG-57). */
+            has_template: boolean;
+            proposal_reason: string | null;
+            item_count: number;
+        };
+        ContentTypeList: {
+            content_types: components["schemas"]["ContentType"][];
+        };
+        ContentTypePatch: {
+            name?: string;
+            /**
+             * @description `active` accepts a proposed type.
+             * @enum {string}
+             */
+            status?: "active";
+        };
+        ContentTypeMerge: {
+            target_key: components["schemas"]["ContentTypeKey"];
+        };
+        Tag: {
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description Lowercase, words separated by hyphens, no accent (RG-58).
+             * @example spring-boot
+             */
+            name: string;
+            item_count: number;
+        };
+        TagList: {
+            tags: components["schemas"]["Tag"][];
+        };
+        TagPatch: {
+            /** @description Normalised by the backend like any tag (RG-58). */
+            name: string;
+        };
+        TagMerge: {
+            /** Format: int64 */
+            target_id: number;
+        };
+        Review: {
+            /** @description Items analysed since the last review (RG-70). */
+            items: components["schemas"]["ItemSummary"][];
+            proposed_categories: components["schemas"]["Category"][];
+            proposed_content_types: components["schemas"]["ContentType"][];
+            /** Format: date-time */
+            last_review_at: string | null;
+        };
+        ReviewDone: {
+            /** Format: date-time */
+            last_review_at: string;
+        };
+        Stats: {
+            items_by_status: {
+                queued: number;
+                extracted: number;
+                submitted: number;
+                analyzed: number;
+                failed: number;
+            };
+            /** @description Items waiting for the next batch. */
+            queue_size: number;
+            failed_count: number;
+            /** @description AI cost of the current month, from the tokens really used (RG-80, RG-82). */
+            month_cost_usd: number;
+            monthly_budget_usd: number;
+            /** @description No analysis until the 1st of next month (RG-81). */
+            budget_reached: boolean;
+        };
+        /** @description A deleted item; nothing but its id stays (RG-79). */
+        ItemTombstone: {
+            id: components["schemas"]["Ulid"];
+            /** Format: date-time */
+            deleted_at: string;
+        };
+        /** @description A deleted category or tag. */
+        IdTombstone: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            deleted_at: string;
+        };
+        /** @description A deleted (merged) content type; its id is its key. */
+        KeyTombstone: {
+            id: components["schemas"]["ContentTypeKey"];
+            /** Format: date-time */
+            deleted_at: string;
+        };
+        /** @description One page of changes. The `item_count` of categories, content types and tags reflects the moment the row changed; the app recomputes the counts from its cache rather than relying on them after a delta sync. */
+        SyncPage: {
+            items: components["schemas"]["Item"][];
+            categories: components["schemas"]["Category"][];
+            content_types: components["schemas"]["ContentType"][];
+            tags: components["schemas"]["Tag"][];
+            deleted: {
+                items: components["schemas"]["ItemTombstone"][];
+                categories: components["schemas"]["IdTombstone"][];
+                content_types: components["schemas"]["KeyTombstone"][];
+                tags: components["schemas"]["IdTombstone"][];
+            };
+            /** @description Cursor of the next page of this sync; null on the last page. */
+            next_cursor: string | null;
+            /** @description Token to send at the next sync; set on the last page only. */
+            sync_token: string | null;
+        };
+        /** @description Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown. */
+        FicheText: string;
+        FicheTextList: components["schemas"]["FicheText"][];
+        FicheCodeBlock: {
+            /** @description Courte légende facultative expliquant ce que fait ce code. */
+            caption?: string | null;
+            /** @description Code, commande ou configuration recopié À L'IDENTIQUE depuis la source. Ne jamais reformuler, tronquer ni traduire. */
+            code: string;
+            /** @description Langage pour la coloration : java, go, sql, bash, yaml, json, typescript, etc. « text » si inconnu. */
+            language: string;
+        };
+        FicheSection: {
+            body: components["schemas"]["FicheText"];
+            /** @description Extraits de code liés à cette section, recopiés à l'identique. */
+            code?: components["schemas"]["FicheCodeBlock"][];
+            heading: string;
+        };
+        /** Fiche : générique (type proposé) */
+        FicheGeneric: {
+            /** @description Points clés à retenir. */
+            key_points: components["schemas"]["FicheTextList"];
+            /** @description Le contenu détaillé, organisé en sections. Liste vide si le résumé suffit. */
+            sections: components["schemas"]["FicheSection"][];
+            /** @description L'essentiel en quelques phrases. */
+            summary: components["schemas"]["FicheText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "generic";
+        };
+        /** Fiche : note perso */
+        FicheNote: {
+            /** @description L'idée reformulée proprement, fidèle à ce que Ghislain a écrit ou dicté. Corriger la forme (dictée, fautes), jamais le fond. */
+            idea: components["schemas"]["FicheText"];
+            /** @description Points clés de la note. Liste vide si la note tient en une idée. */
+            key_points: components["schemas"]["FicheTextList"];
+            /** @description Pistes à creuser ou questions ouvertes que la note mentionne. Liste vide si aucune : ne pas en inventer. */
+            leads: components["schemas"]["FicheTextList"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "note";
+        };
+        FicheLink: {
+            label: string;
+            /** @description Uniquement une URL présente dans la source. Ne jamais en inventer. */
+            url: string;
+        };
+        /** Fiche : lieu */
+        FichePlace: {
+            /** @description Adresse complète si la source la donne. null sinon : ne jamais deviner une adresse. */
+            address: string | null;
+            /** @description Meilleur moment pour y aller, si la source le dit. null sinon. */
+            best_time: string | null;
+            /** @description Ville. null si inconnue. */
+            city: string | null;
+            /** @description Texte à chercher dans Plans pour trouver le lieu : nom + adresse ou ville. */
+            maps_query: string;
+            name: string;
+            /** @description Nature du lieu en un ou deux mots : restaurant, bar, café, musée, parc, balade, boutique, ville, hébergement… */
+            place_kind: string;
+            /** @description Infos pratiques données par la source : horaires, prix, réservation, accès. Liste vide si aucune. */
+            practical_info: components["schemas"]["FicheTextList"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "place";
+            /** @description Site officiel s'il figure dans la source. */
+            website: components["schemas"]["FicheLink"] | null;
+            /** @description Ce qu'on y fait, ce qui le rend intéressant, ce qu'il faut commander ou voir. */
+            what_to_do: components["schemas"]["FicheText"];
+        };
+        /** Fiche : recette */
+        FicheRecipe: {
+            /** @description Temps de cuisson en minutes. null si la source ne le donne pas : ne pas estimer. */
+            cook_minutes: number | null;
+            /** @description Tous les ingrédients, avec leurs quantités exactes. */
+            ingredients: {
+                /** @description Sous-partie de la recette si la source en a (« Pâte », « Garniture »). */
+                group?: string | null;
+                name: string;
+                note?: string | null;
+                /** @description Quantité et unité telles que données (« 200 g », « 1/2 c. à café », « une pincée »). null si non précisée. */
+                quantity: string | null;
+            }[];
+            /** @description Temps de préparation en minutes. null si la source ne le donne pas : ne pas estimer. */
+            prep_minutes: number | null;
+            /** @description Nombre de portions tel que donné (« 4 personnes », « 12 cookies »). null si inconnu. */
+            servings: string | null;
+            /** @description Toutes les étapes, dans l'ordre, avec températures et durées. */
+            steps: components["schemas"]["FicheTextList"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "recipe";
+            /** @description Conseils, variantes et conservation mentionnés par la source. Liste vide si aucun. */
+            tips: components["schemas"]["FicheTextList"];
+        };
+        /** Fiche : ressource */
+        FicheResource: {
+            /** @description Alternatives citées par la source. Liste vide si aucune : ne pas en ajouter de sa propre initiative. */
+            alternatives: {
+                name: string;
+                note?: string | null;
+            }[];
+            name: string;
+            /** @description Licence ou prix si la source le précise (« open source, MIT », « gratuit jusqu'à 3 projets »). null sinon. */
+            pricing: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "resource";
+            /** @description Lien principal de la ressource s'il figure dans la source. */
+            url: string | null;
+            /** @description À quoi ça sert concrètement. */
+            use_cases: components["schemas"]["FicheTextList"];
+            /** @description Ce que c'est, en une ou deux phrases (outil en ligne de commande, librairie Java, service SaaS, repo…). */
+            what_it_is: components["schemas"]["FicheText"];
+            /** @description Dans quel cas le choisir plutôt qu'autre chose, si la source permet de le dire. null sinon. */
+            when_to_use: string | null;
+        };
+        /** Fiche : article technique */
+        FicheTechArticle: {
+            /** @description Les détails techniques, organisés en sections. AUCUNE information utile ne doit manquer : versions, chiffres, options, commandes, code, comparaisons, benchmarks. */
+            details: components["schemas"]["FicheSection"][];
+            /** @description Ce qui change ou ce qu'il faut retenir, une idée par entrée. Liste vide si l'article ne décrit pas de changement. */
+            key_changes: components["schemas"]["FicheTextList"];
+            /** @description Liens utiles présents dans la source (documentation, JEP, repo). Liste vide si aucun. */
+            links: components["schemas"]["FicheLink"][];
+            /** @description Limites, pièges, incompatibilités, avertissements mentionnés par la source. Liste vide si aucun. */
+            pitfalls: components["schemas"]["FicheTextList"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "tech_article";
+            /** @description L'essentiel en quelques lignes (2 à 5 phrases) : de quoi il s'agit et pourquoi ça compte. */
+            tldr: components["schemas"]["FicheText"];
+            /** @description Produits et versions cités comme sujet de l'article (affichés en badges). Liste vide si aucun. */
+            versions: {
+                name: string;
+                version: string;
+            }[];
+        };
+        /** Fiche : astuce */
+        FicheTip: {
+            /** @description Matériel ou produits nécessaires, avec les quantités si la source les donne. Liste vide si aucun. */
+            materials: components["schemas"]["FicheTextList"];
+            /** @description Les étapes courtes, dans l'ordre. Liste vide si l'astuce tient en une phrase. */
+            steps: components["schemas"]["FicheTextList"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "tip";
+            /** @description L'astuce en une phrase claire. */
+            tip: components["schemas"]["FicheText"];
+            /** @description Précautions mentionnées par la source (surfaces à éviter, mélanges dangereux…). Liste vide si aucune. */
+            warnings: components["schemas"]["FicheTextList"];
+        };
+        /** Fiche : tuto */
+        FicheTutorial: {
+            /** @description Comment vérifier que ça a marché. null si la source ne le dit pas. */
+            expected_result: string | null;
+            /** @description Ce qu'on obtient à la fin, en une ou deux phrases. */
+            goal: components["schemas"]["FicheText"];
+            /** @description Ce qu'il faut avoir ou savoir avant de commencer, avec les versions si la source les donne. Liste vide si aucun. */
+            prerequisites: components["schemas"]["FicheTextList"];
+            /** @description Toutes les étapes, dans l'ordre. Ne jamais en fusionner au point de perdre une action. */
+            steps: {
+                body: components["schemas"]["FicheText"];
+                code?: components["schemas"]["FicheCodeBlock"][];
+                title: string;
+            }[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            template: "tutorial";
+            /** @description Erreurs courantes et solutions données par la source. Liste vide si aucune. */
+            troubleshooting: components["schemas"]["FicheTextList"];
+        };
+        /** @description Fiche of an item, in the format of its template (docs/prompt/schemas/fiches). Render it by its template, never by the content type of the item. */
+        Fiche: components["schemas"]["FicheGeneric"] | components["schemas"]["FicheNote"] | components["schemas"]["FichePlace"] | components["schemas"]["FicheRecipe"] | components["schemas"]["FicheResource"] | components["schemas"]["FicheTechArticle"] | components["schemas"]["FicheTip"] | components["schemas"]["FicheTutorial"];
     };
     responses: {
-        /** @description The request is invalid. */
+        /** @description A problem document; its `type` tells which. */
+        Problem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description The request breaks this contract (`about:blank`). */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -92,17 +1092,8 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The resource does not exist, or belongs to another user. */
+        /** @description The resource does not exist, or belongs to another user (RG-90). */
         NotFound: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["Problem"];
-            };
-        };
-        /** @description Unexpected server error; the cause is in the server logs. */
-        InternalError: {
             headers: {
                 [name: string]: unknown;
             };
@@ -114,8 +1105,13 @@ export interface components {
     parameters: {
         /** @description Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page. */
         Cursor: string;
-        /** @description Maximum number of items in the page. */
+        /** @description Maximum number of entries in the page. */
         Limit: number;
+        ItemId: components["schemas"]["Ulid"];
+        AssetId: components["schemas"]["Ulid"];
+        CategoryId: number;
+        TagId: number;
+        ContentTypeKeyPath: components["schemas"]["ContentTypeKey"];
     };
     requestBodies: never;
     headers: never;
@@ -150,6 +1146,684 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listItems: {
+        parameters: {
+            query?: {
+                /** @description Full-text search terms. */
+                q?: string;
+                /** @description Content type key. */
+                type?: components["schemas"]["ContentTypeKey"];
+                /** @description Category id; includes its subcategories. */
+                category?: number;
+                /** @description Tag id; repeat the parameter to require several tags. */
+                tag?: number[];
+                /** @description Processing status. */
+                status?: components["schemas"]["ProcessingStatus"];
+                read_status?: components["schemas"]["ReadStatus"];
+                /** @description Only pinned items. */
+                pinned?: boolean;
+                /** @description Only items without a category (À trier). */
+                unsorted?: boolean;
+                /** @description Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of entries in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureRequest"];
+                "multipart/form-data": components["schemas"]["CaptureImageRequest"];
+            };
+        };
+        responses: {
+            /** @description Existing item returned. For a duplicate link, the new capture note is appended to the existing one, dated (RG-04); a replayed `client_id` changes nothing (RG-08). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            /** @description Item created, status `queued`, read status `to_read`. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            /** @description Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `image-too-large`. */
+            413: components["responses"]["Problem"];
+            /** @description Neither `application/json` nor `multipart/form-data`. */
+            415: components["responses"]["Problem"];
+        };
+    };
+    getItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateReadingProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingProgress"];
+            };
+        };
+        responses: {
+            /** @description The updated item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    analyzeItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The analysed item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `private-item`, `budget-exceeded`, `not-ready`, `already-submitted`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    retryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: components["parameters"]["ItemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The queued item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `not-failed`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    getAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    completeReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recorded date. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDone"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The categories. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryCreate"];
+            };
+        };
+        responses: {
+            /** @description The created category, `active`. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description `category-too-deep`, or a request that breaks the contract. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `name-taken`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    deleteCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: components["parameters"]["CategoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `category-not-empty`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    updateCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: components["parameters"]["CategoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryPatch"];
+            };
+        };
+        responses: {
+            /** @description The updated category. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description `category-too-deep`, or a request that breaks the contract. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `name-taken` (RG-74). */
+            409: components["responses"]["Problem"];
+        };
+    };
+    mergeCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: components["parameters"]["CategoryId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryMerge"];
+            };
+        };
+        responses: {
+            /** @description The target category. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description `invalid-merge-target`, `category-too-deep`, or a request that breaks the contract. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listContentTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The content types. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentTypeList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateContentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: components["parameters"]["ContentTypeKeyPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContentTypePatch"];
+            };
+        };
+        responses: {
+            /** @description The updated content type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentType"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    mergeContentType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                type_key: components["parameters"]["ContentTypeKeyPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContentTypeMerge"];
+            };
+        };
+        responses: {
+            /** @description The target content type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentType"];
+                };
+            };
+            /** @description `invalid-merge-target`, or a request that breaks the contract. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `type-not-proposed`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    listTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagPatch"];
+            };
+        };
+        responses: {
+            /** @description The renamed tag. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `name-taken`. */
+            409: components["responses"]["Problem"];
+        };
+    };
+    mergeTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: components["parameters"]["TagId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagMerge"];
+            };
+        };
+        responses: {
+            /** @description The target tag. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description `invalid-merge-target`, or a request that breaks the contract. */
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    syncChanges: {
+        parameters: {
+            query?: {
+                /** @description Token of the previous sync, as returned by its last page. */
+                sync_token?: string;
+                /** @description Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of entries in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description `sync-expired`: drop the cache and sync again without a token. */
+            410: components["responses"]["Problem"];
+        };
+    };
+    exportArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The statistics. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stats"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

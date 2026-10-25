@@ -1,0 +1,615 @@
+{
+  "components": {
+    "schemas": {
+      "Fiche": {
+        "description": "Fiche of an item, in the format of its template (docs/prompt/schemas/fiches). Render it by its template, never by the content type of the item.",
+        "discriminator": {
+          "mapping": {
+            "generic": "#/components/schemas/FicheGeneric",
+            "note": "#/components/schemas/FicheNote",
+            "place": "#/components/schemas/FichePlace",
+            "recipe": "#/components/schemas/FicheRecipe",
+            "resource": "#/components/schemas/FicheResource",
+            "tech_article": "#/components/schemas/FicheTechArticle",
+            "tip": "#/components/schemas/FicheTip",
+            "tutorial": "#/components/schemas/FicheTutorial"
+          },
+          "propertyName": "template"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FicheGeneric"
+          },
+          {
+            "$ref": "#/components/schemas/FicheNote"
+          },
+          {
+            "$ref": "#/components/schemas/FichePlace"
+          },
+          {
+            "$ref": "#/components/schemas/FicheRecipe"
+          },
+          {
+            "$ref": "#/components/schemas/FicheResource"
+          },
+          {
+            "$ref": "#/components/schemas/FicheTechArticle"
+          },
+          {
+            "$ref": "#/components/schemas/FicheTip"
+          },
+          {
+            "$ref": "#/components/schemas/FicheTutorial"
+          }
+        ]
+      },
+      "FicheCodeBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "caption": {
+            "description": "Courte légende facultative expliquant ce que fait ce code.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code": {
+            "description": "Code, commande ou configuration recopié À L'IDENTIQUE depuis la source. Ne jamais reformuler, tronquer ni traduire.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "language": {
+            "description": "Langage pour la coloration : java, go, sql, bash, yaml, json, typescript, etc. « text » si inconnu.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "code"
+        ],
+        "type": "object"
+      },
+      "FicheGeneric": {
+        "additionalProperties": false,
+        "properties": {
+          "key_points": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Points clés à retenir."
+          },
+          "sections": {
+            "description": "Le contenu détaillé, organisé en sections. Liste vide si le résumé suffit.",
+            "items": {
+              "$ref": "#/components/schemas/FicheSection"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "L'essentiel en quelques phrases."
+          },
+          "template": {
+            "const": "generic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "summary",
+          "sections",
+          "key_points"
+        ],
+        "title": "Fiche : générique (type proposé)",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheLink": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "url": {
+            "description": "Uniquement une URL présente dans la source. Ne jamais en inventer.",
+            "pattern": "^https?://",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "url"
+        ],
+        "type": "object"
+      },
+      "FicheNote": {
+        "additionalProperties": false,
+        "properties": {
+          "idea": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "L'idée reformulée proprement, fidèle à ce que Ghislain a écrit ou dicté. Corriger la forme (dictée, fautes), jamais le fond."
+          },
+          "key_points": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Points clés de la note. Liste vide si la note tient en une idée."
+          },
+          "leads": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Pistes à creuser ou questions ouvertes que la note mentionne. Liste vide si aucune : ne pas en inventer."
+          },
+          "template": {
+            "const": "note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "idea",
+          "key_points",
+          "leads"
+        ],
+        "title": "Fiche : note perso",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FichePlace": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "Adresse complète si la source la donne. null sinon : ne jamais deviner une adresse.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "best_time": {
+            "description": "Meilleur moment pour y aller, si la source le dit. null sinon.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "city": {
+            "description": "Ville. null si inconnue.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maps_query": {
+            "description": "Texte à chercher dans Plans pour trouver le lieu : nom + adresse ou ville.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "place_kind": {
+            "description": "Nature du lieu en un ou deux mots : restaurant, bar, café, musée, parc, balade, boutique, ville, hébergement…",
+            "type": "string"
+          },
+          "practical_info": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Infos pratiques données par la source : horaires, prix, réservation, accès. Liste vide si aucune."
+          },
+          "template": {
+            "const": "place",
+            "type": "string"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FicheLink"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Site officiel s'il figure dans la source."
+          },
+          "what_to_do": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "Ce qu'on y fait, ce qui le rend intéressant, ce qu'il faut commander ou voir."
+          }
+        },
+        "required": [
+          "template",
+          "name",
+          "place_kind",
+          "city",
+          "address",
+          "what_to_do",
+          "practical_info",
+          "best_time",
+          "website",
+          "maps_query"
+        ],
+        "title": "Fiche : lieu",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheRecipe": {
+        "additionalProperties": false,
+        "properties": {
+          "cook_minutes": {
+            "description": "Temps de cuisson en minutes. null si la source ne le donne pas : ne pas estimer.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ingredients": {
+            "description": "Tous les ingrédients, avec leurs quantités exactes.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "description": "Sous-partie de la recette si la source en a (« Pâte », « Garniture »).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "description": "Quantité et unité telles que données (« 200 g », « 1/2 c. à café », « une pincée »). null si non précisée.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "quantity"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "prep_minutes": {
+            "description": "Temps de préparation en minutes. null si la source ne le donne pas : ne pas estimer.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "servings": {
+            "description": "Nombre de portions tel que donné (« 4 personnes », « 12 cookies »). null si inconnu.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "steps": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Toutes les étapes, dans l'ordre, avec températures et durées.",
+            "minItems": 1
+          },
+          "template": {
+            "const": "recipe",
+            "type": "string"
+          },
+          "tips": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Conseils, variantes et conservation mentionnés par la source. Liste vide si aucun."
+          }
+        },
+        "required": [
+          "template",
+          "servings",
+          "prep_minutes",
+          "cook_minutes",
+          "ingredients",
+          "steps",
+          "tips"
+        ],
+        "title": "Fiche : recette",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheResource": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "description": "Alternatives citées par la source. Liste vide si aucune : ne pas en ajouter de sa propre initiative.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "pricing": {
+            "description": "Licence ou prix si la source le précise (« open source, MIT », « gratuit jusqu'à 3 projets »). null sinon.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template": {
+            "const": "resource",
+            "type": "string"
+          },
+          "url": {
+            "description": "Lien principal de la ressource s'il figure dans la source.",
+            "pattern": "^https?://",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "use_cases": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "À quoi ça sert concrètement.",
+            "minItems": 1
+          },
+          "what_it_is": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "Ce que c'est, en une ou deux phrases (outil en ligne de commande, librairie Java, service SaaS, repo…)."
+          },
+          "when_to_use": {
+            "description": "Dans quel cas le choisir plutôt qu'autre chose, si la source permet de le dire. null sinon.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "template",
+          "name",
+          "what_it_is",
+          "use_cases",
+          "when_to_use",
+          "url",
+          "pricing",
+          "alternatives"
+        ],
+        "title": "Fiche : ressource",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheSection": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/FicheText"
+          },
+          "code": {
+            "description": "Extraits de code liés à cette section, recopiés à l'identique.",
+            "items": {
+              "$ref": "#/components/schemas/FicheCodeBlock"
+            },
+            "type": "array"
+          },
+          "heading": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "heading",
+          "body"
+        ],
+        "type": "object"
+      },
+      "FicheTechArticle": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "description": "Les détails techniques, organisés en sections. AUCUNE information utile ne doit manquer : versions, chiffres, options, commandes, code, comparaisons, benchmarks.",
+            "items": {
+              "$ref": "#/components/schemas/FicheSection"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "key_changes": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Ce qui change ou ce qu'il faut retenir, une idée par entrée. Liste vide si l'article ne décrit pas de changement."
+          },
+          "links": {
+            "description": "Liens utiles présents dans la source (documentation, JEP, repo). Liste vide si aucun.",
+            "items": {
+              "$ref": "#/components/schemas/FicheLink"
+            },
+            "type": "array"
+          },
+          "pitfalls": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Limites, pièges, incompatibilités, avertissements mentionnés par la source. Liste vide si aucun."
+          },
+          "template": {
+            "const": "tech_article",
+            "type": "string"
+          },
+          "tldr": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "L'essentiel en quelques lignes (2 à 5 phrases) : de quoi il s'agit et pourquoi ça compte."
+          },
+          "versions": {
+            "description": "Produits et versions cités comme sujet de l'article (affichés en badges). Liste vide si aucun.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "version": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "template",
+          "tldr",
+          "key_changes",
+          "details",
+          "versions",
+          "pitfalls",
+          "links"
+        ],
+        "title": "Fiche : article technique",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheText": {
+        "description": "Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown.",
+        "minLength": 1,
+        "type": "string"
+      },
+      "FicheTextList": {
+        "items": {
+          "$ref": "#/components/schemas/FicheText"
+        },
+        "type": "array"
+      },
+      "FicheTip": {
+        "additionalProperties": false,
+        "properties": {
+          "materials": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Matériel ou produits nécessaires, avec les quantités si la source les donne. Liste vide si aucun."
+          },
+          "steps": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Les étapes courtes, dans l'ordre. Liste vide si l'astuce tient en une phrase."
+          },
+          "template": {
+            "const": "tip",
+            "type": "string"
+          },
+          "tip": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "L'astuce en une phrase claire."
+          },
+          "warnings": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Précautions mentionnées par la source (surfaces à éviter, mélanges dangereux…). Liste vide si aucune."
+          }
+        },
+        "required": [
+          "template",
+          "tip",
+          "steps",
+          "materials",
+          "warnings"
+        ],
+        "title": "Fiche : astuce",
+        "type": "object",
+        "x-schema-version": 1
+      },
+      "FicheTutorial": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_result": {
+            "description": "Comment vérifier que ça a marché. null si la source ne le dit pas.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal": {
+            "$ref": "#/components/schemas/FicheText",
+            "description": "Ce qu'on obtient à la fin, en une ou deux phrases."
+          },
+          "prerequisites": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Ce qu'il faut avoir ou savoir avant de commencer, avec les versions si la source les donne. Liste vide si aucun."
+          },
+          "steps": {
+            "description": "Toutes les étapes, dans l'ordre. Ne jamais en fusionner au point de perdre une action.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "$ref": "#/components/schemas/FicheText"
+                },
+                "code": {
+                  "items": {
+                    "$ref": "#/components/schemas/FicheCodeBlock"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "body"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "template": {
+            "const": "tutorial",
+            "type": "string"
+          },
+          "troubleshooting": {
+            "$ref": "#/components/schemas/FicheTextList",
+            "description": "Erreurs courantes et solutions données par la source. Liste vide si aucune."
+          }
+        },
+        "required": [
+          "template",
+          "goal",
+          "prerequisites",
+          "steps",
+          "expected_result",
+          "troubleshooting"
+        ],
+        "title": "Fiche : tuto",
+        "type": "object",
+        "x-schema-version": 1
+      }
+    }
+  },
+  "x-generated": "Generated by backend/cmd/schemabundle from docs/prompt/schemas/fiches. Never edit: run make generate."
+}

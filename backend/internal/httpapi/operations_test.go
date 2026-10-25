@@ -1,0 +1,131 @@
+package httpapi_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"sort"
+	"strings"
+	"testing"
+)
+
+const bundledContract = "../../../api/openapi.bundled.gen.json"
+
+// requestBodies holds one valid JSON body per operation whose request body is required. A new
+// operation with a required body and no entry here fails the test, so that it gets a case.
+var requestBodies = map[string]string{
+	"createItem":            `{"url": "https://example.com/article"}`,
+	"updateItem":            `{"is_pinned": true}`,
+	"updateReadingProgress": `{"read_progress": 0.5}`,
+	"createCategory":        `{"name": "Kubernetes"}`,
+	"updateCategory":        `{"name": "Orchestration"}`,
+	"mergeCategory":         `{"target_id": 2}`,
+	"updateContentType":     `{"name": "Évènement"}`,
+	"mergeContentType":      `{"target_key": "note"}`,
+	"updateTag":             `{"name": "go"}`,
+	"mergeTag":              `{"target_id": 2}`,
+}
+
+// pathValues gives a value of the right type to every path parameter of the contract.
+var pathValues = map[string]string{
+	"{item_id}":     "01JB8Z6Q4M1X2Y3Z4A5B6C7D8E",
+	"{asset_id}":    "01JB8Z6Q4M1X2Y3Z4A5B6C7D8F",
+	"{category_id}": "1",
+	"{tag_id}":      "1",
+	"{type_key}":    "recipe",
+}
+
+type contractOperation struct {
+	OperationID string `json:"operationId"`
+	RequestBody *struct {
+		Required bool `json:"required"`
+	} `json:"requestBody"`
+}
+
+// TestEveryOperationAnswers501 is the scenario "Every declared operation answers 501 until
+// implemented" of the api-conventions spec. It reads the bundled contract, so that every
+// operation added to api/openapi.yaml is covered as soon as it is generated.
+func TestEveryOperationAnswers501(t *testing.T) {
+	raw, err := os.ReadFile(bundledContract)
+	if err != nil {
+		t.Fatalf("read bundled contract: %v", err)
+	}
+	var contract struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		t.Fatalf("parse bundled contract: %v", err)
+	}
+
+	paths := make([]string, 0, len(contract.Paths))
+	for path := range contract.Paths {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	t.Run("Every declared operation answers 501 until implemented", func(t *testing.T) {
+		checkEveryOperation(t, contract.Paths, paths)
+	})
+
+	// Same scenario, for the multipart format of createItem (the loop above sends JSON bodies).
+	t.Run("multipart capture answers 501", func(t *testing.T) {
+		f := newFixture(t)
+		const boundary = "hippo-test-boundary"
+		body := "--" + boundary + "\r\n" +
+			`Content-Disposition: form-data; name="image"; filename="capture.png"` + "\r\n" +
+			"Content-Type: image/png\r\n\r\n" +
+			"\x89PNG\r\n" +
+			"\r\n--" + boundary + "--\r\n"
+		resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+boundary, body)
+		problem := assertProblem(t, resp, http.StatusNotImplemented)
+		if problem.Type != notImplementedType {
+			t.Errorf("multipart capture: type = %q, want %s", problem.Type, notImplementedType)
+		}
+	})
+}
+
+func checkEveryOperation(t *testing.T, contractPaths map[string]map[string]json.RawMessage, paths []string) {
+	t.Helper()
+	f := newFixture(t)
+	count := 0
+	for _, path := range paths {
+		if path == "/healthz" {
+			continue // implemented
+		}
+		for method, rawOperation := range contractPaths[path] {
+			if method == "parameters" {
+				continue
+			}
+			var operation contractOperation
+			if err := json.Unmarshal(rawOperation, &operation); err != nil {
+				t.Fatalf("parse %s %s: %v", method, path, err)
+			}
+			count++
+			t.Run(operation.OperationID, func(t *testing.T) {
+				url := path
+				for placeholder, value := range pathValues {
+					url = strings.ReplaceAll(url, placeholder, value)
+				}
+				if strings.Contains(url, "{") {
+					t.Fatalf("%s: no value for a path parameter of %s; add it to pathValues", operation.OperationID, path)
+				}
+				body, contentType := "", ""
+				if operation.RequestBody != nil && operation.RequestBody.Required {
+					var ok bool
+					if body, ok = requestBodies[operation.OperationID]; !ok {
+						t.Fatalf("%s has a required body and no case in requestBodies", operation.OperationID)
+					}
+					contentType = "application/json"
+				}
+				resp := f.do(t, strings.ToUpper(method), url, testToken, contentType, body)
+				problem := assertProblem(t, resp, http.StatusNotImplemented)
+				if problem.Type != notImplementedType {
+					t.Errorf("type = %q, want %s", problem.Type, notImplementedType)
+				}
+			})
+		}
+	}
+	if count < 25 {
+		t.Errorf("checked %d operations, want the 25 of the V1 contract at least", count)
+	}
+}

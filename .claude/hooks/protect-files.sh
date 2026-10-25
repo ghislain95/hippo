@@ -43,7 +43,7 @@ is_secret() {
 
 is_generated() {
   case "$1" in
-    *.gen.go | *.gen.ts | */internal/analysis/schema/classify-item.bundled.json) return 0 ;;
+    *.gen.go | *.gen.ts | *.gen.json | */internal/analysis/schema/classify-item.bundled.json) return 0 ;;
   esac
   return 1
 }

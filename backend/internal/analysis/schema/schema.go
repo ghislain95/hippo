@@ -4,9 +4,8 @@ package schema
 
 import _ "embed"
 
-// classify-item.bundled.json is generated from docs/prompt/schemas/ (ADR-0031). Never edit it:
-// change the source schemas and run `make generate`.
-//go:generate go run ../../../cmd/schemabundle -schemas ../../../../docs/prompt/schemas -examples ../../../../docs/prompt/schemas/examples -out classify-item.bundled.json
+// classify-item.bundled.json is generated from docs/prompt/schemas/ by cmd/schemabundle
+// (ADR-0031). Never edit it: change the source schemas and run `make generate`.
 
 // ClassifyItem is the self-contained JSON Schema of the classify_item tool input.
 //

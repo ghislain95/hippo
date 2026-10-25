@@ -8,3 +8,5 @@ generate:
   embedded-spec: false
 output-options:
   skip-prune: true
+  # Absent versus explicit null in PATCH bodies (design D2 of api-contract-v1).
+  nullable-type: true

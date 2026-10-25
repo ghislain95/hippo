@@ -65,6 +65,8 @@ jobs:
               - *ci
               - app/**
               - api/**
+              # app/src/api/fiche-examples.typecheck.ts type-checks the fiche examples.
+              - docs/prompt/schemas/examples/**
             api:
               - *ci
               - api/**
@@ -72,6 +74,9 @@ jobs:
               - backend/go.mod
               - backend/go.sum
               - app/src/api/**
+              # The fiche components of the contract are generated from these (ADR-0035).
+              - docs/prompt/schemas/**
+              - backend/cmd/schemabundle/**
             schemas:
               - *ci
               - docs/prompt/schemas/**

@@ -20,6 +20,8 @@ import (
 // testToken is a fake token, valid only in these tests.
 const testToken = "test-token-0123456789abcdef012345"
 
+const notImplementedType = "urn:hippo:problem:not-implemented"
+
 type fixture struct {
 	server *httptest.Server
 	store  *store.Store
@@ -48,16 +50,38 @@ func newFixture(t *testing.T) fixture {
 
 func (f fixture) get(t *testing.T, path, token string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, f.server.URL+path, nil)
+	return f.do(t, http.MethodGet, path, token, "", "")
+}
+
+// do sends a request; authorization is the full header value ("" for none).
+func (f fixture) do(t *testing.T, method, path, token, contentType, body string) *http.Response {
+	t.Helper()
+	authorization := ""
+	if token != "" {
+		authorization = "Bearer " + token
+	}
+	return f.send(t, method, path, authorization, contentType, body)
+}
+
+func (f fixture) send(t *testing.T, method, path, authorization, contentType, body string) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, f.server.URL+path, reader)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := f.server.Client().Do(req)
 	if err != nil {
-		t.Fatalf("GET %s: %v", path, err)
+		t.Fatalf("%s %s: %v", method, path, err)
 	}
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
@@ -87,73 +111,155 @@ func assertProblem(t *testing.T, resp *http.Response, status int) httpapi.Proble
 	return problem
 }
 
-func TestHealthz(t *testing.T) {
-	t.Run("reports ok without a token", func(t *testing.T) {
-		f := newFixture(t)
-		resp := f.get(t, "/healthz", "")
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d, want 200", resp.StatusCode)
-		}
-		health := decode[httpapi.Health](t, resp)
-		if health.Status != httpapi.Ok || health.Version != "test" {
-			t.Errorf("health = %+v, want status ok and version test", health)
-		}
+// TestAPIConventions follows openspec/changes/api-contract-v1/specs/api-conventions/spec.md:
+// one subtest per scenario, named after it.
+func TestAPIConventions(t *testing.T) {
+	const wrongToken = "wrong-token-0123456789abcdef0123"
+
+	t.Run("API routes require the bearer token", func(t *testing.T) {
+		t.Run("Request without token is rejected", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.get(t, "/api/items", "")
+			assertProblem(t, resp, http.StatusUnauthorized)
+			if !strings.HasPrefix(resp.Header.Get("WWW-Authenticate"), "Bearer") {
+				t.Errorf("WWW-Authenticate = %q, want a Bearer challenge", resp.Header.Get("WWW-Authenticate"))
+			}
+		})
+
+		t.Run("Request with a wrong token is rejected", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblem(t, f.get(t, "/api/items", wrongToken), http.StatusUnauthorized)
+		})
+
+		t.Run("The bearer scheme is case-insensitive", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.send(t, http.MethodGet, "/api/items", "bearer "+testToken, "", "")
+			// Reaching the route means the not-implemented answer of the declared operation.
+			problem := assertProblem(t, resp, http.StatusNotImplemented)
+			if problem.Type != notImplementedType {
+				t.Errorf("type = %q, want %s", problem.Type, notImplementedType)
+			}
+		})
+
+		t.Run("Unknown API paths are not revealed without a token", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblem(t, f.get(t, "/api/does-not-exist", ""), http.StatusUnauthorized)
+		})
 	})
 
-	t.Run("reports unavailable when the database does not answer", func(t *testing.T) {
-		f := newFixture(t)
-		if err := f.store.Close(); err != nil {
-			t.Fatalf("Close: %v", err)
-		}
-		assertProblem(t, f.get(t, "/healthz", ""), http.StatusServiceUnavailable)
+	t.Run("The health check is public", func(t *testing.T) {
+		t.Run("Health check without token", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.get(t, "/healthz", "")
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+			health := decode[httpapi.Health](t, resp)
+			if health.Status != httpapi.Ok || health.Version != "test" {
+				t.Errorf("health = %+v, want status ok and version test", health)
+			}
+		})
+
+		t.Run("Health check with the database down", func(t *testing.T) {
+			f := newFixture(t)
+			if err := f.store.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			assertProblem(t, f.get(t, "/healthz", ""), http.StatusServiceUnavailable)
+		})
+	})
+
+	t.Run("Errors are problem documents", func(t *testing.T) {
+		t.Run("A generic error uses about:blank", func(t *testing.T) {
+			f := newFixture(t)
+			problem := assertProblem(t, f.get(t, "/api/items", ""), http.StatusUnauthorized)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+
+		t.Run("A business error uses its catalogue type", func(t *testing.T) {
+			f := newFixture(t)
+			problem := assertProblem(t, f.get(t, "/api/items", testToken), http.StatusNotImplemented)
+			if problem.Type != notImplementedType {
+				t.Errorf("type = %q, want %s", problem.Type, notImplementedType)
+			}
+		})
+	})
+
+	t.Run("Declared but not implemented routes answer 501", func(t *testing.T) {
+		t.Run("Declared route not implemented yet", func(t *testing.T) {
+			f := newFixture(t)
+			problem := assertProblem(t, f.get(t, "/api/items", testToken), http.StatusNotImplemented)
+			if problem.Type != notImplementedType {
+				t.Errorf("type = %q, want %s", problem.Type, notImplementedType)
+			}
+		})
+		// "Every declared operation answers 501 until implemented": TestEveryOperationAnswers501.
+	})
+
+	t.Run("Unknown routes answer 404", func(t *testing.T) {
+		t.Run("Unknown path outside the API", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblem(t, f.get(t, "/nope", ""), http.StatusNotFound)
+		})
+
+		t.Run("Unknown path under the API with a valid token", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblem(t, f.get(t, "/api/does-not-exist", testToken), http.StatusNotFound)
+		})
+
+		t.Run("Wrong method on a declared path", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblem(t, f.do(t, http.MethodPut, "/api/items", testToken, "", ""), http.StatusNotFound)
+		})
+	})
+
+	t.Run("Requests that break the contract answer 400", func(t *testing.T) {
+		t.Run("Query parameter of the wrong type", func(t *testing.T) {
+			f := newFixture(t)
+			problem := assertProblem(t, f.get(t, "/api/items?limit=abc", testToken), http.StatusBadRequest)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+
+		t.Run("Malformed JSON body", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.do(t, http.MethodPost, "/api/items", testToken, "application/json", "{not json")
+			problem := assertProblem(t, resp, http.StatusBadRequest)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
 	})
 }
 
-func TestAuthentication(t *testing.T) {
-	t.Run("rejects an API request without token", func(t *testing.T) {
-		f := newFixture(t)
-		resp := f.get(t, "/api/items", "")
-		assertProblem(t, resp, http.StatusUnauthorized)
-		if resp.Header.Get("WWW-Authenticate") == "" {
-			t.Error("WWW-Authenticate header missing on 401")
-		}
-	})
-
-	t.Run("rejects an API request with a wrong token", func(t *testing.T) {
-		f := newFixture(t)
-		assertProblem(t, f.get(t, "/api/items", "wrong-token-0123456789abcdef0123"), http.StatusUnauthorized)
-	})
-
-	t.Run("lets an authenticated request through", func(t *testing.T) {
-		f := newFixture(t)
-		// No route exists under /api/ yet: getting past the middleware means a 404, not a 401.
-		assertProblem(t, f.get(t, "/api/does-not-exist", testToken), http.StatusNotFound)
-	})
-
+func TestRequestLogs(t *testing.T) {
 	t.Run("never logs the token nor the requested path", func(t *testing.T) {
 		f := newFixture(t)
 		f.get(t, "/api/items/private-note-title", testToken)
 		f.get(t, "/api/items?q=secret", "wrong-token-0123456789abcdef0123")
+		f.get(t, "/nope", "")
 		f.get(t, "/healthz", "")
 		logs := f.logs.String()
-		for _, leak := range []string{testToken, "wrong-token", "secret", "private-note-title"} {
+		for _, leak := range []string{testToken, "wrong-token", "secret", "private-note-title", "nope"} {
 			if strings.Contains(logs, leak) {
 				t.Errorf("logs contain %q:\n%s", leak, logs)
 			}
 		}
-		for _, want := range []string{`"status":401`, `"route":"-"`, `"route":"GET /healthz"`, `"route":"/"`} {
+		for _, want := range []string{`"status":401`, `"route":"-"`, `"route":"GET /healthz"`, `"route":"GET /api/items/{item_id}"`, `"route":"/"`} {
 			if !strings.Contains(logs, want) {
 				t.Errorf("logs do not contain %s:\n%s", want, logs)
 			}
 		}
 	})
-}
 
-func TestUnknownRoute(t *testing.T) {
-	t.Run("answers problem+json outside the API", func(t *testing.T) {
+	t.Run("logs a not implemented route below the error level", func(t *testing.T) {
 		f := newFixture(t)
-		resp := f.get(t, "/nope", "")
-		assertProblem(t, resp, http.StatusNotFound)
-		_, _ = io.Copy(io.Discard, resp.Body)
+		f.get(t, "/api/items", testToken)
+		if strings.Contains(f.logs.String(), `"level":"ERROR"`) {
+			t.Errorf("a 501 was logged at ERROR:\n%s", f.logs.String())
+		}
 	})
 }

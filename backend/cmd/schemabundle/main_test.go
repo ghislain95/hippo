@@ -114,14 +114,43 @@ func TestValidateExamples(t *testing.T) {
 }
 
 func TestRunCheck(t *testing.T) {
-	t.Run("fails when the bundle is stale", func(t *testing.T) {
-		stale := filepath.Join(t.TempDir(), "bundle.json")
+	writeStale := func(t *testing.T) string {
+		t.Helper()
+		stale := filepath.Join(t.TempDir(), "stale.json")
 		if err := os.WriteFile(stale, []byte("{}\n"), 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		err := run([]string{"-schemas", schemasDir, "-examples", examplesDir, "-out", stale, "-check"}, &bytes.Buffer{})
+		return stale
+	}
+	args := func(out, openAPIOut string) []string {
+		return []string{"-schemas", schemasDir, "-examples", examplesDir, "-out", out, "-openapi-out", openAPIOut, "-check"}
+	}
+
+	t.Run("fails when the bundle is stale", func(t *testing.T) {
+		err := run(args(writeStale(t), openAPIFile), &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "out of date") {
 			t.Errorf("run -check error = %v, want out of date", err)
+		}
+	})
+
+	t.Run("fails when only the OpenAPI components are stale", func(t *testing.T) {
+		stale := writeStale(t)
+		err := run(args(bundleFile, stale), &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), stale) {
+			t.Errorf("run -check error = %v, want %s out of date", err, stale)
+		}
+	})
+
+	t.Run("passes when both outputs are up to date", func(t *testing.T) {
+		if err := run(args(bundleFile, openAPIFile), &bytes.Buffer{}); err != nil {
+			t.Errorf("run -check: %v", err)
+		}
+	})
+
+	t.Run("requires the OpenAPI output flag", func(t *testing.T) {
+		err := run([]string{"-schemas", schemasDir, "-examples", examplesDir, "-out", bundleFile}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "-openapi-out") {
+			t.Errorf("run without -openapi-out: error = %v", err)
 		}
 	})
 }
