@@ -25,17 +25,17 @@ E2 à E4 peuvent commencer en parallèle de E1 : ils n'en dépendent pas. Mais *
 
 ## E0 — Fondations
 
-Fait en séance sur le Mac, en reprenant les pratiques de l'autre projet de Ghislain.
+Fait en séance sur le Mac, en reprenant les pratiques de geomni et wifisense. Le setup (branche `chore/setup`, 25 octobre 2026) est décrit dans [`dev/setup-report.md`](dev/setup-report.md).
 
-| ID | Story | Prio |
-| --- | --- | --- |
-| E0-01 | Créer le monorepo (`backend/`, `app/`, `api/`, `infra/`, `docs/`) et y déposer cette documentation | M |
-| E0-02 | Mettre en place le contexte des agents : `CLAUDE.md` racine avec table de routage, un `CLAUDE.md` par dossier, agents, skills et règles repris et adaptés de l'autre projet | M |
-| E0-03 | Écrire la stratégie de test (back, front, prompt) en s'inspirant de celle de l'autre projet | M |
-| E0-04 | Initialiser OpenSpec | M |
-| E0-05 | Écrire la première version du contrat `api/openapi.yaml` à partir de la [spec](spec-v1.md#api-rest) et mettre en place la génération serveur et client | M |
-| E0-06 | CI GitHub Actions : lint, tests back et front, vérification du code généré, build de l'image Docker (filtres par chemin) | M |
-| E0-07 | Commandes d'agent `/eval-prompt` et `/new-content-type` | S |
+| ID | Story | Prio | Statut |
+| --- | --- | --- | --- |
+| E0-01 | Créer le monorepo (`backend/`, `app/`, `api/`, `infra/`, `docs/`) et y déposer cette documentation | M | ✅ setup |
+| E0-02 | Mettre en place le contexte des agents : `CLAUDE.md` racine avec table de routage, un `CLAUDE.md` par dossier, agents, skills et règles repris et adaptés de l'autre projet | M | ✅ setup |
+| E0-03 | Écrire la stratégie de test (back, front, prompt) en s'inspirant de celle de l'autre projet | M | ✅ setup ([`dev/testing.md`](dev/testing.md)) |
+| E0-04 | Initialiser OpenSpec | M | ✅ setup |
+| E0-05 | Écrire le contrat complet `api/openapi.yaml` des routes de la [spec](spec-v1.md#api-rest) : **premier change OpenSpec**, cadré avec Ghislain. Le squelette du contrat (sécurité Bearer, problem+json, pagination par curseur, `/healthz`) et la génération du serveur Go et du client TypeScript, avec la vérification « code généré à jour », sont en place depuis le setup | M | À faire (1er change) |
+| E0-06 | CI GitHub Actions : lint, tests back et front, vérification du code généré, build de l'image Docker (filtres par chemin) | M | ✅ setup |
+| E0-07 | Commandes d'agent `/eval-prompt` et `/new-content-type` | S | ✅ setup (`/eval-prompt` attend le harnais d'E3-09) |
 
 **Critères d'acceptation communs**
 - Un agent qui ouvre le repo trouve, depuis `CLAUDE.md`, le glossaire, le document métier, les ADR et la backlog.
