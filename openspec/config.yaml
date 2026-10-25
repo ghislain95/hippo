@@ -1,0 +1,77 @@
+schema: spec-driven
+
+context: |
+  Hippo is a personal "second brain": the user captures links, images and notes from the
+  iPhone share sheet in under 5 seconds, a nightly batch with Claude Haiku classifies them
+  and writes a structured "fiche" per content type, and the user finds and reads them, even
+  offline. One user in V1, data model ready for several (user_id everywhere).
+
+  Sources of truth (read them, never contradict them):
+  - docs/metier.md: business rules RG-xx. It wins over everything for behaviour. A rule that
+    is missing there is NEVER invented in a change: ask Ghislain, then add it to metier.md.
+  - docs/glossary.md: one term = one meaning; code identifiers come from it ("fiche" stays
+    "fiche" in code).
+  - docs/adr/: accepted ADRs win for technical choices; challenging one requires a new ADR.
+  - docs/prompt/: prompt, fiche JSON schemas and eval set; they win for the fiche format.
+  - docs/spec-v1.md: the V1 technical specification; docs/backlog.md: stories E0 to E6.
+  - openspec/specs/: detailed observable behaviour for development, derived from the above.
+
+  Stack: Go backend (standard library net/http, log/slog, single binary, ADR-0003), SQLite
+  WAL + FTS5 with modernc.org/sqlite (ADR-0004), goose migrations (ADR-0032), OpenAPI 3.1
+  contract in api/openapi.yaml with oapi-codegen server and openapi-typescript client
+  (ADR-0017, ADR-0031), Claude Haiku 4.5 through the Message Batches API behind an Analyzer
+  interface (ADR-0005, ADR-0006), Expo app with a development build and a share extension
+  (ADR-0012, ADR-0014), Docker distroless image on GHCR, Tailscale (ADR-0015, ADR-0019).
+
+  Rules of gold:
+  - Contract first: any API change starts in api/openapi.yaml; generated code is never
+    edited by hand.
+  - Never mock SQLite: integration tests run on a real temporary SQLite file (ADR-0033).
+  - Any change to the prompt or a fiche schema passes the eval set before shipping.
+  - A private item is never sent to the AI, on any path (RG-12, ADR-0023), and a test proves it.
+  - Every query on a business table filters by user_id (RG-90, ADR-0022).
+  - The monthly AI budget is checked before every send (RG-81, ADR-0021).
+  - Logs never contain secrets nor item content.
+
+  Language (ADR-0026, ADR-0028): every OpenSpec artifact, code, identifier, comment and
+  commit message is in English. User-facing app text is in French. Docs in docs/ are in
+  French.
+
+rules:
+  proposal:
+    - Always include a "Non-goals" section
+    - Name the backlog story it implements (e.g. E2-01) and cite every RG-xx and ADR it touches
+    - Explicitly state the impact on AI cost, private items, persisted data, the API contract and the prompt or fiche schemas (write "none" when there is none)
+    - State "User QA: yes" or "User QA: no"; yes for any change visible in the app
+    - Flag any missing or ambiguous business rule as an open question for Ghislain instead of deciding it
+  specs:
+    - Describe observable behaviour only (HTTP routes, status codes, problem+json types, persisted state seen through the API), no Go or TypeScript names
+    - Start every requirement with SHALL or MUST on its first line, and cite its RG-xx at the end of the requirement text
+    - Write Given/When/Then scenarios; each scenario becomes exactly one automated test named after it
+    - Cover error and edge cases (missing or wrong token, another user's item, private item, budget reached, invalid input), not only the happy path
+  design:
+    - List the Go packages and app folders touched, and the api/openapi.yaml operations and schemas added or changed
+    - State whether a migration is required (always a new file, never an edited one)
+    - State whether the prompt or a fiche schema changes, and if so how the eval set covers it
+    - Explain how user_id filtering, the private-item guarantee and the budget check hold on the paths touched, when they apply
+    - Cite the source of any decision that relies on a library's behaviour, at the version pinned in backend/go.mod or app/package.json (doc URL for that version, or file:line of the installed source); otherwise mark it "unverified"
+    - Reference docs/dev/conventions-backend.md and docs/dev/conventions-app.md sections instead of restating them
+  tasks:
+    - Order the work contract first (api/openapi.yaml, migration, schema), then make generate, then failing tests, then implementation
+    - Every implementation group ends with its test tasks; every scenario of the deltas has a task that writes its test
+    - Keep tasks small enough to finish in one session
+    - Split a wide-blast change (graphify affected crosses several packages) into add, migrate callers, remove, each step leaving make check green
+    - After the implementation groups, add the documentation tasks (glossary, spec-v1, docs/dev, backlog story status) and a code-reviewer pass on the uncommitted diff (plus /web-design-guidelines when app UI files change)
+    - The final task is always "/dod-check passes (make check green, definition of done in docs/dev/workflow.md)"
+
+operations:
+  apply:
+    guidance:
+      - Before coding, run graphify check-update . and read the RG-xx and ADRs cited by the change
+      - Write each scenario's test first and see it fail, then implement
+      - Stop and ask Ghislain on a contradiction with the docs, a missing business rule, a new dependency, a change to the prompt or the database schema not planned in design.md, any paid action, or anything touching security or personal data
+      - Run make check before reporting a group done; update design.md in the same move when the implementation deviates from it
+  archive:
+    guidance:
+      - Run the post-archive steps of docs/dev/workflow.md (backlog story marked done, doc impact through doc-keeper or "post-archive: no doc impact", glossary, Purpose of touched specs, graphify update)
+      - Commit the archive as chore(<change-id>) on the change branch

@@ -1,0 +1,772 @@
+{
+  "$defs": {
+    "common_codeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "caption": {
+          "description": "Courte légende facultative expliquant ce que fait ce code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "code": {
+          "description": "Code, commande ou configuration recopié À L'IDENTIQUE depuis la source. Ne jamais reformuler, tronquer ni traduire.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "language": {
+          "description": "Langage pour la coloration : java, go, sql, bash, yaml, json, typescript, etc. « text » si inconnu.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "code"
+      ],
+      "type": "object"
+    },
+    "common_link": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "description": "Uniquement une URL présente dans la source. Ne jamais en inventer.",
+          "pattern": "^https?://",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "url"
+      ],
+      "type": "object"
+    },
+    "common_section": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/common_text"
+        },
+        "code": {
+          "description": "Extraits de code liés à cette section, recopiés à l'identique.",
+          "items": {
+            "$ref": "#/$defs/common_codeBlock"
+          },
+          "type": "array"
+        },
+        "heading": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "heading",
+        "body"
+      ],
+      "type": "object"
+    },
+    "common_text": {
+      "description": "Texte en français. Mise en forme autorisée : **gras** et `code` en ligne uniquement. Pas de titres, pas de listes, pas de liens Markdown.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "common_textList": {
+      "items": {
+        "$ref": "#/$defs/common_text"
+      },
+      "type": "array"
+    },
+    "fiche_generic": {
+      "additionalProperties": false,
+      "properties": {
+        "key_points": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Points clés à retenir."
+        },
+        "sections": {
+          "description": "Le contenu détaillé, organisé en sections. Liste vide si le résumé suffit.",
+          "items": {
+            "$ref": "#/$defs/common_section"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/common_text",
+          "description": "L'essentiel en quelques phrases."
+        },
+        "template": {
+          "const": "generic"
+        }
+      },
+      "required": [
+        "template",
+        "summary",
+        "sections",
+        "key_points"
+      ],
+      "title": "Fiche : générique (type proposé)",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_note": {
+      "additionalProperties": false,
+      "properties": {
+        "idea": {
+          "$ref": "#/$defs/common_text",
+          "description": "L'idée reformulée proprement, fidèle à ce que Ghislain a écrit ou dicté. Corriger la forme (dictée, fautes), jamais le fond."
+        },
+        "key_points": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Points clés de la note. Liste vide si la note tient en une idée."
+        },
+        "leads": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Pistes à creuser ou questions ouvertes que la note mentionne. Liste vide si aucune : ne pas en inventer."
+        },
+        "template": {
+          "const": "note"
+        }
+      },
+      "required": [
+        "template",
+        "idea",
+        "key_points",
+        "leads"
+      ],
+      "title": "Fiche : note perso",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_place": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "description": "Adresse complète si la source la donne. null sinon : ne jamais deviner une adresse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "best_time": {
+          "description": "Meilleur moment pour y aller, si la source le dit. null sinon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city": {
+          "description": "Ville. null si inconnue.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maps_query": {
+          "description": "Texte à chercher dans Plans pour trouver le lieu : nom + adresse ou ville.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "place_kind": {
+          "description": "Nature du lieu en un ou deux mots : restaurant, bar, café, musée, parc, balade, boutique, ville, hébergement…",
+          "type": "string"
+        },
+        "practical_info": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Infos pratiques données par la source : horaires, prix, réservation, accès. Liste vide si aucune."
+        },
+        "template": {
+          "const": "place"
+        },
+        "website": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/common_link"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Site officiel s'il figure dans la source."
+        },
+        "what_to_do": {
+          "$ref": "#/$defs/common_text",
+          "description": "Ce qu'on y fait, ce qui le rend intéressant, ce qu'il faut commander ou voir."
+        }
+      },
+      "required": [
+        "template",
+        "name",
+        "place_kind",
+        "city",
+        "address",
+        "what_to_do",
+        "practical_info",
+        "best_time",
+        "website",
+        "maps_query"
+      ],
+      "title": "Fiche : lieu",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_recipe": {
+      "additionalProperties": false,
+      "properties": {
+        "cook_minutes": {
+          "description": "Temps de cuisson en minutes. null si la source ne le donne pas : ne pas estimer.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ingredients": {
+          "description": "Tous les ingrédients, avec leurs quantités exactes.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "group": {
+                "description": "Sous-partie de la recette si la source en a (« Pâte », « Garniture »).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quantity": {
+                "description": "Quantité et unité telles que données (« 200 g », « 1/2 c. à café », « une pincée »). null si non précisée.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "quantity"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "prep_minutes": {
+          "description": "Temps de préparation en minutes. null si la source ne le donne pas : ne pas estimer.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "servings": {
+          "description": "Nombre de portions tel que donné (« 4 personnes », « 12 cookies »). null si inconnu.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "steps": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Toutes les étapes, dans l'ordre, avec températures et durées.",
+          "minItems": 1
+        },
+        "template": {
+          "const": "recipe"
+        },
+        "tips": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Conseils, variantes et conservation mentionnés par la source. Liste vide si aucun."
+        }
+      },
+      "required": [
+        "template",
+        "servings",
+        "prep_minutes",
+        "cook_minutes",
+        "ingredients",
+        "steps",
+        "tips"
+      ],
+      "title": "Fiche : recette",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_resource": {
+      "additionalProperties": false,
+      "properties": {
+        "alternatives": {
+          "description": "Alternatives citées par la source. Liste vide si aucune : ne pas en ajouter de sa propre initiative.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pricing": {
+          "description": "Licence ou prix si la source le précise (« open source, MIT », « gratuit jusqu'à 3 projets »). null sinon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template": {
+          "const": "resource"
+        },
+        "url": {
+          "description": "Lien principal de la ressource s'il figure dans la source.",
+          "pattern": "^https?://",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "use_cases": {
+          "$ref": "#/$defs/common_textList",
+          "description": "À quoi ça sert concrètement.",
+          "minItems": 1
+        },
+        "what_it_is": {
+          "$ref": "#/$defs/common_text",
+          "description": "Ce que c'est, en une ou deux phrases (outil en ligne de commande, librairie Java, service SaaS, repo…)."
+        },
+        "when_to_use": {
+          "description": "Dans quel cas le choisir plutôt qu'autre chose, si la source permet de le dire. null sinon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "template",
+        "name",
+        "what_it_is",
+        "use_cases",
+        "when_to_use",
+        "url",
+        "pricing",
+        "alternatives"
+      ],
+      "title": "Fiche : ressource",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_tech_article": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "description": "Les détails techniques, organisés en sections. AUCUNE information utile ne doit manquer : versions, chiffres, options, commandes, code, comparaisons, benchmarks.",
+          "items": {
+            "$ref": "#/$defs/common_section"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "key_changes": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Ce qui change ou ce qu'il faut retenir, une idée par entrée. Liste vide si l'article ne décrit pas de changement."
+        },
+        "links": {
+          "description": "Liens utiles présents dans la source (documentation, JEP, repo). Liste vide si aucun.",
+          "items": {
+            "$ref": "#/$defs/common_link"
+          },
+          "type": "array"
+        },
+        "pitfalls": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Limites, pièges, incompatibilités, avertissements mentionnés par la source. Liste vide si aucun."
+        },
+        "template": {
+          "const": "tech_article"
+        },
+        "tldr": {
+          "$ref": "#/$defs/common_text",
+          "description": "L'essentiel en quelques lignes (2 à 5 phrases) : de quoi il s'agit et pourquoi ça compte."
+        },
+        "versions": {
+          "description": "Produits et versions cités comme sujet de l'article (affichés en badges). Liste vide si aucun.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "version": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "template",
+        "tldr",
+        "key_changes",
+        "details",
+        "versions",
+        "pitfalls",
+        "links"
+      ],
+      "title": "Fiche : article technique",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_tip": {
+      "additionalProperties": false,
+      "properties": {
+        "materials": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Matériel ou produits nécessaires, avec les quantités si la source les donne. Liste vide si aucun."
+        },
+        "steps": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Les étapes courtes, dans l'ordre. Liste vide si l'astuce tient en une phrase."
+        },
+        "template": {
+          "const": "tip"
+        },
+        "tip": {
+          "$ref": "#/$defs/common_text",
+          "description": "L'astuce en une phrase claire."
+        },
+        "warnings": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Précautions mentionnées par la source (surfaces à éviter, mélanges dangereux…). Liste vide si aucune."
+        }
+      },
+      "required": [
+        "template",
+        "tip",
+        "steps",
+        "materials",
+        "warnings"
+      ],
+      "title": "Fiche : astuce",
+      "type": "object",
+      "x-schema-version": 1
+    },
+    "fiche_tutorial": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_result": {
+          "description": "Comment vérifier que ça a marché. null si la source ne le dit pas.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goal": {
+          "$ref": "#/$defs/common_text",
+          "description": "Ce qu'on obtient à la fin, en une ou deux phrases."
+        },
+        "prerequisites": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Ce qu'il faut avoir ou savoir avant de commencer, avec les versions si la source les donne. Liste vide si aucun."
+        },
+        "steps": {
+          "description": "Toutes les étapes, dans l'ordre. Ne jamais en fusionner au point de perdre une action.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {
+                "$ref": "#/$defs/common_text"
+              },
+              "code": {
+                "items": {
+                  "$ref": "#/$defs/common_codeBlock"
+                },
+                "type": "array"
+              },
+              "title": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "body"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "template": {
+          "const": "tutorial"
+        },
+        "troubleshooting": {
+          "$ref": "#/$defs/common_textList",
+          "description": "Erreurs courantes et solutions données par la source. Liste vide si aucune."
+        }
+      },
+      "required": [
+        "template",
+        "goal",
+        "prerequisites",
+        "steps",
+        "expected_result",
+        "troubleshooting"
+      ],
+      "title": "Fiche : tuto",
+      "type": "object",
+      "x-schema-version": 1
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Range un élément du deuxième cerveau de Ghislain et rédige sa fiche. À appeler une seule fois par élément.",
+  "properties": {
+    "category": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "Id d'une catégorie de la liste fournie.",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proposed": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "Ce que la catégorie doit contenir, pour bien ranger les prochains éléments.",
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Nom court, en français.",
+                  "maxLength": 50,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "parent_id": {
+                  "description": "Id d'une catégorie RACINE existante sous laquelle la placer, ou null pour une nouvelle catégorie racine. Deux niveaux maximum.",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "description": "Pourquoi aucune catégorie existante ne convient, en une ligne.",
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "parent_id",
+                "description",
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "proposed"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Catégorie du sujet principal : une catégorie existante (active ou proposée) par son id, OU une proposition si aucune ne convient."
+    },
+    "content_issue": {
+      "description": "Si content_ok est false : ce qui manque, en une phrase. Sinon null.",
+      "maxLength": 200,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "content_ok": {
+      "description": "false si le contenu fourni est trop pauvre pour une vraie fiche (paywall, page vide, simple légende).",
+      "type": "boolean"
+    },
+    "fiche": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/fiche_tech_article"
+        },
+        {
+          "$ref": "#/$defs/fiche_tutorial"
+        },
+        {
+          "$ref": "#/$defs/fiche_tip"
+        },
+        {
+          "$ref": "#/$defs/fiche_recipe"
+        },
+        {
+          "$ref": "#/$defs/fiche_place"
+        },
+        {
+          "$ref": "#/$defs/fiche_resource"
+        },
+        {
+          "$ref": "#/$defs/fiche_note"
+        },
+        {
+          "$ref": "#/$defs/fiche_generic"
+        }
+      ],
+      "description": "Fiche au format du type choisi. Le champ « template » doit être égal à la clé du type ; pour un type proposé, utiliser « generic »."
+    },
+    "freshness": {
+      "description": "« dated » si le contenu vieillit (actualité, version d'un outil, prix, horaires) ; « timeless » sinon (concept, recette, astuce).",
+      "enum": [
+        "dated",
+        "timeless"
+      ],
+      "type": "string"
+    },
+    "language": {
+      "description": "Langue principale du contenu ORIGINAL, code ISO 639-1 (fr, en…).",
+      "pattern": "^[a-z]{2}$",
+      "type": "string"
+    },
+    "tags": {
+      "description": "2 à 5 tags. Réutiliser en priorité les tags existants. Nouveau tag : minuscules, mots séparés par des tirets, sans accent.",
+      "items": {
+        "maxLength": 40,
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 2,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "title": {
+      "description": "Titre clair et informatif, en français sauf nom propre ou titre officiel. Pas de titre racoleur.",
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "description": "Clé d'un type existant de la liste fournie.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proposed": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "description": "Clé en anglais, snake_case (ex. « event », « book »).",
+                  "pattern": "^[a-z][a-z0-9_]{1,30}$",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Nom affiché, en français.",
+                  "maxLength": 40,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "Pourquoi aucun type existant ne convient, en une ligne.",
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "proposed"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Type de contenu : un type existant par sa clé, OU une proposition de nouveau type si aucun ne convient."
+    }
+  },
+  "required": [
+    "type",
+    "category",
+    "tags",
+    "title",
+    "fiche",
+    "language",
+    "freshness",
+    "content_ok",
+    "content_issue"
+  ],
+  "title": "classify_item",
+  "type": "object",
+  "x-schema-version": 1
+}

@@ -1,0 +1,14 @@
+{
+  "name": "hippo-api",
+  "private": true,
+  "description": "Tooling of the Hippo OpenAPI contract: lint, TypeScript types for the app",
+  "scripts": {
+    "lint": "redocly lint openapi.yaml",
+    "generate": "openapi-typescript openapi.yaml --output ../app/src/api/schema.gen.ts"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.71.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

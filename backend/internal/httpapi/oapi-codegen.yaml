@@ -1,0 +1,10 @@
+# oapi-codegen configuration (ADR-0031): models, std net/http server, strict interface.
+package: httpapi
+output: api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+  embedded-spec: false
+output-options:
+  skip-prune: true

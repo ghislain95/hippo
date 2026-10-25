@@ -1,0 +1,20 @@
+{
+  "type": { "key": "resource" },
+  "category": { "id": 5 },
+  "tags": ["sqlite", "go", "outil"],
+  "title": "Un outil fictif pour inspecter une base SQLite",
+  "fiche": {
+    "template": "resource",
+    "name": "sqlite-inspect (exemple)",
+    "what_it_is": "Exemple fictif. Un outil en ligne de commande qui affiche le schéma et les index d'une base SQLite.",
+    "use_cases": ["Vérifier qu'une migration a créé les bons index.", "Comparer deux bases."],
+    "when_to_use": "Pendant le développement, sur une copie de la base.",
+    "url": "https://example.com/sqlite-inspect",
+    "pricing": null,
+    "alternatives": [{ "name": "sqlite3", "note": "le shell officiel, moins lisible" }]
+  },
+  "language": "en",
+  "freshness": "dated",
+  "content_ok": true,
+  "content_issue": null
+}

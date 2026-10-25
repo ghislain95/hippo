@@ -1,0 +1,8 @@
+node_modules/
+coverage/
+dist/
+ios/
+android/
+.expo/
+src/api/schema.gen.ts
+package-lock.json

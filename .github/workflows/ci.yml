@@ -1,0 +1,330 @@
+# Hippo CI (ADR-0029, docs/dev/testing.md "Ce qui bloque en CI").
+#
+# One workflow, one gate. Each job runs only when its paths change (job `changes`), and the
+# final job `ci-ok` fails if any job that ran failed or was cancelled. The protection of main
+# requires `ci-ok` only: a path-filtered job that did not run never blocks a merge, and a job
+# that ran and failed always does. A new job must be added to the `needs` of `ci-ok`.
+#
+# The jobs call the same make targets as `make check` on the Mac.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  OPENSPEC_VERSION: 1.14.0
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # dorny/paths-filter lists the files of a pull request through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      app: ${{ steps.filter.outputs.app }}
+      api: ${{ steps.filter.outputs.api }}
+      schemas: ${{ steps.filter.outputs.schemas }}
+      openspec: ${{ steps.filter.outputs.openspec }}
+      migrations: ${{ steps.filter.outputs.migrations }}
+      tooling: ${{ steps.filter.outputs.tooling }}
+      image: ${{ steps.filter.outputs.image }}
+      infra: ${{ steps.filter.outputs.infra }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            ci: &ci
+              - .github/workflows/ci.yml
+              - Makefile
+            backend:
+              - *ci
+              - backend/**
+              - api/openapi.yaml
+              - docs/prompt/schemas/**
+            app:
+              - *ci
+              - app/**
+              - api/**
+            api:
+              - *ci
+              - api/**
+              - backend/internal/httpapi/**
+              - backend/go.mod
+              - backend/go.sum
+              - app/src/api/**
+            schemas:
+              - *ci
+              - docs/prompt/schemas/**
+              - backend/cmd/schemabundle/**
+              - backend/internal/analysis/schema/**
+            openspec:
+              - *ci
+              - openspec/**
+            migrations:
+              - *ci
+              - backend/internal/store/migrations/**
+            tooling:
+              - *ci
+              - .claude/hooks/**
+              - .github/**
+              - lefthook.yml
+            image:
+              - *ci
+              - backend/**
+            infra:
+              - *ci
+              - infra/**
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Lint (golangci-lint, depguard architecture rules)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: backend
+      - name: Test (unit and integration on a real SQLite, race detector)
+        run: make test-backend
+      - name: Build
+        run: make build-backend
+
+  app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: app/.nvmrc
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install (locked)
+        working-directory: app
+        run: npm ci --no-fund --no-audit
+      - name: Lint (ESLint, Prettier)
+        run: make lint-app
+      - name: Type-check
+        run: make typecheck-app
+      - name: Test (jest-expo)
+        run: make test-app
+      - name: Expo configuration (expo-doctor)
+        run: make doctor-app
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: app/.nvmrc
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - name: Install the contract tooling (locked)
+        working-directory: api
+        run: npm ci --no-fund --no-audit
+      - name: Lint the contract (Redocly)
+        run: make lint-api
+      - name: Generated code is up to date (Go server, TypeScript types, fiche schema)
+        run: make check-generated
+
+  schemas:
+    needs: changes
+    if: needs.changes.outputs.schemas == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Examples valid, bundled schema up to date
+        run: make check-schemas
+
+  openspec:
+    needs: changes
+    if: needs.changes.outputs.openspec == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: app/.nvmrc
+      # Pinned: keep in sync with `openspec --version` on the Mac.
+      - name: Install the OpenSpec CLI
+        run: npm install -g "@fission-ai/openspec@${OPENSPEC_VERSION}"
+      - name: Validate every spec and change
+        run: make check-openspec
+      # openspec/specs/ only changes through /opsx:archive or /opsx:sync, which always come with
+      # a change folder. A diff of specs/ without changes/ is a hand edit.
+      - name: Specs only change together with a change folder
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only --no-renames "origin/${BASE_REF}...HEAD")
+          if grep -q '^openspec/specs/' <<< "$changed" && ! grep -q '^openspec/changes/' <<< "$changed"; then
+            echo "::error::openspec/specs/ was modified without any openspec/changes/ update (hand edit)."
+            exit 1
+          fi
+          echo "OK: specs changes, if any, come with a change folder."
+
+  migrations:
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # goose records every applied migration: editing, deleting or renaming one breaks every
+      # database that applied it. Schema changes always go through a new file.
+      - name: No existing migration is modified, deleted or renamed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          violations=$(git diff --name-status -M --diff-filter=MDR "origin/${BASE_REF}...HEAD" -- 'backend/internal/store/migrations/*.sql')
+          if [ -n "$violations" ]; then
+            echo "::error::Existing migrations were modified, deleted or renamed:"
+            echo "$violations"
+            exit 1
+          fi
+          echo "OK: no existing migration was touched."
+
+  # Always: renaming or deleting a file that a document links to breaks the link without
+  # touching any .md file. Offline lychee takes about a second.
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Internal links (lychee, offline)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline --no-progress --include-fragments --hidden
+            --exclude-path node_modules --exclude-path .claude/worktrees --exclude-path .git
+            './**/*.md'
+          fail: true
+
+  tooling:
+    needs: changes
+    if: needs.changes.outputs.tooling == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # shellcheck, jq and perl ship with ubuntu-latest; actionlint does not.
+      - name: Install actionlint (pinned, checksum verified)
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          sudo tar -xzf "${archive}" -C /usr/local/bin actionlint
+      - name: Hook regression suites, shellcheck and actionlint
+        run: make check-tooling
+
+  infra:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compose files are valid
+        run: make check-infra
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (pinned, checksum verified)
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          sudo tar -xzf "${archive}" -C /usr/local/bin gitleaks
+      - name: Scan the history for secrets
+        run: gitleaks git --redact --no-banner --verbose
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the backend image (not pushed)
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: linux/amd64
+          push: false
+          build-args: VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  ci-ok:
+    if: always()
+    needs: [changes, backend, app, api, schemas, openspec, migrations, docs, tooling, infra, secrets, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every job that ran passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::A job ended with '$result'."; exit 1 ;;
+            esac
+          done

@@ -1,0 +1,15 @@
+# Gitleaks configuration: the default rules, plus the documented exceptions.
+title = "hippo"
+
+[extend]
+useDefault = true
+
+# No path is allowlisted: infra/.env.example and the test fixtures are exactly where a real secret
+# would land by accident. Fake test tokens are built from these sequences, so a real secret never
+# matches; any other fixture that trips a rule gets an inline `gitleaks:allow` with its reason.
+[allowlist]
+description = "Obviously fake test tokens"
+regexes = [
+  '''0123456789abcdef''',
+  '''fedcba9876543210''',
+]

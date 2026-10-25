@@ -1,6 +1,6 @@
 # ADR-0019 — Déploiement Docker Compose sur le NAS
 
-- **Statut** : Accepté
+- **Statut** : Accepté — visibilité amendée par [ADR-0027](0027-depot-public.md)
 - **Date** : 2026-10-10
 
 ## Contexte

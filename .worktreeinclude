@@ -1,0 +1,3 @@
+# Gitignored files copied into each new Claude Code worktree (.gitignore syntax).
+# settings.local.json carries each developer's GH_TOKEN (docs/dev/git.md).
+.claude/settings.local.json

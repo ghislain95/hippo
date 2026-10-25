@@ -1,0 +1,16 @@
+{
+  "type": { "key": "note" },
+  "category": { "id": 1 },
+  "tags": ["idee", "outillage"],
+  "title": "Idée : un rapport de coût IA par semaine",
+  "fiche": {
+    "template": "note",
+    "idea": "Exemple fictif. Recevoir chaque lundi le coût IA de la semaine écoulée, pour repérer une dérive avant la fin du mois.",
+    "key_points": ["Le coût est déjà enregistré par batch.", "Un simple total suffit au début."],
+    "leads": ["Voir si l'écran Réglages peut l'afficher."]
+  },
+  "language": "fr",
+  "freshness": "timeless",
+  "content_ok": true,
+  "content_issue": null
+}

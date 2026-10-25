@@ -7,7 +7,7 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | N° | Décision | Statut | Concerne |
 | --- | --- | --- | --- |
 | [0001](0001-enregistrer-les-decisions.md) | Enregistrer les décisions d'architecture | Accepté | Projet |
-| [0002](0002-monorepo.md) | Un seul dépôt (monorepo) | Accepté | Projet |
+| [0002](0002-monorepo.md) | Un seul dépôt (monorepo) | Accepté, visibilité amendée par 0027 | Projet |
 | [0003](0003-backend-go.md) | Backend en Go, sans framework web | Accepté | Backend |
 | [0004](0004-sqlite.md) | SQLite comme base de données | Accepté | Backend |
 | [0005](0005-haiku-batch.md) | Analyse par Claude Haiku, en batch de nuit | Accepté | IA |
@@ -24,7 +24,7 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0016](0016-authentification-token.md) | Authentification par token d'API statique | Accepté | Backend |
 | [0017](0017-contrat-openapi.md) | Contrat d'API OpenAPI comme source de vérité | Accepté | Backend, appli |
 | [0018](0018-lecture-hors-ligne.md) | Lecture hors ligne par cache local synchronisé | Accepté | Appli, backend |
-| [0019](0019-deploiement-docker-nas.md) | Déploiement Docker Compose sur le NAS | Accepté | Infra |
+| [0019](0019-deploiement-docker-nas.md) | Déploiement Docker Compose sur le NAS | Accepté, visibilité de l'image amendée par 0027 | Infra |
 | [0020](0020-sauvegardes.md) | Sauvegardes locale et externe chiffrée | Accepté, service à choisir | Infra |
 | [0021](0021-garde-fous-couts.md) | Garde-fous de coût de l'IA | Accepté | IA, backend |
 | [0022](0022-preparation-multi-utilisateur.md) | Préparer le multi-utilisateur dès le modèle de données | Accepté | Données |
@@ -32,3 +32,10 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0024](0024-recherche.md) | Recherche plein texte en V1, sémantique en V1.5 | Accepté | Backend |
 | [0025](0025-reels-instagram.md) | Reels Instagram : lien en V1, extraction en V1.5 | Accepté (V1.5) | Backend |
 | [0026](0026-langues-doc-et-code.md) | Documentation en français, code en anglais | Accepté | Projet |
+| [0027](0027-depot-public.md) | Dépôt et image publics | Accepté | Projet, infra |
+| [0028](0028-langues-du-developpement.md) | Langues des artefacts de développement | Accepté | Projet |
+| [0029](0029-workflow-git-autonome.md) | Workflow git autonome des agents | Accepté | Projet |
+| [0030](0030-outillage-qualite.md) | Outillage de qualité | Accepté | Projet |
+| [0031](0031-generation-depuis-les-contrats.md) | Génération de code depuis les contrats | Accepté | Backend, appli |
+| [0032](0032-migrations-goose.md) | Migrations SQLite avec goose | Accepté | Backend |
+| [0033](0033-strategie-de-test.md) | Stratégie de test : Go standard et jest-expo | Accepté | Projet |

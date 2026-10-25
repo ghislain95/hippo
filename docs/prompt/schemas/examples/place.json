@@ -1,0 +1,22 @@
+{
+  "type": { "key": "place" },
+  "category": { "id": 31 },
+  "tags": ["restaurant", "lille", "brunch"],
+  "title": "Un café de brunch dans le Vieux-Lille",
+  "fiche": {
+    "template": "place",
+    "name": "Café Exemple",
+    "place_kind": "café, brunch",
+    "city": "Lille",
+    "address": null,
+    "what_to_do": "Exemple fictif. Bruncher le week-end ; la source conseille les pancakes.",
+    "practical_info": ["Réservation conseillée le dimanche."],
+    "best_time": "Le samedi matin, avant 10 h.",
+    "website": null,
+    "maps_query": "Café Exemple Vieux-Lille Lille"
+  },
+  "language": "fr",
+  "freshness": "dated",
+  "content_ok": true,
+  "content_issue": null
+}

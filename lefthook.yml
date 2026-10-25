@@ -1,0 +1,28 @@
+# Git hooks (installed by `make setup`). Each command only runs on the staged
+# files that match its glob, so a commit touching docs only stays fast.
+pre-commit:
+  parallel: true
+  commands:
+    secrets:
+      run: gitleaks git --pre-commit --staged --redact --no-banner
+    go-format:
+      glob: "backend/**/*.go"
+      exclude:
+        - "*.gen.go"
+      root: "backend/"
+      run: golangci-lint fmt --diff {staged_files}
+    app-lint:
+      glob: "app/**/*.{ts,tsx,js}"
+      exclude:
+        - "*.gen.ts"
+      root: "app/"
+      run: npx eslint --max-warnings=0 --no-warn-ignored {staged_files}
+    app-format:
+      glob: "app/**/*.{ts,tsx,js,json,md,yml,yaml}"
+      root: "app/"
+      run: npx prettier --check {staged_files}
+
+# Quiet output: only what failed, and the summary.
+output:
+  - failure
+  - summary

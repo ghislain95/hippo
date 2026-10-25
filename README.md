@@ -6,7 +6,7 @@
 
 ## Statut
 
-**Phase de conception terminée, développement pas encore commencé.** La documentation ci-dessous décrit la V1 à construire. Les commandes de développement seront ajoutées lors du setup du projet.
+**Setup terminé, développement des fonctionnalités pas encore commencé** (25 octobre 2026). La documentation décrit la V1 à construire ; le squelette du code (backend Go, appli Expo, contrat OpenAPI, CI) compile et passe ses vérifications. Prochaine étape : le contrat complet de l'API (story E0-05), premier change OpenSpec.
 
 ## Ce que fait Hippo
 
@@ -47,11 +47,13 @@ Chaque choix est justifié dans un [ADR](docs/adr/README.md).
 
 ```
 hippo/
-├── backend/   service Go                         (à créer)
-├── app/       appli Expo et extension de partage  (à créer)
-├── api/       contrat OpenAPI                     (à créer)
-├── infra/     docker compose, Tailscale           (à créer)
-└── docs/      documentation
+├── backend/   service Go (API, SQLite, migrations, schéma de fiches assemblé)
+├── app/       appli Expo (l'extension de partage arrive avec E1)
+├── api/       contrat OpenAPI et son outillage (lint, types TypeScript)
+├── infra/     docker compose (NAS avec Tailscale, Mac sans), .env.example
+├── openspec/  specs et changes OpenSpec
+├── docs/      documentation (dont docs/dev/ : workflow, tests, conventions)
+└── .claude/   agents, skills, hooks et permissions de Claude Code
 ```
 
 ## Documentation
@@ -64,6 +66,7 @@ hippo/
 | [`docs/adr/`](docs/adr/README.md) | Décisions d'architecture et alternatives écartées | Avant de remettre un choix en question |
 | [`docs/backlog.md`](docs/backlog.md) | Epics et user stories avec critères d'acceptation, dans l'ordre | Pour savoir quoi faire ensuite |
 | [`docs/prompt/`](docs/prompt/README.md) | Prompt, schémas JSON des fiches, jeu de test | Avant de toucher à l'analyse |
+| [`docs/dev/`](docs/dev/workflow.md) | Workflow de développement, tests, conventions, git, outils des agents | Pour développer |
 
 **En cas de contradiction** : le [document métier](docs/metier.md) fait foi pour le comportement, les [ADR](docs/adr/README.md) pour les choix techniques, les [schémas](docs/prompt/schemas/) pour le format des fiches. La spec est mise à jour pour s'y aligner.
 
@@ -85,4 +88,46 @@ hippo/
 
 ## Démarrage
 
-*À compléter lors du setup du projet* : prérequis (Go, Node, Xcode, Docker), variables d'environnement, lancement local du backend avec Docker Compose, build de l'appli, installation via SideStore.
+### Prérequis
+
+| Outil | Version | Installation |
+| --- | --- | --- |
+| Go | 1.27 | `brew install go` |
+| Node et npm | 22 | déjà sur le Mac (`app/.nvmrc`) |
+| Docker Desktop | 28 ou plus | déjà sur le Mac |
+| Outils de qualité | golangci-lint 2.15, lefthook, gitleaks, lychee, shellcheck, actionlint | `brew install golangci-lint lefthook gitleaks lychee shellcheck actionlint` |
+| OpenSpec CLI | 1.14.0 | `npm install -g @fission-ai/openspec@1.14.0` |
+| graphify (facultatif) | 0.9 | `uv tool install "graphifyy[sql]"` |
+| Xcode, CocoaPods | dernière version | App Store, puis `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` et `brew install cocoapods watchman` (uniquement pour compiler l'appli) |
+
+### Premier lancement
+
+```bash
+make setup                          # hooks git (lefthook) et dépendances npm de api/ et app/
+cp infra/.env.example infra/.env    # puis renseigner API_TOKEN (openssl rand -hex 32)
+make check                          # tout ce que vérifie la CI
+```
+
+### Backend
+
+```bash
+make dev                                      # backend local sur 127.0.0.1:8080, base dans data/dev/
+make up                                       # ou : l'image Docker, compose local sans Tailscale
+curl -fsS http://127.0.0.1:8080/healthz      # {"status":"ok","version":"…"}
+make down
+```
+
+Sur le NAS : `infra/docker-compose.yml` (sidecar Tailscale, image `ghcr.io/ghislain95/hippo`), mis à jour par `docker compose pull && docker compose up -d`.
+
+### Appli
+
+```bash
+cd app && HIPPO_API_URL=http://127.0.0.1:8080 HIPPO_API_TOKEN=<API_TOKEN> npx expo run:ios   # development build (Xcode)
+make app                                      # serveur de développement Expo
+```
+
+L'installation sur l'iPhone avec SideStore et le compte Apple gratuit est décrite par l'epic E1 (`docs/runbook-ios.md`, à écrire).
+
+### Toutes les commandes
+
+`make help`. Le cycle de développement d'un change est dans [`docs/dev/workflow.md`](docs/dev/workflow.md).

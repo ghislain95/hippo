@@ -1,0 +1,5 @@
+bin/
+coverage.*
+*.test
+testdata/eval/reports/
+CLAUDE.md
