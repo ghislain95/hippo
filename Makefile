@@ -165,3 +165,10 @@ logs: ## Follow the logs of the local stack
 check-infra: ## Validate both compose files
 	API_TOKEN=check TS_AUTHKEY=check docker compose -f infra/docker-compose.yml config --quiet
 	API_TOKEN=check $(COMPOSE_LOCAL) config --quiet
+
+# --- Agent tooling ---------------------------------------------------------------
+
+.PHONY: graph
+graph: ## Rebuild the graphify knowledge graph of the code (local, never committed)
+	graphify update .
+	graphify check-update .
