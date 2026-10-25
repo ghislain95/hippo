@@ -33,7 +33,7 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-app check-generated ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-app check-infra check-generated ## Run every check the CI runs
 
 # --- Code generation -----------------------------------------------------------
 
@@ -143,3 +143,24 @@ doctor-app: ## Check the Expo project configuration (expo-doctor)
 .PHONY: app
 app: ## Start the Expo dev server for the development build (HIPPO_API_URL, HIPPO_API_TOKEN)
 	cd app && npx --no-install expo start --dev-client
+
+# --- Local stack (Docker Compose, without Tailscale) ----------------------------
+
+COMPOSE_LOCAL := docker compose -f infra/docker-compose.local.yml
+
+.PHONY: up
+up: ## Build and start the local stack on 127.0.0.1:8080 (variables from infra/.env or the shell)
+	VERSION=$(VERSION) $(COMPOSE_LOCAL) up --build --detach --wait
+
+.PHONY: down
+down: ## Stop the local stack (the data stays in infra/data/)
+	API_TOKEN=$${API_TOKEN:-unused-by-down} $(COMPOSE_LOCAL) down
+
+.PHONY: logs
+logs: ## Follow the logs of the local stack
+	API_TOKEN=$${API_TOKEN:-unused-by-logs} $(COMPOSE_LOCAL) logs --follow
+
+.PHONY: check-infra
+check-infra: ## Validate both compose files
+	API_TOKEN=check TS_AUTHKEY=check docker compose -f infra/docker-compose.yml config --quiet
+	API_TOKEN=check $(COMPOSE_LOCAL) config --quiet

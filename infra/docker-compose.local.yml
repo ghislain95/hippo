@@ -1,0 +1,34 @@
+# Hippo on the Mac, without Tailscale: the image is built from ../backend and the API is
+# published on 127.0.0.1:8080 only (never on the local network). Same image, same volume layout
+# as docker-compose.yml. Used by `make up`, `make down`, `make logs`.
+# Variables: infra/.env if present (read by Compose from this folder), else the shell.
+name: hippo-local
+
+services:
+  hippo:
+    build:
+      context: ../backend
+      args:
+        VERSION: ${VERSION:-dev}
+    image: hippo:local
+    environment:
+      - API_TOKEN=${API_TOKEN:?set API_TOKEN in infra/.env or in the shell}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANALYSIS_MODEL=${ANALYSIS_MODEL:-claude-haiku-4-5}
+      - BATCH_SCHEDULE=${BATCH_SCHEDULE:-0 2 * * *}
+      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-0 3 * * *}
+      - MONTHLY_BUDGET_USD=${MONTHLY_BUDGET_USD:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=${TZ:-Europe/Paris}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+    mem_limit: 128m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/hippo", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
