@@ -4,8 +4,8 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-LYCHEE_FLAGS := --offline --no-progress --include-fragments \
-	--exclude-path node_modules --exclude-path .claude/worktrees
+LYCHEE_FLAGS := --offline --no-progress --include-fragments --hidden \
+	--exclude-path node_modules --exclude-path .claude/worktrees --exclude-path .git
 
 .PHONY: help
 help: ## List the available targets

@@ -19,3 +19,8 @@ pre-commit:
       glob: "app/**/*.{ts,tsx,js,json,md,yml,yaml}"
       root: "app/"
       run: npx prettier --check {staged_files}
+
+# Quiet output: only what failed, and the summary.
+output:
+  - failure
+  - summary
