@@ -20,7 +20,7 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec ## Run every check the CI runs
 
 # --- Repository-wide checks --------------------------------------------------
 
@@ -38,3 +38,7 @@ check-tooling: ## Test the agent hooks and lint the shell scripts
 	bash .claude/hooks/protect-files.test.sh
 	shellcheck -S warning .claude/hooks/protect-files.sh .claude/hooks/protect-files.test.sh .claude/hooks/format-on-edit.sh
 	shellcheck -S error .claude/hooks/block-git-writes.sh .claude/hooks/block-git-writes.test.sh
+
+.PHONY: check-openspec
+check-openspec: ## Validate every OpenSpec spec and change
+	openspec validate --all --no-interactive
