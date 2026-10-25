@@ -24,13 +24,19 @@ concurrency:
 env:
   GOLANGCI_LINT_VERSION: v2.15.0
   GITLEAKS_VERSION: 8.30.1
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
   OPENSPEC_VERSION: 1.14.0
   ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # dorny/paths-filter lists the files of a pull request through the API.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       app: ${{ steps.filter.outputs.app }}
@@ -38,7 +44,6 @@ jobs:
       schemas: ${{ steps.filter.outputs.schemas }}
       openspec: ${{ steps.filter.outputs.openspec }}
       migrations: ${{ steps.filter.outputs.migrations }}
-      docs: ${{ steps.filter.outputs.docs }}
       tooling: ${{ steps.filter.outputs.tooling }}
       image: ${{ steps.filter.outputs.image }}
       infra: ${{ steps.filter.outputs.infra }}
@@ -64,6 +69,8 @@ jobs:
               - *ci
               - api/**
               - backend/internal/httpapi/**
+              - backend/go.mod
+              - backend/go.sum
               - app/src/api/**
             schemas:
               - *ci
@@ -76,9 +83,6 @@ jobs:
             migrations:
               - *ci
               - backend/internal/store/migrations/**
-            docs:
-              - *ci
-              - "**/*.md"
             tooling:
               - *ci
               - .claude/hooks/**
@@ -230,9 +234,9 @@ jobs:
           fi
           echo "OK: no existing migration was touched."
 
+  # Always: renaming or deleting a file that a document links to breaks the link without
+  # touching any .md file. Offline lychee takes about a second.
   docs:
-    needs: changes
-    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -253,10 +257,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Hook regression suites and shellcheck
+      # shellcheck, jq and perl ship with ubuntu-latest; actionlint does not.
+      - name: Install actionlint (pinned, checksum verified)
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          sudo tar -xzf "${archive}" -C /usr/local/bin actionlint
+      - name: Hook regression suites, shellcheck and actionlint
         run: make check-tooling
-      - name: Lint the workflows (actionlint)
-        run: docker run --rm -v "$PWD:/repo" -w /repo "rhysd/actionlint:${ACTIONLINT_VERSION}" -color
 
   infra:
     needs: changes
@@ -275,10 +284,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Install gitleaks
+      - name: Install gitleaks (pinned, checksum verified)
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          sudo tar -xzf "${archive}" -C /usr/local/bin gitleaks
       - name: Scan the history for secrets
         run: gitleaks git --redact --no-banner --verbose
 
