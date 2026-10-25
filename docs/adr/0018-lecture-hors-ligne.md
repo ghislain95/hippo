@@ -1,6 +1,6 @@
 # ADR-0018 — Lecture hors ligne par cache local synchronisé
 
-- **Statut** : Accepté
+- **Statut** : Accepté — synchronisation précisée par [ADR-0035](0035-contrat-identifiants-et-synchronisation.md)
 - **Date** : 2026-10-11
 
 ## Contexte

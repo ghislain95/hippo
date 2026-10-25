@@ -22,8 +22,8 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0014](0014-extension-de-partage-autonome.md) | Extension de partage autonome | Accepté, à confirmer (E1) | Appli |
 | [0015](0015-reseau-tailscale.md) | Accès réseau par Tailscale, en HTTPS, sans port ouvert | Accepté | Infra |
 | [0016](0016-authentification-token.md) | Authentification par token d'API statique | Accepté | Backend |
-| [0017](0017-contrat-openapi.md) | Contrat d'API OpenAPI comme source de vérité | Accepté | Backend, appli |
-| [0018](0018-lecture-hors-ligne.md) | Lecture hors ligne par cache local synchronisé | Accepté | Appli, backend |
+| [0017](0017-contrat-openapi.md) | Contrat d'API OpenAPI comme source de vérité | Accepté, précisé par 0031 et 0035 | Backend, appli |
+| [0018](0018-lecture-hors-ligne.md) | Lecture hors ligne par cache local synchronisé | Accepté, synchronisation précisée par 0035 | Appli, backend |
 | [0019](0019-deploiement-docker-nas.md) | Déploiement Docker Compose sur le NAS | Accepté, visibilité de l'image amendée par 0027 | Infra |
 | [0020](0020-sauvegardes.md) | Sauvegardes locale et externe chiffrée | Accepté, service à choisir | Infra |
 | [0021](0021-garde-fous-couts.md) | Garde-fous de coût de l'IA | Accepté | IA, backend |
@@ -36,7 +36,8 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0028](0028-langues-du-developpement.md) | Langues des artefacts de développement | Accepté | Projet |
 | [0029](0029-workflow-git-autonome.md) | Workflow git autonome des agents | Accepté, moment de la fusion amendé par 0034 | Projet |
 | [0030](0030-outillage-qualite.md) | Outillage de qualité | Accepté | Projet |
-| [0031](0031-generation-depuis-les-contrats.md) | Génération de code depuis les contrats | Accepté | Backend, appli |
+| [0031](0031-generation-depuis-les-contrats.md) | Génération de code depuis les contrats | Accepté, précisé par 0035 | Backend, appli |
 | [0032](0032-migrations-goose.md) | Migrations SQLite avec goose | Accepté | Backend |
 | [0033](0033-strategie-de-test.md) | Stratégie de test : Go standard et jest-expo | Accepté | Projet |
 | [0034](0034-auto-merge-github.md) | Fusion différée par l'auto-merge de GitHub | Accepté | Projet |
+| [0035](0035-contrat-identifiants-et-synchronisation.md) | Contrat d'API : fiches générées, identifiants et synchronisation | Accepté | Backend, appli |

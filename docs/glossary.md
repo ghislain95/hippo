@@ -23,6 +23,7 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Note de capture** | `user_note` | Le texte que l'utilisateur ajoute au moment de la capture (« pour le projet X », « à tester »). C'est un indice précieux sur l'intention, transmis à l'IA. Pour un élément de forme `note`, c'est le contenu lui-même. |
 | **Élément privé** | `is_private = 1` | Élément stocké et cherchable, mais **jamais envoyé à l'IA**. Décoché par défaut. L'utilisateur le range lui-même. |
 | **Image** | `asset` | Fichier image rattaché à un élément (capture d'écran, photo), stocké sur le disque du NAS. |
+| **Identifiant de capture** | `client_id` | Identifiant (ULID) choisi par l'appareil qui envoie une capture. Une capture rejouée avec le même identifiant renvoie l'élément déjà créé au lieu d'en créer un second (RG-08). |
 | **URL normalisée** | `normalized_url` | L'URL débarrassée de ce qui ne change pas le contenu (paramètres de tracking, fragment, slash final). Sert à détecter les doublons. |
 
 ### Traitement
@@ -36,9 +37,9 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Analyse** | `analysis` | Le traitement d'un élément par l'IA : choix du type, de la catégorie, des tags, et rédaction de la fiche. |
 | **Batch** (lot nocturne) | `batch` | L'envoi groupé, une fois par nuit, de tous les éléments en attente d'analyse, via l'API Message Batches d'Anthropic (moitié prix). |
 | **Analyse immédiate** | `POST /api/items/{id}/analyze` | Analyse d'un seul élément tout de suite, hors batch, au plein tarif. Déclenchée à la main. |
-| **Réanalyse** | `reanalysis` | Nouvelle analyse d'un élément déjà analysé, à partir du contenu extrait conservé (meilleur prompt, nouveau schéma, fiche incomplète). |
+| **Réanalyse** | `reanalysis` | Nouvelle analyse d'un élément déjà analysé, à partir du contenu extrait conservé (meilleur prompt, nouveau schéma, type proposé fusionné dans un type existant, ou à la demande). |
 | **Statut de traitement** | `status` : `queued`, `extracted`, `submitted`, `analyzed`, `failed` | Où en est l'élément dans le pipeline. Indépendant du *statut de lecture*. Voir le cycle de vie dans [`metier.md`](metier.md#4-cycle-de-vie-dun-élément). |
-| **Fiche incomplète** | `fiche_incomplete` | L'IA a atteint son plafond de tokens de sortie avant de finir la fiche. |
+| **Fiche incomplète** | `stop_reason = max_tokens` | Réponse de l'IA coupée par son plafond de tokens de sortie avant la fin de la fiche. Elle n'est jamais enregistrée : l'élément est retenté une fois avec un plafond doublé, puis passe en échec (« fiche trop longue ») (RG-36). |
 | **Version de prompt** | `prompt_version` | Numéro de la version du prompt système qui a produit la fiche. |
 | **Version de schéma** | `schema_version` | Numéro de la version du schéma JSON de la fiche pour son type. Permet de repérer les fiches à réanalyser quand un template évolue. |
 
@@ -72,6 +73,9 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Recherche plein texte** | FTS5, paramètre `q` | Recherche par mots-clés sur le titre, la fiche, la note et les tags, insensible aux accents. |
 | **Recherche sémantique** *(V1.5)* | `embedding` | Recherche par le sens, grâce à des vecteurs calculés localement sur le NAS. |
 | **Éléments liés** *(V1.5)* | `related_items` | Éléments qui parlent du même sujet, calculés à partir des tags, des catégories et des vecteurs. |
+| **Jeton de synchronisation** | `sync_token` | Valeur opaque, donnée par le serveur à la fin d'une synchronisation, que l'appli renvoie la fois suivante pour ne recevoir que les changements depuis. Trop ancien (plus de 30 jours), il est refusé et l'appli resynchronise tout. |
+| **Séquence de modification** | `change_seq` | Compteur qui augmente à chaque écriture d'une ligne synchronisée ; c'est lui, et non l'heure, qui ordonne les changements envoyés à l'appli. |
+| **Marque de suppression** | `deleted_at`, *tombstone* | Trace d'un élément, d'une catégorie, d'un type ou d'un tag supprimé, gardée 30 jours pour la synchronisation : seulement son identifiant et sa date de suppression (RG-79). |
 | **Export** | `GET /api/export` | Archive Markdown de toutes les fiches, un fichier par fiche, rangés par catégorie, compatible Obsidian. |
 
 ### Coûts et exploitation
