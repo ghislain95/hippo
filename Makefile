@@ -16,11 +16,12 @@ help: ## List the available targets
 .PHONY: setup
 setup: ## Install the git hooks and the project dependencies (once per clone)
 	lefthook install
+	cd api && npm ci --no-fund --no-audit
 
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api ## Run every check the CI runs
 
 # --- Repository-wide checks --------------------------------------------------
 
@@ -42,3 +43,9 @@ check-tooling: ## Test the agent hooks and lint the shell scripts
 .PHONY: check-openspec
 check-openspec: ## Validate every OpenSpec spec and change
 	openspec validate --all --no-interactive
+
+# --- API contract ------------------------------------------------------------
+
+.PHONY: lint-api
+lint-api: ## Lint the OpenAPI contract (Redocly)
+	cd api && npx --no-install redocly lint openapi.yaml

@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: Hippo API
+  version: 0.1.0
+  summary: Personal second brain — capture, nightly analysis, reading.
+  description: |
+    Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share
+    extension. This file is the source of truth (ADR-0017): the Go server and the TypeScript
+    client are generated from it (ADR-0031).
+
+    Conventions:
+    - Every route lives under `/api` and requires `Authorization: Bearer <token>`, except
+      `/healthz` (ADR-0016).
+    - JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`); identifiers are ULIDs.
+    - Errors use `application/problem+json` (RFC 9457, schema `Problem`). Business errors have
+      a stable `type` of the form `urn:hippo:problem:<slug>`; generic HTTP errors use
+      `about:blank`. `detail` is in French and can be shown as is.
+    - Collections are paginated by cursor: query parameters `cursor` and `limit`, and the
+      response carries `items` and `next_cursor` (`null` on the last page).
+
+    The routes of the V1 specification (docs/spec-v1.md, "API REST") are added by the
+    OpenSpec changes that implement them.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local backend on the Mac (make dev, make up)
+  - url: https://hippo.{tailnet}.ts.net
+    description: NAS, published by tailscale serve (ADR-0015)
+    variables:
+      tailnet:
+        default: example
+        description: Tailscale tailnet name
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+    description: Service health and operations
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Service health
+      description: Liveness and readiness probe, used by the Docker healthcheck and the app settings screen. Public, no token required.
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The service is up and its database is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: The service runs but its database is not reachable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Static API token shared by the backend (`API_TOKEN`) and the app, injected at build time (ADR-0016).
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor returned as `next_cursor` by the previous page. Omit it for the first page.
+      schema:
+        type: string
+        minLength: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items in the page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+  responses:
+    BadRequest:
+      description: The request is invalid.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: The bearer token is missing or wrong.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: The resource does not exist, or belongs to another user.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalError:
+      description: Unexpected server error; the cause is in the server logs.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      description: Error body (RFC 9457).
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Problem type. `urn:hippo:problem:<slug>` for business errors, `about:blank` otherwise.
+          examples: ["urn:hippo:problem:budget-exceeded"]
+        title:
+          type: string
+          description: Short summary of the problem type, in English.
+          examples: ["Monthly AI budget reached"]
+        status:
+          type: integer
+          description: HTTP status code.
+          minimum: 100
+          maximum: 599
+          examples: [409]
+        detail:
+          type: string
+          description: Explanation of this occurrence, in French, that the app can display as is.
+          examples: ["Le budget IA du mois est atteint : l'analyse reprendra le 1er du mois prochain."]
+        instance:
+          type: string
+          format: uri-reference
+          description: Path of the request that failed.
+          examples: ["/api/items/01JB8Z6Q4M1X2Y3Z4A5B6C7D8E/analyze"]
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          description: Always `ok` when the response is 200.
+        version:
+          type: string
+          description: Version of the running backend (git revision, or `dev`).
+          examples: ["dev"]
+    NextCursor:
+      type: [string, "null"]
+      description: Cursor of the next page, to pass as `cursor`; `null` on the last page. Paginated responses are objects `{ items, next_cursor }`.

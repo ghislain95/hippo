@@ -1,0 +1,11 @@
+{
+  "name": "hippo-api",
+  "private": true,
+  "description": "Lint tooling for the Hippo OpenAPI contract",
+  "scripts": {
+    "lint": "redocly lint openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.71.0"
+  }
+}

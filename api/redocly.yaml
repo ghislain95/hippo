@@ -1,0 +1,30 @@
+# Redocly CLI lint configuration for api/openapi.yaml (make lint-api).
+extends:
+  - recommended
+rules:
+  # No licence: personal project, the repository has none.
+  info-license: off
+  info-license-strict: off
+  # Shared parameters, responses and NextCursor are used by the first route changes.
+  no-unused-components: off
+  # JSON properties and query parameters are snake_case (ADR-0017).
+  rule/properties-snake-case:
+    subject:
+      type: Schema
+      property: properties
+    assertions:
+      casing: snake_case
+    message: Schema properties must be snake_case.
+  rule/parameters-snake-case:
+    subject:
+      type: Parameter
+      property: name
+    where:
+      - subject:
+          type: Parameter
+          property: in
+        assertions:
+          const: query
+    assertions:
+      casing: snake_case
+    message: Query parameters must be snake_case.
