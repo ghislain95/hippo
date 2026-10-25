@@ -90,6 +90,14 @@ Sinon il s'arrête, explique ce qui manque, et demande.
 
 Correction triviale (moins de 30 minutes, comportement spécifié intact, aucun contrat touché) : sans change OpenSpec, mais sur une branche `fix/<scope>-<desc>`, avec un test de régression, la relecture, `make check` et une PR. Un bug qui contredit une spec ou une `RG-xx` est un change (`/opsx:new fix-<bug>`).
 
+### Dépendances (Dependabot)
+
+Dependabot propose chaque lundi la dernière version publiée de chaque dépendance ([`.github/dependabot.yml`](../../.github/dependabot.yml)). Ce n'est pas une recommandation : c'est la CI qui tranche.
+
+- **Correctif ou version mineure** : si `ci-ok` est vert, l'agent fusionne la PR sans demander ; si elle échoue, il corrige ou ferme la PR en expliquant pourquoi.
+- **Version majeure d'un paquet lié à un autre outil** : exclue de Dependabot, et faite volontairement quand l'outil dont elle dépend la supporte. Aujourd'hui : les paquets du SDK Expo et leurs compagnons (`jest`, `eslint`, `react`, `react-native`, `typescript` dans `app/`), à monter ensemble dans un change de montée de SDK (`npx expo install --fix`) ; `typescript` dans `api/`, tant qu'openapi-typescript exige TypeScript 5.
+- **Autre version majeure** : l'agent s'arrête et demande (cas d'arrêt n° 3 ci-dessous).
+
 ## Quand s'arrêter pour demander
 
 L'agent s'arrête et pose la question à Ghislain (une question, un exemple, une recommandation) dans ces cas, et seulement ceux-là :

@@ -23,10 +23,17 @@ updates:
       app:
         patterns: ["*"]
         update-types: [minor, patch]
-    # Expo pins its SDK packages: upgrade them with `npx expo install --fix` during an SDK
-    # upgrade change, not one by one.
+    # Majors of the packages tied to the Expo SDK move together, in an SDK upgrade change run with
+    # `npx expo install --fix` (docs/dev/workflow.md, "Dépendances"): the SDK packages and their
+    # test and lint companions (jest-expo pins jest; eslint-config-expo breaks on ESLint 10).
     ignore:
-      - dependency-name: "expo*"
+      - dependency-name: "*expo*"
+        update-types: [version-update:semver-major]
+      - dependency-name: "jest"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/jest"
+        update-types: [version-update:semver-major]
+      - dependency-name: "eslint"
         update-types: [version-update:semver-major]
       - dependency-name: "react"
       - dependency-name: "react-dom"
@@ -46,6 +53,11 @@ updates:
     groups:
       api:
         patterns: ["*"]
+    # openapi-typescript 7 requires TypeScript 5: TypeScript moves to a new major only once
+    # openapi-typescript supports it.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: build
       include: scope
