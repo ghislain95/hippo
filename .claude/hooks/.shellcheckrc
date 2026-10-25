@@ -1,0 +1,2 @@
+# Test cases quote shell syntax on purpose, and tr sets are intended.
+disable=SC2016,SC2020
