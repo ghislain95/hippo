@@ -5,7 +5,7 @@ Plan de la phase 3, établi le 25 octobre 2026 à partir de l'[inventaire](setup
 Règles du plan :
 
 - Chaque commit laisse le dépôt vert : tout ce qui existe compile et passe `make check`.
-- Conventional Commits en anglais, sujet et corps, aucune mention de Claude ([git.md](git.md), à créer). Hors change OpenSpec, le scope est le module : `tooling`, `docs`, `api`, `backend`, `app`, `infra`, `ci`.
+- Conventional Commits en anglais, sujet et corps, aucune mention de Claude (règles détaillées dans `docs/dev/git.md`, créé au commit 7). Hors change OpenSpec, le scope est le module : `tooling`, `docs`, `api`, `backend`, `app`, `infra`, `ci`.
 - Aucune fonctionnalité métier : pas de route `/api/items`, pas d'extraction, pas d'analyse, pas d'écran autre que l'état du serveur.
 
 ## 1. Décisions à valider avant de commencer

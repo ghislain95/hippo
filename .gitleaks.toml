@@ -1,0 +1,12 @@
+# Gitleaks configuration: the default rules, plus the documented exceptions.
+title = "hippo"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholders and test fixtures"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)testdata/''',
+]
