@@ -7,6 +7,8 @@
 #   regenerate them with `make generate`.
 # - Sibling repositories (../geomni, ../wifisense, any folder next to this one) are read-only.
 # - A recursive rm whose target leaves the repository is blocked.
+# Shell commands are read through block-git-writes.pl first: text in a heredoc or a quoted
+# message that only mentions a protected file is allowed.
 # A guardrail against mistakes, not a sandbox: deliberate evasions are out of scope.
 # Exit 2 = block the tool call and show stderr to the agent.
 
@@ -73,8 +75,16 @@ case "$TOOL" in
     esac
     ;;
   Bash)
-    COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
-    [ -z "$COMMAND" ] && exit 0
+    RAW=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
+    [ -z "$RAW" ] && exit 0
+    # Read the command the way the shell does (block-git-writes.pl): heredoc bodies and quoted
+    # strings holding spaces (commit messages, file contents) are neutralised, so text that only
+    # mentions a protected file is not taken for a command. If the reader fails, check the raw
+    # command (stricter).
+    HOOK_DIR=$(cd "$(dirname "$0")" && pwd)
+    if ! command -v perl >/dev/null 2>&1 || ! COMMAND=$(printf '%s' "$RAW" | perl "$HOOK_DIR/block-git-writes.pl" 2>/dev/null); then
+      COMMAND=$RAW
+    fi
     # Any word that names a .env file other than .env.example.
     while IFS= read -r word; do
       [ -z "$word" ] && continue

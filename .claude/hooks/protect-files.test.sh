@@ -7,6 +7,7 @@ mkdir -p "$ROOT"
 trap 'rm -rf "$(dirname "$ROOT")"' EXIT
 export CLAUDE_PROJECT_DIR="$ROOT"
 fail=0; n=0
+NL=$'\n'
 
 # file <expected> <tool> <path>
 file() {
@@ -62,6 +63,13 @@ cmd 0 'grep -r "process.env" app/src'
 cmd 0 'ls -la .envrc'
 cmd 0 'make up'
 cmd 0 'docker compose --env-file=x up'
+cmd 0 "cat > infra/CLAUDE.md <<'EOF'${NL}.env is created by Ghislain; agents never read infra/.env${NL}EOF"
+cmd 0 'git commit -m "docs: explain why .env is never read"'
+cmd 0 'git commit -m "chore: ignore .claude/settings.local.json"'
+cmd 2 "cat <<'EOF' > infra/.env${NL}X=1${NL}EOF"
+cmd 2 'cat "infra/.env"'
+cmd 2 'echo "$(cat infra/.env)"'
+cmd 0 'git commit -m "warn about rm -rf ../geomni in docs"'
 
 # Recursive rm.
 cmd 0 'rm -rf backend/bin'
