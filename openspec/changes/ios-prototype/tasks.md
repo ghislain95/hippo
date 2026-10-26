@@ -37,7 +37,7 @@
 ## 6. On-device QA (Ghislain)
 
 - [x] 6.1 Signing and install through Xcode with the free account: the app and the extension run on the iPhone
-- [ ] 6.2 Sharing from Safari and Instagram (link with a note, text, screenshot) reaches the echo server through `tailscale serve` in HTTPS, on Wi-Fi then on 4G
+- [x] 6.2 Sharing from Safari and Instagram (link with a note, text, screenshot) reaches the echo server through `tailscale serve` in HTTPS, on Wi-Fi then on 4G
 - [x] 6.3 Offline sharing shows the clear error and copies the link (RG-06)
 - [ ] 6.4 Install through SideStore, then a refresh from the iPhone with the Tailscale switch
 - [x] 6.5 Glass screen judged on the iPhone; measures noted for a link and a large screenshot

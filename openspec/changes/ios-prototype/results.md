@@ -132,7 +132,7 @@ iPhone 15, iOS 27.0, build Release installé depuis Xcode avec la Personal Team.
 | B1 | Safari, page avec une note de capture, en Wi-Fi | ✅ `form=link`, note de 25 caractères |
 | B2 | Partage en 5G par Tailscale | ✅ une recette : envoi 0,18 s, 26,6 Mo |
 | B3, B4 | Instagram, publication et reel | ✅ l'extension apparaît ; Instagram partage l'URL elle-même : `form=link`, hôte `www.instagram.com`, rien dans la note |
-| B5 | Notes, texte sans lien | ⚠️ aucune capture `form=note` reçue par le serveur : à refaire |
+| B5 | Notes, texte sans lien | ✅ `form=note`, 7 343 caractères, privé |
 | B6, B7 | Photos, capture d'écran et grande photo | ✅ `form=image` ; **toutes les images arrivent en `image/jpeg`** (149 Ko, 415 Ko, 1,8 Mo), pas dans leur format d'origine ; grande photo en 5G : envoi 0,67 s, 28,4 Mo |
 | B8 | « Privé » coché | ✅ `is_private=true` (deux images) |
 | C1 à C3 | Mode avion, Tailscale coupé, Réessayer | ✅ selon Ghislain (l'échec n'atteint pas le serveur ; le nouvel essai arrive) |
