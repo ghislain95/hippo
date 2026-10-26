@@ -32,7 +32,7 @@
 - [ ] 5.3 Check the glass screen and the network tab on the simulator, and verify with screenshots
 - [ ] 5.4 Write `npm run ipa` (unsigned Release archive packed as `Payload/*.app`), and verify the `.ipa` holds the app and its `PlugIns/*.appex`
 - [ ] 5.5 Write `docs/runbook-ios.md` (in French): Tailscale account and HTTPS certificates, `tailscale serve`, Apple ID in Xcode and developer mode, install through Xcode, SideStore pairing, install and weekly refresh with the Tailscale switch, bundle identifiers to keep. Verify every command in it against what was run, and verify `make check-docs` passes
-- [ ] 5.6 Write the QA checklist in `openspec/changes/ios-prototype/results.md` (each step, expected result, a blank for the observed result and the measures), and give it to Ghislain
+- [x] 5.6 Write the QA checklist in `openspec/changes/ios-prototype/results.md` (each step, expected result, a blank for the observed result and the measures), and give it to Ghislain
 
 ## 6. On-device QA (Ghislain)
 
