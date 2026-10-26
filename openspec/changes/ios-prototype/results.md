@@ -95,8 +95,8 @@ Colonne « Observé » : ce qui s'est passé, même quand c'est conforme. Colonn
 | Mesure | Lien (B1) | Lien en 4G (B2) | Capture d'écran (B6) | Grande photo (B7) |
 | --- | --- | --- | --- | --- |
 | Temps depuis l'ouverture de l'extension | | | | |
-| Durée de l'envoi | | | | |
-| Mémoire de l'extension | | | | |
+| Durée de l'envoi | | 0,18 s (5G) | | 0,67 s (5G) |
+| Mémoire de l'extension | | 26,6 Mo | | 28,4 Mo |
 
 Repère : la capture doit tenir en moins de 5 secondes (objectif de la spec V1). La limite de mémoire d'une extension de partage est d'environ 120 Mo. « Temps depuis l'ouverture » compte aussi la saisie de la note ; « Durée de l'envoi » ne compte que le réseau.
 
@@ -121,9 +121,32 @@ iPhone 18 Pro, iOS 27.0, build Debug, serveur d'écho sur `http://127.0.0.1:8787
 
 Mémoire mesurée : 24 à 37 Mo, loin de la limite d'environ 120 Mo.
 
-### iPhone
+### iPhone (2026-10-26, Ghislain)
 
-*À remplir après les essais de Ghislain.*
+iPhone 15, iOS 27.0, build Release installé depuis Xcode avec la Personal Team. Serveur d'écho sur le Mac, publié par `tailscale serve` sur `https://<mac>.<tailnet>.ts.net`. Sources : le journal du serveur d'écho et les relevés de Ghislain.
+
+| # | Essai | Résultat |
+| --- | --- | --- |
+| A1 | Signature et installation avec le compte gratuit | ✅ un profil « iOS Team Provisioning Profile » pour l'appli et un pour l'extension ; installation par `devicectl` après activation du mode développeur et confiance dans le compte |
+| A2 | « Hippo E1 » dans la feuille de partage de Safari | ✅ |
+| B1 | Safari, page avec une note de capture, en Wi-Fi | ✅ `form=link`, note de 25 caractères |
+| B2 | Partage en 5G par Tailscale | ✅ une recette : envoi 0,18 s, 26,6 Mo |
+| B3, B4 | Instagram, publication et reel | ✅ l'extension apparaît ; Instagram partage l'URL elle-même : `form=link`, hôte `www.instagram.com`, rien dans la note |
+| B5 | Notes, texte sans lien | ⚠️ aucune capture `form=note` reçue par le serveur : à refaire |
+| B6, B7 | Photos, capture d'écran et grande photo | ✅ `form=image` ; **toutes les images arrivent en `image/jpeg`** (149 Ko, 415 Ko, 1,8 Mo), pas dans leur format d'origine ; grande photo en 5G : envoi 0,67 s, 28,4 Mo |
+| B8 | « Privé » coché | ✅ `is_private=true` (deux images) |
+| C1 à C3 | Mode avion, Tailscale coupé, Réessayer | ✅ selon Ghislain (l'échec n'atteint pas le serveur ; le nouvel essai arrive) |
+| D1 | `/ping` en 5G par Tailscale | ✅ 190 ms |
+| D2 | Appli loin du Mac | ✅ build Release, JavaScript embarqué |
+| E1 à E4 | Rendu natif | ✅ « l'effet est bon » ; Ghislain préfère un arrondi d'environ un tiers du curseur (environ 16 points au lieu de 24), qui « fait plus fiche » : repère pour les maquettes E5 |
+| F1 à F6 | SideStore | à faire |
+
+Constats pour la suite :
+
+- **Capture en moins de 5 s** : l'envoi reste sous 0,7 s en 5G, même pour une grande photo ; le reste du temps est la saisie.
+- **Mémoire** : 26 à 29 Mo sur l'iPhone, loin de la limite d'environ 120 Mo.
+- **Images converties en JPEG** : l'extension prend le premier type d'image que propose l'app source, et Photos propose du JPEG. Pour E5-02 et RG-02 : décider s'il faut demander le format d'origine (HEIC ou PNG) ou garder le JPEG, plus léger.
+- **Instagram** : partage une URL ; le cas « texte avec une URL dedans » n'a pas été rencontré.
 
 ## Décision (E1-04)
 
