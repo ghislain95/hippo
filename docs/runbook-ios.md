@@ -111,4 +111,5 @@ Une appli expirée ne fait rien perdre : les données sont sur le NAS.
 | L'extension n'apparaît pas dans la feuille de partage | feuille de partage › **Modifier les actions** › activer « Hippo » |
 | « Serveur injoignable » dans l'extension | Tailscale actif sur l'iPhone ? `Tailscale serve status` sur le Mac ? |
 | SideStore : erreur de connexion ou d'AFC | LocalDevVPN connecté **et** Wi-Fi actif ; sinon remplacer le fichier d'appairage |
+| SideStore : « Failed to sign in », erreur `-80045` (Apple refuse la connexion, vu en octobre 2026) | changer le serveur Anisette ([SideStore#1675](https://github.com/SideStore/SideStore/issues/1675), essayé avec succès le 2026-10-26) : User Customizations › désactiver On-Device Anisette ; Anisette servers › n° 5 « SideStore (New) », et désactiver « Enable auto rotation » ; Anisette client configuration › Remote server sync › Fetch puis Save as overrides ; Reset adi.pb ; se reconnecter |
 | L'appli ne s'ouvre plus | elle a expiré : rafraîchir (section 7) |
