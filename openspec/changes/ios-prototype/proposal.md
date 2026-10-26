@@ -39,6 +39,6 @@ None.
 - **AI cost**: none. **Private items**: none sent anywhere but the local echo server. **Persisted data**: none.
 - **API contract**: none (the echo server is outside the contract).
 - **New dependencies, prototype only**: `@bacons/apple-targets`, `expo-glass-effect`, `@expo/ui` in `spikes/e1-ios/`; none reaches `app/` or `backend/` in this change. Their adoption in the real app will be decided by E5's changes.
-- **Accounts and devices, Ghislain's actions**: a free Tailscale account (to create), Tailscale on the Mac and the iPhone, the free Apple ID signed in Xcode, the iPhone in developer mode, SideStore and its first pairing from the Mac. No cost.
+- **Accounts and devices, Ghislain's actions**: the existing free Tailscale account (the NAS and two iPhones are already on it), the Mac added to it, HTTPS certificates enabled, the free Apple ID signed in Xcode, the iPhone in developer mode, SideStore and its first pairing from the Mac. No cost.
 - **Docs**: `docs/runbook-ios.md` (new), the results report, ADR-0014 status or a new ADR, `docs/backlog.md` (E1 done), `docs/spec-v1.md` ("Risques et points à vérifier", and its libraries line if the Swift extension is kept).
 - **User QA**: yes — the on-device checks are the QA, run by Ghislain with the runbook.

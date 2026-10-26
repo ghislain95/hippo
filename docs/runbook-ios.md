@@ -32,10 +32,11 @@ Procédure pour installer l'appli Hippo sur l'iPhone avec un compte Apple gratui
 
 ## 2. Tailscale en HTTPS (une fois)
 
-1. Créer le compte sur [tailscale.com](https://tailscale.com), en se connectant avec l'identifiant de son choix.
+1. Utiliser le compte [tailscale.com](https://tailscale.com) existant (le NAS et les iPhones y sont déjà), ou en créer un.
 2. Ouvrir Tailscale sur le Mac (ou le NAS) et sur l'iPhone, avec le même compte. Les deux apparaissent dans la console d'administration.
-3. Console d'administration › DNS : vérifier que **MagicDNS** est actif, puis activer **HTTPS Certificates**.
-4. Publier le serveur en HTTPS sur le tailnet. Sur le Mac, la commande `tailscale` est dans l'appli :
+3. Avant d'activer HTTPS, renommer dans la console toute machine qui servira en HTTPS et dont le nom est personnel (par exemple `hippo-dev` pour le Mac). Son nom complet `<machine>.<tailnet>.ts.net` sera inscrit dans le registre public des certificats (Certificate Transparency). Les machines qui ne demandent pas de certificat n'y figurent pas.
+4. Console d'administration › DNS : vérifier que **MagicDNS** est actif, puis activer **HTTPS Certificates**. Cela ne change rien aux connexions existantes : seules les machines qui demandent un certificat (ici par `tailscale serve`) en reçoivent un. « Disable HTTPS » est possible plus tard ; il coupe seulement ce qui passe par HTTPS.
+5. Publier le serveur en HTTPS sur le tailnet. Sur le Mac, la commande `tailscale` est dans l'appli :
 
    ```bash
    /Applications/Tailscale.app/Contents/MacOS/Tailscale serve --bg 8787
@@ -43,8 +44,8 @@ Procédure pour installer l'appli Hippo sur l'iPhone avec un compte Apple gratui
 
    L'adresse affichée est de la forme `https://<machine>.<tailnet>.ts.net`. Le certificat est un vrai certificat public : l'appli n'a besoin d'aucune exception ATS.
 
-5. Vérifier depuis l'iPhone, Tailscale actif : ouvrir `https://<machine>.<tailnet>.ts.net/ping` dans Safari. La réponse `401` prouve que le serveur répond, car il demande le token.
-6. Pour arrêter la publication : `Tailscale serve --https=443 off`, et `Tailscale serve status` pour la voir.
+6. Vérifier depuis l'iPhone, Tailscale actif : ouvrir `https://<machine>.<tailnet>.ts.net/ping` dans Safari. La réponse `401` prouve que le serveur répond, car il demande le token.
+7. Pour arrêter la publication : `Tailscale serve --https=443 off`, et `Tailscale serve status` pour la voir.
 
 Le serveur n'est joignable que depuis le tailnet. Rien n'est exposé sur Internet (ADR-0015).
 
