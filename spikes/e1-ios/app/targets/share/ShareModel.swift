@@ -15,7 +15,10 @@ final class ShareModel: ObservableObject {
 
   /// What the confirmation shows (design D8).
   struct Measures {
+    /// From opening the extension to the server's answer, typing included.
     let elapsed: TimeInterval
+    /// From tapping Enregistrer to the server's answer: the network part alone.
+    let sending: TimeInterval
     let footprintMB: Double
     let serverAnswer: String
   }
@@ -44,10 +47,12 @@ final class ShareModel: ObservableObject {
   func send() async {
     guard let capture else { return }
     phase = .sending
+    let sentAt = Date()
     do {
       let answer = try await CaptureSender.send(capture, userNote: userNote, isPrivate: isPrivate)
       phase = .sent(Measures(
         elapsed: Date().timeIntervalSince(openedAt),
+        sending: Date().timeIntervalSince(sentAt),
         footprintMB: Footprint.currentMB(),
         serverAnswer: answer))
     } catch {

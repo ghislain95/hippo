@@ -34,6 +34,7 @@ struct ShareView: View {
           }
           Section("Mesures") {
             LabeledContent("Temps depuis l'ouverture", value: String(format: "%.2f s", measures.elapsed))
+            LabeledContent("Durée de l'envoi", value: String(format: "%.2f s", measures.sending))
             LabeledContent("Mémoire de l'extension", value: String(format: "%.1f Mo", measures.footprintMB))
             Text(measures.serverAnswer).font(.footnote.monospaced()).foregroundStyle(.secondary)
           }

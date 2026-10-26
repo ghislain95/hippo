@@ -95,13 +95,35 @@ Colonne « Observé » : ce qui s'est passé, même quand c'est conforme. Colonn
 | Mesure | Lien (B1) | Lien en 4G (B2) | Capture d'écran (B6) | Grande photo (B7) |
 | --- | --- | --- | --- | --- |
 | Temps depuis l'ouverture de l'extension | | | | |
+| Durée de l'envoi | | | | |
 | Mémoire de l'extension | | | | |
 
-Repère : la capture doit tenir en moins de 5 secondes (objectif de la spec V1). La limite de mémoire d'une extension de partage est d'environ 120 Mo.
+Repère : la capture doit tenir en moins de 5 secondes (objectif de la spec V1). La limite de mémoire d'une extension de partage est d'environ 120 Mo. « Temps depuis l'ouverture » compte aussi la saisie de la note ; « Durée de l'envoi » ne compte que le réseau.
 
 ## Résultats
 
-*À remplir après les essais.*
+### Simulateur (2026-10-26, agent)
+
+iPhone 18 Pro, iOS 27.0, build Debug, serveur d'écho sur `http://127.0.0.1:8787`. Ni Tailscale, ni compte Apple, ni SideStore : ces points restent à l'iPhone.
+
+| Essai | Résultat |
+| --- | --- |
+| Build de l'appli et de l'extension (`prebuild`, `xcodebuild`) | ✅ sans avertissement dans notre code ; extension sans droits (pas d'App Group) |
+| `.ipa` Release non signé (`npm run ipa`) | ✅ 10 Mo, JavaScript embarqué, `PlugIns/HippoShare.appex` présent |
+| Onglet Verre | ✅ verre liquide disponible, barre d'onglets native en verre, contrôles SwiftUI |
+| Onglet Réseau, `/ping` | ✅ HTTP 200, 23 ms |
+| Safari → « Hippo E1 » dans la feuille de partage | ✅ |
+| Lien avec une note de capture | ✅ `form=link`, `user_note_length=4` |
+| Lien avec « Privé » coché | ✅ `is_private=true` ; envoi 0,05 s ; 24 Mo |
+| Photos → capture d'écran PNG de 433 Ko | ✅ `form=image`, `image/png`, fichier reçu identique à l'original (`cmp`) ; 24 Mo |
+| Serveur arrêté | ✅ « Serveur injoignable… », « Copier le lien » copie l'URL, « Réessayer » réussit une fois le serveur relancé |
+| Texte sans lien (forme note) | non essayé sur le simulateur : B5 sur l'iPhone |
+
+Mémoire mesurée : 24 à 37 Mo, loin de la limite d'environ 120 Mo.
+
+### iPhone
+
+*À remplir après les essais de Ghislain.*
 
 ## Décision (E1-04)
 

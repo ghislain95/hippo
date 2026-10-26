@@ -15,9 +15,9 @@
 ## 3. Share extension
 
 - [x] 3.1 Declare `targets/share/expo-target.config.js` (`type: "share"`, no entitlements) and verify `npx expo prebuild --clean -p ios` creates the share target with no App Group entitlement
-- [ ] 3.2 Write `ShareViewController` hosting a SwiftUI view that reads the shared URL, text (URL detected with `NSDataDetector`, else note) or image (design D2), and verify it compiles with `xcodebuild` for the simulator
-- [ ] 3.3 Write the mini form (preview, capture note hidden for a note, Privé unchecked, Enregistrer) and the sending (JSON or multipart, Bearer token, design D3), with a clear error and a "Copier le lien" button when the server cannot be reached (RG-06); verify it compiles
-- [ ] 3.4 Show the elapsed time and the memory footprint after a send (design D8), and verify it compiles
+- [x] 3.2 Write `ShareViewController` hosting a SwiftUI view that reads the shared URL, text (URL detected with `NSDataDetector`, else note) or image (design D2), and verify it compiles with `xcodebuild` for the simulator
+- [x] 3.3 Write the mini form (preview, capture note hidden for a note, Privé unchecked, Enregistrer) and the sending (JSON or multipart, Bearer token, design D3), with a clear error and a "Copier le lien" button when the server cannot be reached (RG-06); verify it compiles
+- [x] 3.4 Show the elapsed time and the memory footprint after a send (design D8), and verify it compiles
 
 ## 4. Native look test screen
 
@@ -27,10 +27,10 @@
 
 ## 5. Builds and runbook
 
-- [ ] 5.1 Ask Ghislain to accept the Xcode license and switch `xcode-select` (both need `sudo`), and verify `xcodebuild -license check` passes
-- [ ] 5.2 Build and run on the simulator (`npx expo run:ios`), share a page from Safari to the extension with the echo server on `http://127.0.0.1:8787`, and verify the echo server logs the link, a note and an image
-- [ ] 5.3 Check the glass screen and the network tab on the simulator, and verify with screenshots
-- [ ] 5.4 Write `npm run ipa` (unsigned Release archive packed as `Payload/*.app`), and verify the `.ipa` holds the app and its `PlugIns/*.appex`
+- [x] 5.1 Ask Ghislain to accept the Xcode license and switch `xcode-select` (both need `sudo`), and verify `xcodebuild -license check` passes
+- [x] 5.2 Build and run on the simulator (`npx expo run:ios`), share a page from Safari to the extension with the echo server on `http://127.0.0.1:8787`, and verify the echo server logs the link, a note and an image
+- [x] 5.3 Check the glass screen and the network tab on the simulator, and verify with screenshots
+- [x] 5.4 Write `npm run ipa` (unsigned Release archive packed as `Payload/*.app`), and verify the `.ipa` holds the app and its `PlugIns/*.appex`
 - [ ] 5.5 Write `docs/runbook-ios.md` (in French): Tailscale account and HTTPS certificates, `tailscale serve`, Apple ID in Xcode and developer mode, install through Xcode, SideStore pairing, install and weekly refresh with the Tailscale switch, bundle identifiers to keep. Verify every command in it against what was run, and verify `make check-docs` passes
 - [x] 5.6 Write the QA checklist in `openspec/changes/ios-prototype/results.md` (each step, expected result, a blank for the observed result and the measures), and give it to Ghislain
 
