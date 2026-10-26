@@ -1,0 +1,11 @@
+# Throwaway E1 prototype: local token, received captures, generated config, native builds.
+.spike-token
+echo/received/
+app/.spike.json
+app/targets/share/SpikeConfig.swift
+app/targets/share/Info.plist
+app/ios/
+app/android/
+app/.expo/
+app/build/
+*.ipa

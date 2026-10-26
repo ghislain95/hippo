@@ -2,28 +2,28 @@
 
 ## 1. Echo server
 
-- [ ] 1.1 Create the Go module `spikes/e1-ios/echo/` (standard library only) with `GET /ping` and `POST /api/items` (Bearer token read from `spikes/e1-ios/.spike-token`, JSON link or note, multipart image saved to `received/`), listening on `127.0.0.1:8787`, logging one line per request without token, note text or URL query (design D6); verify with `go run .` and a `curl` of each route
-- [ ] 1.2 Add the Go test (bad token → 401, link, note, image, malformed body → 400) and verify `go test ./...` passes in `spikes/e1-ios/echo/`
-- [ ] 1.3 Add `.gitignore` entries for `spikes/e1-ios/.spike-token`, `echo/received/` and the generated config files, and verify `git status` shows none of them after a run
+- [x] 1.1 Create the Go module `spikes/e1-ios/echo/` (standard library only) with `GET /ping` and `POST /api/items` (Bearer token read from `spikes/e1-ios/.spike-token`, JSON link or note, multipart image saved to `received/`), listening on `127.0.0.1:8787`, logging one line per request without token, note text or URL query (design D6); verify with `go run .` and a `curl` of each route
+- [x] 1.2 Add the Go test (bad token → 401, link, note, image, malformed body → 400) and verify `go test ./...` passes in `spikes/e1-ios/echo/`
+- [x] 1.3 Add `.gitignore` entries for `spikes/e1-ios/.spike-token`, `echo/received/` and the generated config files, and verify `git status` shows none of them after a run
 
 ## 2. Expo prototype app
 
-- [ ] 2.1 Create `spikes/e1-ios/app/` as an Expo SDK 58 project (same React Native version as `app/`, own `node_modules`), bundle id `com.ghislain95.hippo.spike`, and verify `npx expo-doctor` reports no blocking issue
-- [ ] 2.2 Add `@bacons/apple-targets`, `expo-glass-effect` and `@expo/ui` with `npx expo install`, and verify they resolve to SDK 58 versions
-- [ ] 2.3 Write `npm run configure` (design D4): token file, `targets/share/SpikeConfig.swift`, the extension `Info.plist` with the activation rule, `.spike.json` read by `app.config.ts`, and ATS local networking only for an `http` URL; verify by running it with an `http` and an `https` URL and reading the generated files
+- [x] 2.1 Create `spikes/e1-ios/app/` as an Expo SDK 58 project (same React Native version as `app/`, own `node_modules`), bundle id `com.ghislain95.hippo.spike`, and verify `npx expo-doctor` reports no blocking issue
+- [x] 2.2 Add `@bacons/apple-targets`, `expo-glass-effect` and `@expo/ui` with `npx expo install`, and verify they resolve to SDK 58 versions
+- [x] 2.3 Write `npm run configure` (design D4): token file, `targets/share/SpikeConfig.swift`, the extension `Info.plist` with the activation rule, `.spike.json` read by `app.config.ts`, and ATS local networking only for an `http` URL; verify by running it with an `http` and an `https` URL and reading the generated files
 
 ## 3. Share extension
 
-- [ ] 3.1 Declare `targets/share/expo-target.config.js` (`type: "share"`, no entitlements) and verify `npx expo prebuild --clean -p ios` creates the share target with no App Group entitlement
+- [x] 3.1 Declare `targets/share/expo-target.config.js` (`type: "share"`, no entitlements) and verify `npx expo prebuild --clean -p ios` creates the share target with no App Group entitlement
 - [ ] 3.2 Write `ShareViewController` hosting a SwiftUI view that reads the shared URL, text (URL detected with `NSDataDetector`, else note) or image (design D2), and verify it compiles with `xcodebuild` for the simulator
 - [ ] 3.3 Write the mini form (preview, capture note hidden for a note, Privé unchecked, Enregistrer) and the sending (JSON or multipart, Bearer token, design D3), with a clear error and a "Copier le lien" button when the server cannot be reached (RG-06); verify it compiles
 - [ ] 3.4 Show the elapsed time and the memory footprint after a send (design D8), and verify it compiles
 
 ## 4. Native look test screen
 
-- [ ] 4.1 Make the app root a `NativeTabs` layout with the tabs Verre and Réseau, and verify `npx tsc --noEmit` passes
-- [ ] 4.2 Write the Verre tab (`GlassView` styles, tint, interactive, `isLiquidGlassAvailable()`, a `Host` with SwiftUI controls) and verify `npx tsc --noEmit` passes
-- [ ] 4.3 Write the Réseau tab (server URL, `/ping` status and latency) and verify `npx tsc --noEmit` passes
+- [x] 4.1 Make the app root a `NativeTabs` layout with the tabs Verre and Réseau, and verify `npx tsc --noEmit` passes
+- [x] 4.2 Write the Verre tab (`GlassView` styles, tint, interactive, `isLiquidGlassAvailable()`, a `Host` with SwiftUI controls) and verify `npx tsc --noEmit` passes
+- [x] 4.3 Write the Réseau tab (server URL, `/ping` status and latency) and verify `npx tsc --noEmit` passes
 
 ## 5. Builds and runbook
 
