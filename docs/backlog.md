@@ -94,7 +94,7 @@ RG-01, RG-02, RG-03, RG-07, RG-08 · ADR-0003, ADR-0004, ADR-0016, ADR-0022, ADR
 ### E2-02 — Dédoublonner les liens · M
 
 RG-04, RG-05
-- Hérité d'E2-01 : remplir `normalized_url` des liens déjà capturés avant de créer l'index unique `(user_id, normalized_url)`, et distinguer cet index de celui de `client_id` dans le filet de rejeu du store ([design](../openspec/changes/archive/2026-10-27-capture-link/design.md#risks--trade-offs)).
+- Hérité d'E2-01 ([design](../openspec/changes/archive/2026-10-27-capture-link/design.md#risks--trade-offs)) : le remplissage de `normalized_url` des liens déjà capturés est abandonné le 27 octobre 2026, car aucune donnée réelle n'existe avant E6 et une migration n'est que du SQL ([ADR-0032](adr/0032-migrations-goose.md)) ; ces liens restent hors dédoublonnage. Le filet de rejeu du store distingue la violation d'unicité par l'instruction en cause (insertion dans `capture_ids` ou dans `items`), pas par le message de SQLite.
 - Les URL sont normalisées selon RG-05 ; l'URL d'origine est conservée.
 - Capturer une URL déjà présente renvoie `200` avec l'élément existant ; aucune ligne n'est créée.
 - Si la nouvelle capture a une note, elle est ajoutée à la note existante, datée.
@@ -135,6 +135,7 @@ RG-10 à RG-14 · ADR-0023
 - `is_private` est enregistré à la capture et modifiable ensuite.
 - Un élément privé n'est jamais sélectionné pour l'analyse (vérifié dans E3-01 et E3-06).
 - Décocher Privé remet l'élément dans la file.
+- Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14).
 
 ---
 

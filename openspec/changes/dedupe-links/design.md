@@ -63,13 +63,15 @@ The unit tests cover every rule and the scenarios of the delta.
 
 The day is computed by `capture` from the store's clock in `Europe/Paris`: the server's reception day (an offline capture sent the next day is dated the next day, RG-06). The location is loaded once with `time.LoadLocation("Europe/Paris")`, with `import _ "time/tzdata"` in `cmd/hippo` so the distroless image needs no system time zone database; `main` refuses to start if it fails. The `TZ` variable (ADR-0019) is not used for this: RG-04 says Paris, and Go silently falls back to UTC on an unknown `TZ` (`$GOROOT/src/time/zoneinfo_unix.go:59-68`).
 
-The merge runs inside the store transaction, so it reads the note it extends: `store.CaptureItem` takes the merge as a function argument (`func(existing *string) (*string, bool)`) built by `capture` from `MergeNote` and the day. The rule stays in the domain, the atomicity in the store.
+The merge runs inside the store transaction, so it reads the note it extends: `store.CaptureItem` takes the merge as a function argument (`store.NoteMerge`, `func(existing *string, now time.Time) (*string, bool)`) built by `capture` from `MergeNote`; the store hands it the instant it also writes into `updated_at`, and `capture` turns it into the day in Paris. The rule stays in the domain, the atomicity in the store, and the note's date and `updated_at` come from one reading of the clock.
+
+The store's clock is injected with the `store.WithClock` option of `store.Open` (`storetest.OpenWithClock` in tests); the Paris location is a parameter of `capture.NewService`, loaded by `capture.LoadParis`, so no test depends on the zone of the machine (test files import `time/tzdata` too).
 
 ### Capture transaction
 
 One `BEGIN IMMEDIATE` transaction (`modernc.org/sqlite@v1.61.0/tx.go:23`):
 
-1. **Replay**: `client_id` given and found in `capture_ids` for this user → return that item, `created = false`, nothing written.
+1. **Replay**: `client_id` given and found in `capture_ids` for this user → return that item, `created = false`, nothing written. The lookup filters both tables by `user_id` (`items.user_id = ? AND items.id = (SELECT item_id FROM capture_ids WHERE user_id = ? AND client_id = ?)`), a sub-query rather than a join so that the shared column names of `itemColumns` stay unqualified.
 2. **Duplicate**: `normalized_url` found for this user → compute the new note (merge function) and the new privacy (`existing OR requested`). If either changed: update `user_note`, `is_private`, `updated_at = now`, `change_seq = next` (through `sequence.go`). Insert the `capture_ids` row if a `client_id` was given. Return the item read back, `created = false`.
 3. **Insert**: as in E2-01, with `normalized_url`, then the `capture_ids` row; `created = true`.
 
@@ -77,11 +79,13 @@ The duplicate lookup and the unique index use the same predicate (`user_id`, `no
 
 ### Safety net
 
-Writers are serialised, so a unique violation is practically unreachable; it stays minimal. It is told apart by the statement that failed, not by the SQLite message: a violation on the `capture_ids` insert → read the item by `client_id` (replay); a violation on the `items` insert (only `items_user_normalized_url` can raise one now) → run the whole transaction once more, which takes the duplicate path and merges the note and privacy. The store test that reaches it uses the unexported variant of E2-01 (`captureItem(…, replayFirst)`), extended to skip the duplicate lookup.
+Writers are serialised, so a unique violation is practically unreachable; it stays minimal. It is told apart by the statement that failed, not by the SQLite message: a violation on the `capture_ids` insert → read the item by `client_id` (replay); a violation on the `items` insert (only `items_user_normalized_url` can raise one now) → run the whole transaction once more, which takes the duplicate path and merges the note and privacy. The store test that reaches it uses the unexported variant of E2-01 (`captureItem(…, lookups)`), which skips both the replay and the duplicate lookups of the first attempt. The `capture_ids` primary key reports `SQLITE_CONSTRAINT_PRIMARYKEY`, not `SQLITE_CONSTRAINT_UNIQUE`: both codes count as a violation.
 
 ### Privacy (RG-15)
 
 `setPrivate` sets `is_private` and leaves the status and the fiche alone (RG-14: the fiche is kept, re-analysis is prevented by the flag). It is the primitive the fiche's switch (RG-14) will reuse. A duplicate never clears the flag.
+
+`store.SetPrivate(ctx, userID, id, private)` wraps it in its own transaction (sequence advanced only when the flag changes, `ErrNotFound` for another user's item). Nothing calls it in production yet: the scenario "Replaying an old private capture does not make the item private again" needs an item made public again, and no route does that before the fiche's switch. Putting an item made public back into the analysis queue (RG-14) is left to that story.
 
 ### user_id, private items and budget
 
@@ -100,6 +104,11 @@ The normalised URL and the notes are never logged; errors of `net/url` are never
 - [A note grows with every new note of a duplicate, and is returned in every `Item`] → acceptable in V1.
 - [Adding a note does not re-analyse the item] → RG-03 makes the note an analysis hint, but no rule asks for a re-analysis; the search story (RG-95) must re-index `user_note` on update.
 - [Concurrent captures of one URL with different `client_id`] → serialised writers make the second one take the duplicate path; the integration test sends them at once.
+
+- [A note whose own text contains the separator `\n\nYYYY-MM-DD — ` is split into several entries] → a resent identical note could be appended again; improbable for a typed note, accepted.
+- [`capture_ids.item_id` has no index] → the deletion story, whose purge (ADR-0018) deletes by item, adds `CREATE INDEX capture_ids_item ON capture_ids (item_id)` in its migration.
+- [The `capture_ids` queries live in `items.go`, not in a file of their own] → they only serve the capture transaction; they move to `capture_ids.go` when a second caller appears.
+- [`store.SetPrivate(false)` does not put the item back in the analysis queue] → exported for a test only; the private-switch story (E2-07) completes it (RG-14), noted in its backlog entry.
 
 ## Migration Plan
 

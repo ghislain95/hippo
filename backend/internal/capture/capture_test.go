@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/store"
@@ -18,12 +19,22 @@ func ptr[T any](v T) *T { return &v }
 // newService returns a capture service on a real database, with one user.
 func newService(t *testing.T) (*capture.Service, string) {
 	t.Helper()
-	st := storetest.Open(t)
+	return newServiceAt(t, time.Now)
+}
+
+// newServiceAt is newService with a store that reads the time from now, and the Paris zone.
+func newServiceAt(t *testing.T, now func() time.Time) (*capture.Service, string) {
+	t.Helper()
+	st, _ := storetest.OpenWithClock(t, now)
 	userID, err := st.CreateUser(context.Background(), "owner", "hash")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	return capture.NewService(st), userID
+	paris, err := capture.LoadParis()
+	if err != nil {
+		t.Fatalf("LoadParis: %v", err)
+	}
+	return capture.NewService(st, paris), userID
 }
 
 func TestCaptureRefusals(t *testing.T) {
@@ -198,4 +209,57 @@ func TestInvalidURLErrorHidesTheURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCaptureDuplicate(t *testing.T) {
+	ctx := context.Background()
+	// 23:30 on 27 October 2026 in Paris (winter time, UTC+1).
+	at := time.Date(2026, 10, 27, 22, 30, 0, 0, time.UTC)
+	fixed := func() time.Time { return at }
+
+	t.Run("a link with tracking parameters is the duplicate of the stored link", func(t *testing.T) {
+		service, userID := newServiceAt(t, fixed)
+		first, err := service.Capture(ctx, userID, capture.Request{URL: ptr("https://example.com/article?id=3")})
+		if err != nil {
+			t.Fatalf("Capture: %v", err)
+		}
+		duplicate, err := service.Capture(ctx, userID, capture.Request{URL: ptr(" HTTPS://Example.com/article/?utm_source=x&id=3#top ")})
+		if err != nil {
+			t.Fatalf("duplicate: %v", err)
+		}
+		if duplicate.Created || duplicate.Item.ID != first.Item.ID || *duplicate.Item.URL != "https://example.com/article?id=3" {
+			t.Errorf("duplicate = %+v, want the first item, url as first sent", duplicate)
+		}
+	})
+
+	t.Run("the note of a duplicate is trimmed and dated in Paris", func(t *testing.T) {
+		service, userID := newServiceAt(t, fixed)
+		if _, err := service.Capture(ctx, userID, capture.Request{URL: ptr("https://example.com/a"), UserNote: ptr("for the trip")}); err != nil {
+			t.Fatalf("Capture: %v", err)
+		}
+		duplicate, err := service.Capture(ctx, userID, capture.Request{URL: ptr("https://example.com/a"), UserNote: ptr("  to test ")})
+		if err != nil {
+			t.Fatalf("duplicate: %v", err)
+		}
+		if want := "for the trip\n\n2026-10-27 — to test"; duplicate.Item.UserNote == nil || *duplicate.Item.UserNote != want {
+			t.Errorf("user_note = %v, want %q", deref(duplicate.Item.UserNote), want)
+		}
+	})
+
+	t.Run("a duplicate without note or with a blank note keeps the note", func(t *testing.T) {
+		service, userID := newServiceAt(t, fixed)
+		first, err := service.Capture(ctx, userID, capture.Request{URL: ptr("https://example.com/a"), UserNote: ptr("for the trip")})
+		if err != nil {
+			t.Fatalf("Capture: %v", err)
+		}
+		for _, note := range []*string{nil, ptr("  ")} {
+			duplicate, err := service.Capture(ctx, userID, capture.Request{URL: ptr("https://example.com/a"), UserNote: note})
+			if err != nil {
+				t.Fatalf("duplicate: %v", err)
+			}
+			if *duplicate.Item.UserNote != "for the trip" || duplicate.Item.ChangeSeq != first.Item.ChangeSeq {
+				t.Errorf("duplicate = %+v, want the item unchanged", duplicate.Item)
+			}
+		}
+	})
 }

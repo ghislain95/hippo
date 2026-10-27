@@ -69,7 +69,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Requêtes paramétrées (`?`) uniquement ; aucune concaténation de valeur.
 - `defer rows.Close()` et vérification de `rows.Err()`.
 - Les tables synchronisées (éléments, catégories, types de contenu, tags) portent `updated_at` et la séquence de modification `change_seq`, incrémentée à chaque écriture, qui ordonne la synchronisation ; les suppressions laissent une marque `deleted_at`, sans contenu, pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md), [ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)).
-- **La séquence n'avance que par la fonction dédiée du store** (`internal/store/sequence.go`), appelée dans la transaction de l'écriture : elle incrémente l'unique ligne de `sync_sequence` et renvoie la nouvelle valeur. Toute écriture d'une ligne synchronisée passe par elle ; pas de trigger, pas de `MAX(change_seq) + 1`.
+- **La séquence n'avance que par la fonction dédiée du store** (`internal/store/sequence.go`), appelée dans la transaction de l'écriture : elle incrémente l'unique ligne de `sync_sequence` et renvoie la nouvelle valeur. Toute écriture d'une ligne synchronisée passe par elle ; pas de trigger, pas de `MAX(change_seq) + 1`. Une table non synchronisée (par exemple `capture_ids`) n'a pas de `change_seq` : ses écritures n'avancent pas la séquence.
 - `change_seq` est `NOT NULL` **sans défaut** : une insertion qui oublie la séquence échoue au lieu d'écrire une valeur fausse.
 
 ### Migrations

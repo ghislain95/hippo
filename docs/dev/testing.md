@@ -19,7 +19,7 @@ Adaptée des playbooks de geomni et wifisense à la stack de Hippo ([ADR-0033](.
 ### Base de test
 
 - Chaque test (ou sous-test qui écrit) ouvre sa base par le helper du store, sur un fichier de `t.TempDir()`, avec **toutes les migrations** appliquées. Aucune base partagée entre tests : pas de nettoyage à écrire, pas de dépendance à l'ordre.
-- Les données sont créées par les fonctions du store ou par l'API elle-même, jamais par du SQL recopié dans le test (le SQL suit les migrations, le test non).
+- Les données sont créées par les fonctions du store ou par l'API elle-même, jamais par du SQL recopié dans le test (le SQL suit les migrations, le test non). Seule exception : un test de migration amorce la version N-1 en SQL, puisqu'aucune fonction du store n'écrit plus ce schéma, figé par sa migration.
 - Pour vérifier un état, on le relit par l'API quand c'est observable ; sinon par une requête du store, jamais par une copie du schéma.
 
 ### Serveur de test

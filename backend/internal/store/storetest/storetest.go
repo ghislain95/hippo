@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
@@ -22,8 +23,20 @@ func Open(t testing.TB) *store.Store {
 // OpenWithPath is Open, and also returns the path of the database file, for ItemCount.
 func OpenWithPath(t testing.TB) (*store.Store, string) {
 	t.Helper()
+	return open(t)
+}
+
+// OpenWithClock is OpenWithPath with a store that reads the time from now (store.WithClock).
+// now is called from the goroutines of concurrent requests: it must be safe for that.
+func OpenWithClock(t testing.TB, now func() time.Time) (*store.Store, string) {
+	t.Helper()
+	return open(t, store.WithClock(now))
+}
+
+func open(t testing.TB, opts ...store.Option) (*store.Store, string) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "hippo.db")
-	st, err := store.Open(context.Background(), path)
+	st, err := store.Open(context.Background(), path, opts...)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}

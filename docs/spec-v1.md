@@ -89,10 +89,9 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | kind | TEXT | `link`, `image`, `note` |
 | source | TEXT | `share`, `manual` (V2 : `rss`) ; pas de `CHECK` en base, la valeur est vérifiée par le domaine |
 | url | TEXT, nullable | URL d'origine, telle que capturée |
-| normalized_url | TEXT, nullable | URL normalisée (RG-05), unique par utilisateur à partir d'E2-02 |
+| normalized_url | TEXT, nullable | URL normalisée (RG-05) d'un lien, unique par utilisateur ; nulle pour une image, une note et un lien capturé avant E2-02 |
 | site_name | TEXT, nullable | Nom du site, issu de l'extraction |
 | user_note | TEXT, nullable | Note de capture (contenu de l'élément pour `kind = note`) |
-| client_id | TEXT, nullable | Identifiant de capture choisi par l'appareil, unique par utilisateur (RG-08) |
 | is_private | INTEGER (0/1) | 1 = jamais envoyé à l'IA ; 0 par défaut |
 | status | TEXT | `queued`, `extracted`, `submitted`, `analyzed`, `failed` |
 | extraction_mode | TEXT, nullable | `full`, `fallback`, `none` |
@@ -120,12 +119,24 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | created_at, updated_at, extracted_at, analyzed_at, read_at, deleted_at | TEXT | Horodatage |
 | change_seq | INTEGER | Séquence de modification, pour la synchronisation |
 
-La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle porte dès E2-01 l'unicité de `client_id` par utilisateur. Trois colonnes et un index arrivent plus tard :
+La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle évolue ainsi :
 
-| Ajout | Story | Raison |
+| Évolution | Story | Raison |
 | --- | --- | --- |
+| Unicité de `(user_id, normalized_url)`, index partiel hors valeurs nulles | E2-02 (migration `00003_capture_ids.sql`) | Un lien n'existe qu'une fois par utilisateur (RG-04). Les liens capturés avant E2-02 gardent `normalized_url` nul et ne sont jamais reconnus comme doublons : aucune base réelle n'existait avant E6, donc aucun remplissage (une migration n'est que du SQL, [ADR-0032](adr/0032-migrations-goose.md), et RG-05 ne s'écrit pas en SQL) |
+| Suppression de `client_id` et de son index | E2-02 (migration `00003_capture_ids.sql`) | Les identifiants de capture passent dans `capture_ids`, seule référence des rejeux ; les valeurs existantes y sont copiées avant la suppression |
 | `type_id`, `category_id`, `batch_id` | celle qui crée `content_types`, `categories`, `batches` | Elles référencent ces tables ; ajoutées par `ALTER TABLE items ADD COLUMN … REFERENCES …` |
-| Unicité de `(user_id, normalized_url)` | E2-02 | `normalized_url` reste vide avant le dédoublonnage ; E2-02 le remplit pour les liens déjà capturés, puis crée l'index |
+
+**capture_ids** — l'identifiant de chaque capture reçue (RG-08), créée par E2-02 (migration `00003_capture_ids.sql`).
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| user_id | TEXT | Propriétaire |
+| client_id | TEXT | Identifiant de capture choisi par l'appareil |
+| item_id | TEXT (ULID) | Élément auquel la capture a abouti : créé, fusionné (doublon, RG-04) ou rejoué |
+| created_at | TEXT | Réception de la capture |
+
+Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y est aussi enregistrée, pour que son rejeu n'ajoute pas sa note une seconde fois et ne rende pas l'élément privé à nouveau (RG-08 prime sur RG-04). La table n'est pas synchronisée vers l'appli : elle n'a ni `updated_at` ni `change_seq`.
 
 **categories** — arborescence de 2 niveaux (RG-51).
 
@@ -188,7 +199,7 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 
 | Méthode | Route | Rôle |
 | --- | --- | --- |
-| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée (RG-04, RG-07, RG-08) |
+| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée avec l'élément existant (RG-04, RG-07, RG-08) ; un doublon ajoute sa note datée (RG-04) et ne fait que resserrer la confidentialité : il peut rendre l'élément privé, jamais public (RG-15) |
 | GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
 | GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
 | PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |

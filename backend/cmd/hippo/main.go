@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the Paris zone of RG-04 without a time zone database in the image
 
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
@@ -66,6 +67,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 	logger := slog.New(slog.NewJSONHandler(stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
+	// The dates of a duplicate's note are in Paris time (RG-04): no start without the zone.
+	paris, err := capture.LoadParis()
+	if err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
@@ -90,7 +97,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		Handler: httpapi.NewServer(httpapi.Options{
 			Store:   st,
 			Auth:    auth.NewSingleUser(userID, tokenHash),
-			Capture: capture.NewService(st),
+			Capture: capture.NewService(st, paris),
 			Logger:  logger,
 			Version: version,
 		}),
