@@ -8,14 +8,17 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 	_ "time/tzdata" // the Paris zone without the machine's time zone database
 
+	"github.com/ghislain95/hippo/backend/internal/assetfs"
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
+	"github.com/ghislain95/hippo/backend/internal/capture/imagetest"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
 	"github.com/ghislain95/hippo/backend/internal/store"
 	"github.com/ghislain95/hippo/backend/internal/store/storetest"
@@ -30,13 +33,14 @@ const (
 const notImplementedType = "urn:hippo:problem:not-implemented"
 
 type fixture struct {
-	server  *httptest.Server
-	store   *store.Store
-	dbPath  string
-	logs    *syncBuffer
-	clock   *testClock // the store's clock
-	userID  string     // owner of testToken
-	otherID string     // owner of otherToken
+	server    *httptest.Server
+	store     *store.Store
+	dbPath    string
+	assetsDir string // DATA_DIR/assets of this test
+	logs      *syncBuffer
+	clock     *testClock // the store's clock
+	userID    string     // owner of testToken
+	otherID   string     // owner of otherToken
 }
 
 // newFixture starts the real handler on a real SQLite database (docs/dev/testing.md), with two
@@ -60,17 +64,29 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
+	assetsDir := filepath.Join(t.TempDir(), "assets")
+	assets, err := assetfs.Open(assetsDir)
+	if err != nil {
+		t.Fatalf("assetfs.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = assets.Close() }) // after the server: nothing reads it any more
 	logs := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	handler := httpapi.NewServer(httpapi.Options{
-		Store:   st,
-		Auth:    twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
-		Capture: capture.NewService(st, paris),
-		Logger:  slog.New(slog.NewJSONHandler(logs, nil)),
-		Version: "test",
+		Store:      st,
+		Auth:       twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
+		Capture:    capture.NewService(st, paris, logger),
+		Assets:     st,
+		AssetFiles: assets,
+		Logger:     logger,
+		Version:    "test",
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return fixture{server: server, store: st, dbPath: dbPath, logs: logs, clock: clock, userID: userID, otherID: otherID}
+	return fixture{
+		server: server, store: st, dbPath: dbPath, assetsDir: assetsDir, logs: logs, clock: clock,
+		userID: userID, otherID: otherID,
+	}
 }
 
 // testClock is a settable clock, safe for the goroutines of concurrent requests.
@@ -318,6 +334,26 @@ func TestAPIConventions(t *testing.T) {
 			problem := assertProblem(t, resp, http.StatusBadRequest)
 			if problem.Type != "about:blank" {
 				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+	})
+
+	// Delta openspec/changes/capture-image/specs/api-conventions/spec.md.
+	t.Run("Every response forbids content sniffing", func(t *testing.T) {
+		t.Run("Every response carries nosniff", func(t *testing.T) {
+			f := newFixture(t)
+			contentType, image := multipartBody(t, imagePart(imagetest.PNG(8, 8)))
+			for name, resp := range map[string]*http.Response{
+				"GET /healthz":            f.get(t, "/healthz", ""),
+				"API route without token": f.get(t, "/api/items", ""),
+				"unknown route":           f.get(t, "/nope", ""),
+				"link capture":            f.capture(t, testToken, `{"url": "https://example.com/a"}`),
+				"image capture":           f.do(t, http.MethodPost, "/api/items", testToken, contentType, string(image)),
+				"refused capture":         f.capture(t, testToken, `{}`),
+			} {
+				if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+					t.Errorf("%s (status %d): X-Content-Type-Options = %q, want nosniff", name, resp.StatusCode, got)
+				}
 			}
 		})
 	})

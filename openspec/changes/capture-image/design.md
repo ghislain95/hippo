@@ -39,7 +39,7 @@ Prompt and fiche schemas: unchanged.
 The middleware of `body.go`, for `POST /api/items` with `multipart/form-data`:
 
 - refuses at once a declared `Content-Length` above 21 MiB, and wraps the body in `http.MaxBytesReader(21 MiB)`;
-- sets a 5-minute read deadline through `http.ResponseController(w).SetReadDeadline` (`statusRecorder` already exposes `Unwrap`), so a 20 MiB image on a slow mobile link is not cut by the global 60 s; the same middleware sets a 5-minute write deadline on `GET /api/assets/{asset_id}`.
+- sets 5-minute read and write deadlines through `http.ResponseController(w)` (`statusRecorder` already exposes `Unwrap`), so a 20 MiB image on a slow mobile link is not cut by the global 60 s; the write deadline is needed too, since `net/http` starts it when the request headers are read. The same middleware sets a 5-minute write deadline on `GET /api/assets/{asset_id}`.
 
 While parsing: each text part is read with a 1 MiB cap; the `image` part is copied to disk through `io.LimitReader(20 MiB + 1)`, so a file over 20 MiB is detected without reading on. Hitting the 21 MiB body limit answers `413 about:blank`; a file over 20 MiB answers `413 image-too-large`.
 
@@ -96,10 +96,29 @@ Every query on `assets` filters by `user_id`; the composite foreign key ties an 
 
 No log line carries the capture note, the client file name, the part names' values or a path built from them; errors while reading the body are logged by kind only.
 
+## Implementation notes
+
+Deviations and details settled while implementing (tasks 1 to 5):
+
+- **Deadlines**: the upload gets a 5-minute write deadline as well as the read deadline (see "Bounding the upload"); otherwise the `201` of a 4-minute upload would be cut by the write timeout counted from the headers.
+- **`capture` does not import `assetfs`**: it declares the small interface it consumes, `capture.Image` (`ReaderAt`, `Size`, `Commit`, `Keep`, `Remove`), which `*assetfs.Upload` satisfies. Only `httpapi` and `cmd/hippo` import `assetfs`.
+- **Ids and clock**: the asset id comes from a new `Store.NewID()` (store clock, monotonic ULID) before the rename. The dated title is computed inside the transaction by `NewItem.TitleAt(now)`, so it uses the store's clock like `created_at`.
+- **File ownership**: `httpapi` removes the upload on the refusals before the domain; once handed to `capture.CaptureImage`, the domain owns it, keeps it only for a created asset and removes it on every other path. A replay whose file cannot be removed still answers `200`: the failure is logged at `WARN` with the asset and item ids only (the capture service now receives a logger, `NewService(st, paris, logger)`); on a refusal or an error, the removal failure is joined to the error and logged as a warning with identifiers only (the transport answers 4xx and drops the error; the `.tmp-*` file goes at the next start-up).
+- **No file name in errors**: the errors of `assetfs` keep the cause of a file system error (`fs.ErrNotExist` still detectable) but drop the file name, so that the logs name identifiers only.
+- **Over 20 MiB**: the temporary file is removed at once; the rest of the part is skipped by `NextPart` and the following parts are still read, within the 21 MiB bound, so the answer does not depend on the order of the parts. The domain re-checks the size (`ErrImageTooLarge`) and checks, in order, size, `client_id`, `source`, format.
+- **Parts**: the `image` part is accepted with or without a file name; a declared text field sent with a file name is a structure error (`400 about:blank`).
+- **HEIC**: an `ftyp` box over 4096 bytes is refused (real ones hold a few brands), so the brand check never reads more.
+- **Extensions**: `jpg`, `png`, `heic`, `webp`.
+- **Read failures** are logged at `INFO` with a `kind` (`body too large`, `deadline exceeded`, `truncated`, `malformed`), never the error text.
+- **Start-up**: `cmd/hippo` removes the `.tmp-*` files, then writes and removes a probe file, so an unwritable volume stops the start.
+- **`getAsset` headers**: declared with `const` values in the contract and set by the handler; the `nosniff` middleware sets the same value on every response.
+- **Lint**: the `depguard` rule `assetfs-is-a-leaf` (no `net/http`, no `database/sql`, no other Hippo package) applies to non-test files; the external tests import `assetfs` itself. The rule `capture-knows-no-file-store` forbids `assetfs` in `capture` outside its tests.
+- **Store**: the assets of an item are read with the item (`withAssets`); no exported listing function, the tests list them through `export_test.go`.
+
 ## Risks / Trade-offs
 
 - [Orphan files after a crash] → harmless on disk; a sweep can come with the deletion story.
-- [A 413 sent mid-upload may reach iOS as a network error, and an offline capture (RG-06) would retry it] → the app and the extension check the size before sending (E5-02, E5-04), noted in their backlog entries.
+- [A 413 sent mid-upload may reach iOS as a network error, and an offline capture (RG-06) would retry it] → the app and the extension check the size before sending (E5-02, E5-05), noted in their backlog entries.
 - [Portrait photos report swapped dimensions] → dimensions are informative; analysis stories may correct them.
 - [Backups] → E6-03 copies the database (`VACUUM INTO`) then the image folder, excluding `.tmp-*`: an orphan file is possible, a row without file is not.
 

@@ -44,6 +44,15 @@ func bearerToken(header string) (string, bool) {
 	return token, token != ""
 }
 
+// noSniff tells browsers never to guess a type other than the declared Content-Type, on every
+// response: an image served as image/png is never run as HTML.
+func noSniff(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // recoverPanics turns a panic in a handler into a 500 problem, logged with its route.
 func recoverPanics(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

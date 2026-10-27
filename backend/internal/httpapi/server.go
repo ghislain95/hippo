@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ghislain95/hippo/backend/internal/assetfs"
 	"github.com/ghislain95/hippo/backend/internal/capture"
+	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
 // Pinger reports whether the database answers.
@@ -26,21 +28,32 @@ type Authenticator interface {
 // Capturer captures items (internal/capture).
 type Capturer interface {
 	Capture(ctx context.Context, userID string, req capture.Request) (capture.Result, error)
+	CaptureImage(ctx context.Context, userID string, req capture.ImageRequest) (capture.Result, error)
+}
+
+// AssetStore reads the asset rows of a user (internal/store).
+type AssetStore interface {
+	Asset(ctx context.Context, userID, id string) (store.Asset, error)
 }
 
 // Options are the dependencies of the HTTP server.
 type Options struct {
-	Store   Pinger
-	Auth    Authenticator
-	Capture Capturer
-	Logger  *slog.Logger
-	Version string
+	Store      Pinger
+	Auth       Authenticator
+	Capture    Capturer
+	Assets     AssetStore
+	AssetFiles *assetfs.Dir // the image files: uploads are written there, assets read from there
+	Logger     *slog.Logger
+	Version    string
 }
 
 // NewServer returns the HTTP handler of the whole API: /healthz is public, everything under
 // /api/ requires a valid bearer token.
 func NewServer(opts Options) http.Handler {
-	handlers := &handlers{store: opts.Store, capture: opts.Capture, version: opts.Version}
+	handlers := &handlers{
+		store: opts.Store, capture: opts.Capture, assets: opts.Assets, assetFiles: opts.AssetFiles,
+		logger: opts.Logger, version: opts.Version,
+	}
 	strict := NewStrictHandlerWithOptions(handlers, nil, StrictHTTPServerOptions{
 		// A body the generated decoder cannot read: 413 over the JSON limit, 400 otherwise.
 		RequestErrorHandlerFunc: writeBodyError,
@@ -58,7 +71,7 @@ func NewServer(opts Options) http.Handler {
 	mux := http.NewServeMux()
 	HandlerWithOptions(strict, StdHTTPServerOptions{
 		BaseRouter:  mux,
-		Middlewares: []MiddlewareFunc{strictJSONBodies},
+		Middlewares: []MiddlewareFunc{strictJSONBodies, boundTransfers(opts.Logger)},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
 			writeProblem(w, r, http.StatusBadRequest, problemTypeBlank, "Bad request", "La requête est invalide.")
 		},
@@ -72,6 +85,7 @@ func NewServer(opts Options) http.Handler {
 	handler := recordRoute(mux)
 	handler = requireAuth(opts.Auth, "/api/", handler)
 	handler = recoverPanics(opts.Logger, handler)
+	handler = noSniff(handler)
 	handler = logRequests(opts.Logger, handler)
 	return handler
 }
@@ -80,9 +94,12 @@ func NewServer(opts Options) http.Handler {
 // the embedded notImplemented stubs (stubs.go).
 type handlers struct {
 	notImplemented
-	store   Pinger
-	capture Capturer
-	version string
+	store      Pinger
+	capture    Capturer
+	assets     AssetStore
+	assetFiles *assetfs.Dir
+	logger     *slog.Logger
+	version    string
 }
 
 // healthTimeout bounds the database check of /healthz.

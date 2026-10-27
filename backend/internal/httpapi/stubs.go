@@ -16,11 +16,6 @@ var errNotImplemented = errors.New("operation not implemented yet")
 // in part (a request format, a field) returns errNotImplemented for the rest.
 type notImplemented struct{}
 
-// GetAsset is not implemented yet.
-func (notImplemented) GetAsset(context.Context, GetAssetRequestObject) (GetAssetResponseObject, error) {
-	return nil, errNotImplemented
-}
-
 // ListCategories is not implemented yet.
 func (notImplemented) ListCategories(context.Context, ListCategoriesRequestObject) (ListCategoriesResponseObject, error) {
 	return nil, errNotImplemented

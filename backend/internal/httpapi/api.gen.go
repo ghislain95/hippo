@@ -22,6 +22,30 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AssetMimeType.
+const (
+	Imageheic AssetMimeType = "image/heic"
+	Imagejpeg AssetMimeType = "image/jpeg"
+	Imagepng  AssetMimeType = "image/png"
+	Imagewebp AssetMimeType = "image/webp"
+)
+
+// Valid indicates whether the value is a known member of the AssetMimeType enum.
+func (e AssetMimeType) Valid() bool {
+	switch e {
+	case Imageheic:
+		return true
+	case Imagejpeg:
+		return true
+	case Imagepng:
+		return true
+	case Imagewebp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureSource.
 const (
 	Manual CaptureSource = "manual"
@@ -354,6 +378,7 @@ func (e ReadStatus) Valid() bool {
 
 // Asset An image of an item, stored on the NAS.
 type Asset struct {
+	// Height In pixels, for JPEG and PNG; `null` for HEIC and WebP.
 	Height nullable.Nullable[int] `json:"height"`
 
 	// Id ULID, sortable by creation time.
@@ -361,24 +386,35 @@ type Asset struct {
 	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
 	Id Ulid `json:"id"`
 
-	// MimeType Examples: image/jpeg
-	MimeType  string                 `json:"mime_type"`
-	SizeBytes int64                  `json:"size_bytes"`
-	Width     nullable.Nullable[int] `json:"width"`
+	// MimeType The type recognised from the content of the file (RG-02).
+	MimeType  AssetMimeType `json:"mime_type"`
+	SizeBytes int64         `json:"size_bytes"`
+
+	// Width In pixels, for JPEG and PNG; `null` for HEIC and WebP.
+	Width nullable.Nullable[int] `json:"width"`
 }
 
-// CaptureImageRequest An image capture (screenshot or photo), 20 MB at most (RG-02).
+// AssetMimeType The type recognised from the content of the file (RG-02).
+type AssetMimeType string
+
+// CaptureImageRequest An image capture (screenshot or photo): exactly one `image` file and, optionally, the text fields below, each once, in any order. Any other field is refused.
 type CaptureImageRequest struct {
-	// ClientId ULID, sortable by creation time.
+	// ClientId Chosen by the device; a capture replayed with the same id returns the existing item (RG-08).
 	//
 	// Examples: 01JB8Z6Q4M1X2Y3Z4A5B6C7D8E
-	ClientId  *Ulid              `json:"client_id,omitempty"`
-	Image     openapi_types.File `json:"image"`
-	IsPrivate *bool              `json:"is_private,omitempty"`
+	ClientId *Ulid `json:"client_id,omitempty"`
+
+	// Image JPEG, PNG, HEIC or WebP, 20 MB (20 × 1024 × 1024 bytes) at most (RG-02); stored as sent. Its declared type and file name are ignored.
+	Image openapi_types.File `json:"image"`
+
+	// IsPrivate Exactly `true` or `false` (RG-10).
+	IsPrivate *bool `json:"is_private,omitempty"`
 
 	// Source Where the capture comes from; `share` when absent.
-	Source   *CaptureSource `json:"source,omitempty"`
-	UserNote *string        `json:"user_note,omitempty"`
+	Source *CaptureSource `json:"source,omitempty"`
+
+	// UserNote Capture note (RG-03), 1 MiB at most; trimmed, blank means absent (RG-09).
+	UserNote *string `json:"user_note,omitempty"`
 }
 
 // CaptureRequest A link or a note. Exactly one of `url` and `note`; a note holds no `user_note` (RG-07).
@@ -2486,8 +2522,14 @@ type GetAssetResponseObject interface {
 	VisitGetAssetResponse(w http.ResponseWriter) error
 }
 
+type GetAsset200ResponseHeaders struct {
+	CacheControl        *string
+	XContentTypeOptions *string
+}
+
 type GetAsset200ImageResponse struct {
 	Body          io.Reader
+	Headers       GetAsset200ResponseHeaders
 	ContentType   string
 	ContentLength int64
 }
@@ -2497,6 +2539,12 @@ func (response GetAsset200ImageResponse) VisitGetAssetResponse(w http.ResponseWr
 	w.Header().Set("Content-Type", response.ContentType)
 	if response.ContentLength != 0 {
 		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	if response.Headers.XContentTypeOptions != nil {
+		w.Header().Set("X-Content-Type-Options", fmt.Sprint(*response.Headers.XContentTypeOptions))
 	}
 	w.WriteHeader(200)
 

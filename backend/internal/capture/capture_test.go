@@ -3,6 +3,8 @@ package capture_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +36,7 @@ func newServiceAt(t *testing.T, now func() time.Time) (*capture.Service, string)
 	if err != nil {
 		t.Fatalf("LoadParis: %v", err)
 	}
-	return capture.NewService(st, paris), userID
+	return capture.NewService(st, paris, slog.New(slog.NewJSONHandler(io.Discard, nil))), userID
 }
 
 func TestCaptureRefusals(t *testing.T) {

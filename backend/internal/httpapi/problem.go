@@ -13,6 +13,8 @@ const (
 	problemTypeEmptyCapture     = "urn:hippo:problem:empty-capture"
 	problemTypeAmbiguousCapture = "urn:hippo:problem:ambiguous-capture"
 	problemTypeEmptyNote        = "urn:hippo:problem:empty-note"
+	problemTypeUnsupportedImage = "urn:hippo:problem:unsupported-image"
+	problemTypeImageTooLarge    = "urn:hippo:problem:image-too-large"
 )
 
 // newProblem returns a problem document for a typed response of the strict server.
