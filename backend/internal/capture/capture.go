@@ -1,6 +1,7 @@
 // Package capture is the domain of the capture: what a capture must hold, how it is cleaned and
-// checked, and the state of a freshly captured item (RG-01 to RG-10, RG-26). It knows neither
-// HTTP nor the generated API code (docs/dev/conventions-backend.md).
+// checked, the state of a freshly captured item, and what a duplicate link does to the item it
+// matches (RG-01 to RG-10, RG-15, RG-26). It knows neither HTTP nor the generated API code
+// (docs/dev/conventions-backend.md).
 package capture
 
 import (
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -58,7 +60,7 @@ type Request struct {
 }
 
 // Result is the captured item; Created is false when the capture replays an earlier one
-// (RG-08).
+// (RG-08) or is the duplicate of a stored link (RG-04).
 type Result struct {
 	Item    store.Item
 	Created bool
@@ -66,23 +68,26 @@ type Result struct {
 
 // Store is the storage the capture needs.
 type Store interface {
-	CaptureItem(ctx context.Context, userID string, in store.NewItem) (store.Item, bool, error)
+	CaptureItem(ctx context.Context, userID string, in store.NewItem, merge store.NoteMerge) (store.Item, bool, error)
 }
 
 // Service captures items.
 type Service struct {
 	store Store
+	paris *time.Location
 }
 
-// NewService returns a capture service storing into st.
-func NewService(st Store) *Service {
-	return &Service{store: st}
+// NewService returns a capture service storing into st. paris is the time zone of the dates
+// written in a note (RG-04), from LoadParis.
+func NewService(st Store, paris *time.Location) *Service {
+	return &Service{store: st, paris: paris}
 }
 
-// Capture checks and stores a capture of userID, or returns the item an earlier capture with
-// the same client id created (RG-08). userID comes from the authenticated request, never from
-// the body (RG-90). Nothing is stored when the capture is refused, and no extraction nor
-// analysis runs here (RG-01).
+// Capture checks and stores a capture of userID. It returns the item an earlier capture with
+// the same client id resolved to (RG-08), or the item of the same user whose normalised URL
+// matches, after appending the capture note and tightening the privacy (RG-04, RG-05, RG-15).
+// userID comes from the authenticated request, never from the body (RG-90). Nothing is stored
+// when the capture is refused, and no extraction nor analysis runs here (RG-01).
 func (s *Service) Capture(ctx context.Context, userID string, req Request) (Result, error) {
 	if err := checkClientID(req.ClientID); err != nil {
 		return Result{}, err
@@ -115,21 +120,35 @@ func (s *Service) Capture(ctx context.Context, userID string, req Request) (Resu
 		return Result{}, ErrInvalidURL
 	}
 
+	normalized := Normalize(*rawURL)
 	in := store.NewItem{
-		Kind:      KindLink,
-		Source:    source,
-		Status:    StatusQueued,
-		Title:     title,
-		URL:       rawURL,
-		UserNote:  userNote,
-		ClientID:  req.ClientID,
-		IsPrivate: req.IsPrivate != nil && *req.IsPrivate,
+		Kind:          KindLink,
+		Source:        source,
+		Status:        StatusQueued,
+		Title:         title,
+		URL:           rawURL,
+		NormalizedURL: &normalized,
+		UserNote:      userNote,
+		ClientID:      req.ClientID,
+		IsPrivate:     req.IsPrivate != nil && *req.IsPrivate,
 	}
-	item, created, err := s.store.CaptureItem(ctx, userID, in)
+	item, created, err := s.store.CaptureItem(ctx, userID, in, s.noteMerge(userNote))
 	if err != nil {
 		return Result{}, fmt.Errorf("capture: %w", err)
 	}
 	return Result{Item: item, Created: created}, nil
+}
+
+// noteMerge is the merge of RG-04 for a duplicate carrying userNote: the day is the one of the
+// store's clock in Paris, the server's reception day (RG-06). A capture without note keeps the
+// item's note.
+func (s *Service) noteMerge(userNote *string) store.NoteMerge {
+	return func(existing *string, now time.Time) (*string, bool) {
+		if userNote == nil {
+			return existing, false
+		}
+		return MergeNote(existing, *userNote, dayIn(now, s.paris))
+	}
 }
 
 // checkClientID accepts an absent client id or a ULID in its canonical form, the pattern of the

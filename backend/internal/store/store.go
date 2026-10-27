@@ -52,8 +52,18 @@ func (s *Store) newID(now time.Time) (string, error) {
 	return id.String(), nil
 }
 
+// Option configures a Store at Open.
+type Option func(*Store)
+
+// WithClock makes the store read the time from now instead of time.Now: every date it writes
+// (created_at, updated_at) and the time it hands to a note merge (CaptureItem) come from it.
+// Tests use it to control dates.
+func WithClock(now func() time.Time) Option {
+	return func(s *Store) { s.now = now }
+}
+
 // Open opens (or creates) the database at path and applies the pending migrations.
-func Open(ctx context.Context, path string) (*Store, error) {
+func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("open database %s: %w", path, err)
@@ -64,7 +74,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := migrate(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	return &Store{db: db, now: time.Now, ids: &idSource{entropy: ulid.Monotonic(rand.Reader, 0)}}, nil
+	st := &Store{db: db, now: time.Now, ids: &idSource{entropy: ulid.Monotonic(rand.Reader, 0)}}
+	for _, opt := range opts {
+		opt(st)
+	}
+	return st, nil
 }
 
 // dsn enables WAL, foreign keys and a busy timeout on every connection, and starts write
@@ -82,18 +96,26 @@ func dsn(path string) string {
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
-	files, err := fs.Sub(migrations, "migrations")
+	provider, err := migrationProvider(db)
 	if err != nil {
-		return fmt.Errorf("load migrations: %w", err)
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, files)
-	if err != nil {
-		return fmt.Errorf("load migrations: %w", err)
+		return err
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
 	return nil
+}
+
+func migrationProvider(db *sql.DB) (*goose.Provider, error) {
+	files, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("load migrations: %w", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, files)
+	if err != nil {
+		return nil, fmt.Errorf("load migrations: %w", err)
+	}
+	return provider, nil
 }
 
 // Close closes the database.

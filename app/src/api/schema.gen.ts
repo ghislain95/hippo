@@ -1221,7 +1221,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Existing item returned. For a duplicate link, the new capture note is appended to the existing one, dated (RG-04); a replayed `client_id` changes nothing (RG-08). */
+            /** @description Existing item returned, in its current state. For a duplicate link (RG-04, RG-05), the capture note becomes the item's note if it has none, undated; otherwise it is appended after a blank line, prefixed by the day in Paris time (`2026-10-27 — note`), unless it equals a note already present. A duplicate marked `is_private` makes the item private; an unmarked one never makes it public (RG-15). The `url`, `source`, title and status of the item never change. A replayed `client_id`, including one merged into an existing item, changes nothing (RG-08). */
             200: {
                 headers: {
                     [name: string]: unknown;

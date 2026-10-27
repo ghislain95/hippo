@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -18,8 +19,10 @@ import (
 )
 
 const (
-	testClientID = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8E"
-	blankType    = "about:blank"
+	testClientID    = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8E"
+	otherClientID   = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8F"
+	privateClientID = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8G"
+	blankType       = "about:blank"
 )
 
 var ulidPattern = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
@@ -108,8 +111,9 @@ func itemSchema(t *testing.T) *jsonschema.Schema {
 	return schema
 }
 
-// TestItemCapture follows openspec/changes/capture-link/specs/item-capture/spec.md: one subtest
-// per scenario, named after it, grouped by requirement.
+// TestItemCapture follows openspec/specs/item-capture/spec.md and its delta in
+// openspec/changes/dedupe-links/specs/item-capture/spec.md: one subtest per scenario, named
+// after it, grouped by requirement.
 func TestItemCapture(t *testing.T) {
 	t.Run("A link capture creates a queued item", func(t *testing.T) {
 		t.Run("Capture a link", func(t *testing.T) {
@@ -338,7 +342,7 @@ func TestItemCapture(t *testing.T) {
 		t.Run("Captures without client_id are never replays", func(t *testing.T) {
 			f := newFixture(t)
 			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
-			_, second := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			_, second := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/b"}`), http.StatusCreated)
 			if first["id"] == second["id"] {
 				t.Errorf("both captures returned %v, want two items", first["id"])
 			}
@@ -355,6 +359,248 @@ func TestItemCapture(t *testing.T) {
 			}
 			if got := f.itemCount(t, f.userID); got != 0 {
 				t.Errorf("items = %d, want 0", got)
+			}
+		})
+
+		t.Run("Replay of a duplicate capture appends its note once", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			body := `{"url": "https://example.com/a?utm_source=x", "user_note": "to test", "client_id": "` + otherClientID + `"}`
+			merged, item := capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			assertMembers(t, item, map[string]any{"id": first["id"], "user_note": "to test"})
+			f.clock.Advance(24 * time.Hour)
+			replay, _ := capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			if !bytes.Equal(replay, merged) {
+				t.Errorf("replay = %s\nwant the item unchanged %s", replay, merged)
+			}
+		})
+	})
+
+	t.Run("Links are normalised for deduplication", func(t *testing.T) {
+		t.Run("Tracking parameters do not make a new item", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/article?id=3"}`), http.StatusCreated)
+			resp := f.capture(t, testToken, `{"url": "https://example.com/article?utm_source=x&id=3&fbclid=abc&UTM_Medium=y"}`)
+			_, duplicate := capturedItem(t, resp, http.StatusOK)
+			assertMembers(t, duplicate, map[string]any{"id": first["id"], "url": "https://example.com/article?id=3"})
+		})
+
+		t.Run("Fragment, trailing slash and host case", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/docs/page"}`), http.StatusCreated)
+			_, duplicate := capturedItem(t, f.capture(t, testToken, `{"url": "HTTPS://Example.COM/docs/page/#section-2"}`), http.StatusOK)
+			assertMembers(t, duplicate, map[string]any{"id": first["id"]})
+		})
+
+		t.Run("Root, empty query and repeated parameters", func(t *testing.T) {
+			f := newFixture(t)
+			_, root := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com"}`), http.StatusCreated)
+			_, list := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/list?tag=b&tag=a&x=1"}`), http.StatusCreated)
+			_, rootAgain := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/?"}`), http.StatusOK)
+			_, listAgain := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/list/?x=1&&tag=b&ref=home&tag=a"}`), http.StatusOK)
+			assertMembers(t, rootAgain, map[string]any{"id": root["id"]})
+			assertMembers(t, listAgain, map[string]any{"id": list["id"]})
+		})
+
+		t.Run("Parameter order does not matter", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/search?b=2&a=1"}`), http.StatusCreated)
+			_, duplicate := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/search?a=1&b=2"}`), http.StatusOK)
+			assertMembers(t, duplicate, map[string]any{"id": first["id"]})
+		})
+
+		t.Run("Other differences make another item", func(t *testing.T) {
+			f := newFixture(t)
+			ids := map[any]bool{}
+			for _, url := range []string{
+				"https://example.com/a", "http://example.com/a", "https://www.example.com/a",
+				"https://example.com:443/a", "https://example.com/A", "https://example.com/a?id=4",
+			} {
+				t.Log(url)
+				_, item := capturedItem(t, f.capture(t, testToken, `{"url": "`+url+`"}`), http.StatusCreated)
+				ids[item["id"]] = true
+			}
+			if len(ids) != 6 {
+				t.Errorf("%d different ids, want 6", len(ids))
+			}
+		})
+
+		t.Run("Duplicates are per user", func(t *testing.T) {
+			f := newFixture(t)
+			_, mine := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			_, theirs := capturedItem(t, f.capture(t, otherToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			if theirs["id"] == mine["id"] {
+				t.Errorf("user B got user A's item %v", mine["id"])
+			}
+			if a, b := f.itemCount(t, f.userID), f.itemCount(t, f.otherID); a != 1 || b != 1 {
+				t.Errorf("items of A, B = %d, %d; want 1 each", a, b)
+			}
+		})
+	})
+
+	t.Run("A duplicate link returns the existing item", func(t *testing.T) {
+		t.Run("Duplicate without note", func(t *testing.T) {
+			f := newFixture(t)
+			first, _ := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			f.clock.Advance(time.Hour)
+			duplicate, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a/", "source": "manual"}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"source": "share"})
+			if !bytes.Equal(duplicate, first) {
+				t.Errorf("200 body = %s\nwant the item as it was %s", duplicate, first)
+			}
+		})
+
+		t.Run("Concurrent captures of one link create one item", func(t *testing.T) {
+			f := newFixture(t)
+			const captures = 8
+			const clientIDPrefix = "01JB8Z6Q4M1X2Y3Z4A5B6C7D9" // + one Crockford digit: a ULID each
+			statuses, ids, errs := make([]int, captures), make([]string, captures), make([]error, captures)
+			bodies := make([]string, captures)
+			for i := range captures {
+				bodies[i] = `{"url": "https://example.com/a", "client_id": "` + clientIDPrefix + string(rune('0'+i)) + `"}`
+			}
+			var wg sync.WaitGroup
+			for i := range captures {
+				wg.Go(func() { statuses[i], ids[i], errs[i] = postConcurrently(f, bodies[i]) })
+			}
+			wg.Wait()
+			created := 0
+			for i := range captures {
+				if errs[i] != nil {
+					t.Fatalf("capture %d: %v", i, errs[i])
+				}
+				switch statuses[i] {
+				case http.StatusCreated:
+					created++
+				case http.StatusOK:
+				default:
+					t.Errorf("capture %d: status %d, want 201 or 200", i, statuses[i])
+				}
+				if ids[i] != ids[0] {
+					t.Errorf("capture %d: id %s, want %s", i, ids[i], ids[0])
+				}
+			}
+			if created != 1 {
+				t.Errorf("%d answers are 201, want exactly 1", created)
+			}
+			for i := range captures {
+				replay := strings.Replace(bodies[i], "https://example.com/a", "https://example.com/other", 1)
+				_, item := capturedItem(t, f.capture(t, testToken, replay), http.StatusOK)
+				assertMembers(t, item, map[string]any{"id": ids[0]})
+			}
+			if got := f.itemCount(t, f.userID); got != 1 {
+				t.Errorf("items = %d, want 1", got)
+			}
+		})
+	})
+
+	t.Run("The note of a duplicate is appended, dated", func(t *testing.T) {
+		t.Run("First note of an item", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "to test"}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"user_note": "to test"})
+		})
+
+		t.Run("Further note is dated", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "for the trip"}`), http.StatusCreated)
+			f.clock.Set(time.Date(2026, 10, 27, 22, 30, 0, 0, time.UTC)) // 23:30 in Paris
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "  to test "}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"user_note": "for the trip\n\n2026-10-27 — to test"})
+		})
+
+		t.Run("The day is the day in Paris", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "for the trip"}`), http.StatusCreated)
+			f.clock.Set(time.Date(2026, 10, 27, 23, 30, 0, 0, time.UTC)) // 00:30 on 28 October in Paris
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "to test"}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"user_note": "for the trip\n\n2026-10-28 — to test"})
+		})
+
+		t.Run("Same note is not repeated", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "for the trip"}`), http.StatusCreated)
+			f.clock.Set(time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC))
+			before, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "to test"}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"user_note": "for the trip\n\n2026-10-27 — to test"})
+			f.clock.Advance(48 * time.Hour)
+			for _, note := range []string{"to test", "for the trip"} {
+				t.Log(note)
+				after, _ := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "`+note+`"}`), http.StatusOK)
+				if !bytes.Equal(after, before) {
+					t.Errorf("200 body = %s\nwant the item unchanged %s", after, before)
+				}
+			}
+		})
+
+		t.Run("A note contained in another one is still appended", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "buy milk and bread"}`), http.StatusCreated)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "buy milk"}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"user_note": "buy milk and bread\n\n2026-10-27 — buy milk"})
+		})
+
+		t.Run("A note change is synchronised", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			f.clock.Advance(time.Minute)
+			_, noted := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "user_note": "to test"}`), http.StatusOK)
+			if !laterThan(t, noted["updated_at"], first["updated_at"]) {
+				t.Errorf("updated_at = %v, want later than %v", noted["updated_at"], first["updated_at"])
+			}
+			f.clock.Advance(time.Minute)
+			_, unchanged := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusOK)
+			assertMembers(t, unchanged, map[string]any{"updated_at": noted["updated_at"]})
+		})
+	})
+
+	t.Run("A duplicate can only make an item private", func(t *testing.T) {
+		t.Run("Duplicate marked private", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "is_private": true}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"id": first["id"], "is_private": true, "status": first["status"]})
+		})
+
+		t.Run("Replaying an old private capture does not make the item private again", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a"}`), http.StatusCreated)
+			body := `{"url": "https://example.com/a", "is_private": true, "client_id": "` + privateClientID + `"}`
+			_, item := capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			assertMembers(t, item, map[string]any{"is_private": true})
+			id, _ := first["id"].(string)
+			if _, err := f.store.SetPrivate(context.Background(), f.userID, id, false); err != nil {
+				t.Fatalf("SetPrivate: %v", err)
+			}
+			_, replay := capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			assertMembers(t, replay, map[string]any{"id": first["id"], "is_private": false})
+		})
+
+		t.Run("Unmarked duplicate keeps an item private", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "is_private": true}`), http.StatusCreated)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"url": "https://example.com/a", "is_private": false}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"is_private": true})
+		})
+	})
+
+	t.Run("The normalised URL is never logged", func(t *testing.T) {
+		t.Run("Duplicate capture logs no content", func(t *testing.T) {
+			f := newFixture(t)
+			body := `{"url": "https://secret.example.com/a?utm_source=x", "user_note": "private thought"}`
+			capturedItem(t, f.capture(t, testToken, body), http.StatusCreated)
+			capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			logs := f.logs.String()
+			for _, leak := range []string{"secret.example.com", "private thought"} {
+				if strings.Contains(logs, leak) {
+					t.Errorf("logs contain %q:\n%s", leak, logs)
+				}
+			}
+			for _, status := range []string{`"status":201`, `"status":200`} {
+				if !strings.Contains(logs, status) {
+					t.Errorf("logs have no request line with %s:\n%s", status, logs)
+				}
 			}
 		})
 	})
@@ -458,6 +704,20 @@ func TestItemCapture(t *testing.T) {
 			}
 		})
 	})
+}
+
+// laterThan tells whether the date-time later is after earlier.
+func laterThan(t *testing.T, later, earlier any) bool {
+	t.Helper()
+	parse := func(value any) time.Time {
+		text, _ := value.(string)
+		parsed, err := time.Parse(time.RFC3339Nano, text)
+		if err != nil {
+			t.Fatalf("parse date %v: %v", value, err)
+		}
+		return parsed
+	}
+	return parse(later).After(parse(earlier))
 }
 
 // postConcurrently sends a capture from a goroutine, where t.Fatal cannot be called.

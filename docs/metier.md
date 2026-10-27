@@ -111,7 +111,7 @@ stateDiagram-v2
 - **RG-01** — Une capture crée un élément de forme `link`, `image` ou `note`. Elle est acceptée et confirmée immédiatement ; aucune analyse n'a lieu pendant la capture.
 - **RG-02** — Une capture `link` doit contenir une URL `http` ou `https` valide. Une capture `note` doit contenir un texte non vide. Une capture `image` doit contenir une image d'un format courant (JPEG, PNG, HEIC, WebP) de 20 Mo maximum.
 - **RG-03** — Une **note de capture** est facultative pour toutes les formes. Elle est transmise à l'IA comme indice d'intention.
-- **RG-04** — **Doublons.** Si l'**URL normalisée** d'une capture correspond à un élément existant du même utilisateur, aucun nouvel élément n'est créé : l'élément existant est renvoyé. Si la nouvelle capture porte une note, celle-ci est ajoutée à la suite de la note existante, datée. Les images et les notes ne sont jamais considérées comme des doublons.
+- **RG-04** — **Doublons.** Si l'**URL normalisée** d'une capture correspond à un élément existant du même utilisateur, aucun nouvel élément n'est créé : l'élément existant est renvoyé. Si la nouvelle capture porte une note, celle-ci est ajoutée à la suite de la note existante, après une ligne vide, précédée de la date du jour à l'heure de Paris (`2026-10-27 — à tester`) ; si l'élément n'a pas encore de note, la nouvelle note devient sa note, sans date. Une note identique à une note déjà présente n'est pas ajoutée une seconde fois. Les images et les notes ne sont jamais considérées comme des doublons. *(Format de la note précisé le 27 octobre 2026.)*
 - **RG-05** — **Normalisation d'URL** : schéma et hôte en minuscules, fragment (`#…`) retiré, paramètres de tracking retirés (`utm_*`, `fbclid`, `gclid`, `igsh`, `si`, `ref`), slash final retiré, paramètres restants triés. L'URL d'origine est conservée telle quelle pour l'ouverture.
 - **RG-06** — Une capture faite **hors ligne** depuis l'appli est mise en attente sur le téléphone et envoyée automatiquement au retour du réseau. Depuis l'extension de partage, une capture hors ligne échoue avec un message clair et la possibilité de copier le lien.
 - **RG-07** — **Capture ambiguë.** Une capture qui contient à la fois une URL et une note, ou une note et une note de capture, est refusée : la forme de l'élément doit être sans ambiguïté. *(Ajoutée le 25 octobre 2026.)*
@@ -125,6 +125,7 @@ stateDiagram-v2
 - **RG-12** — Un élément privé n'est **jamais** envoyé à l'IA : ni dans le batch, ni en analyse immédiate. Aucune exception, y compris en cas d'erreur de configuration.
 - **RG-13** — Un élément privé n'a pas de fiche générée. Il apparaît dans **À trier** jusqu'à ce que l'utilisateur lui donne une catégorie.
 - **RG-14** — Décocher « Privé » sur un élément existant le remet dans la file d'analyse. Cocher « Privé » sur un élément déjà analysé conserve sa fiche mais empêche toute réanalyse.
+- **RG-15** — Une capture en doublon (RG-04) cochée « Privé » rend privé l'élément existant, comme le ferait la fiche (RG-14). Une capture en doublon non cochée ne rend jamais public un élément privé. *(Ajoutée le 27 octobre 2026.)*
 
 ### Extraction
 

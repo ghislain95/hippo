@@ -23,7 +23,7 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Note de capture** | `user_note` | Le texte que l'utilisateur ajoute au moment de la capture (« pour le projet X », « à tester »). C'est un indice précieux sur l'intention, transmis à l'IA. Pour un élément de forme `note`, c'est le contenu lui-même. |
 | **Élément privé** | `is_private = 1` | Élément stocké et cherchable, mais **jamais envoyé à l'IA**. Décoché par défaut. L'utilisateur le range lui-même. |
 | **Image** | `asset` | Fichier image rattaché à un élément (capture d'écran, photo), stocké sur le disque du NAS. |
-| **Identifiant de capture** | `client_id` | Identifiant (ULID) choisi par l'appareil qui envoie une capture. Une capture rejouée avec le même identifiant renvoie l'élément déjà créé au lieu d'en créer un second (RG-08). |
+| **Identifiant de capture** | `client_id`, table `capture_ids` | Identifiant (ULID) choisi par l'appareil qui envoie une capture. Une capture rejouée avec le même identifiant renvoie l'élément déjà créé au lieu d'en créer un second (RG-08). Chaque identifiant reçu est enregistré dans `capture_ids` avec l'élément auquel la capture a abouti, y compris quand elle a été fusionnée dans un doublon. |
 | **URL normalisée** | `normalized_url` | L'URL débarrassée de ce qui ne change pas le contenu (paramètres de tracking, fragment, slash final). Sert à détecter les doublons. |
 
 ### Traitement

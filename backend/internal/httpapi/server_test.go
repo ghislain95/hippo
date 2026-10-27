@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+	_ "time/tzdata" // the Paris zone without the machine's time zone database
 
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
@@ -32,15 +34,23 @@ type fixture struct {
 	store   *store.Store
 	dbPath  string
 	logs    *syncBuffer
-	userID  string // owner of testToken
-	otherID string // owner of otherToken
+	clock   *testClock // the store's clock
+	userID  string     // owner of testToken
+	otherID string     // owner of otherToken
 }
 
 // newFixture starts the real handler on a real SQLite database (docs/dev/testing.md), with two
-// users: testToken authenticates the owner, otherToken a second user (RG-90).
+// users: testToken authenticates the owner, otherToken a second user (RG-90). The store reads
+// the time from f.clock, and the capture dates notes in the Paris zone of the embedded time
+// zone database, whatever the zone of the machine.
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	st, dbPath := storetest.OpenWithPath(t)
+	clock := &testClock{now: time.Date(2026, 10, 27, 10, 0, 0, 0, time.UTC)}
+	st, dbPath := storetest.OpenWithClock(t, clock.Now)
+	paris, err := capture.LoadParis()
+	if err != nil {
+		t.Fatalf("LoadParis: %v", err)
+	}
 	ctx := context.Background()
 	userID, err := st.EnsureSingleUser(ctx, auth.HashToken(testToken))
 	if err != nil {
@@ -54,13 +64,37 @@ func newFixture(t *testing.T) fixture {
 	handler := httpapi.NewServer(httpapi.Options{
 		Store:   st,
 		Auth:    twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
-		Capture: capture.NewService(st),
+		Capture: capture.NewService(st, paris),
 		Logger:  slog.New(slog.NewJSONHandler(logs, nil)),
 		Version: "test",
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return fixture{server: server, store: st, dbPath: dbPath, logs: logs, userID: userID, otherID: otherID}
+	return fixture{server: server, store: st, dbPath: dbPath, logs: logs, clock: clock, userID: userID, otherID: otherID}
+}
+
+// testClock is a settable clock, safe for the goroutines of concurrent requests.
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *testClock) Set(now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = now
+}
+
+func (c *testClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
 }
 
 // twoUsers authenticates the tokens of two users with the real single-user authenticator.
