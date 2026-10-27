@@ -5,14 +5,17 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
+	"sync"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver (pure Go, no CGO)
 )
@@ -27,6 +30,26 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	ids *idSource
+}
+
+// idSource makes ULIDs that increase within a millisecond. The monotonic entropy is not safe
+// for concurrent use, hence the mutex.
+type idSource struct {
+	mu      sync.Mutex
+	entropy *ulid.MonotonicEntropy
+}
+
+// newID returns a new ULID whose timestamp is now, so that an id and the creation date of its
+// row come from the same clock.
+func (s *Store) newID(now time.Time) (string, error) {
+	s.ids.mu.Lock()
+	defer s.ids.mu.Unlock()
+	id, err := ulid.New(ulid.Timestamp(now), s.ids.entropy)
+	if err != nil {
+		return "", fmt.Errorf("new id: %w", err)
+	}
+	return id.String(), nil
 }
 
 // Open opens (or creates) the database at path and applies the pending migrations.
@@ -41,7 +64,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := migrate(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	return &Store{db: db, now: time.Now}, nil
+	return &Store{db: db, now: time.Now, ids: &idSource{entropy: ulid.Monotonic(rand.Reader, 0)}}, nil
 }
 
 // dsn enables WAL, foreign keys and a busy timeout on every connection, and starts write

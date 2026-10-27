@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-
-	"github.com/oklog/ulid/v2"
 )
 
 // ownerName is the name of the single V1 user.
@@ -25,11 +23,8 @@ func (s *Store) EnsureSingleUser(ctx context.Context, tokenHash string) (string,
 	err = tx.QueryRowContext(ctx, `SELECT id, api_token_hash FROM users ORDER BY created_at LIMIT 1`).Scan(&id, &storedHash)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		id = ulid.Make().String()
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, name, api_token_hash, created_at) VALUES (?, ?, ?, ?)`,
-			id, ownerName, tokenHash, s.now().UTC().Format(timeLayout)); err != nil {
-			return "", fmt.Errorf("create user: %w", err)
+		if id, err = s.createUser(ctx, tx, ownerName, tokenHash); err != nil {
+			return "", err
 		}
 	case err != nil:
 		return "", fmt.Errorf("read user: %w", err)
@@ -41,6 +36,31 @@ func (s *Store) EnsureSingleUser(ctx context.Context, tokenHash string) (string,
 
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("ensure user: %w", err)
+	}
+	return id, nil
+}
+
+// CreateUser creates a user and returns its id. Only EnsureSingleUser creates a user in
+// production (one user in V1); tests use it for a second user (RG-90).
+func (s *Store) CreateUser(ctx context.Context, name, tokenHash string) (string, error) {
+	return s.createUser(ctx, s.db, name, tokenHash)
+}
+
+// execer is what a write needs from a *sql.DB or a *sql.Tx.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func (s *Store) createUser(ctx context.Context, db execer, name, tokenHash string) (string, error) {
+	now := s.now().UTC()
+	id, err := s.newID(now)
+	if err != nil {
+		return "", fmt.Errorf("create user: %w", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, name, api_token_hash, created_at) VALUES (?, ?, ?, ?)`,
+		id, name, tokenHash, now.Format(timeLayout)); err != nil {
+		return "", fmt.Errorf("create user: %w", err)
 	}
 	return id, nil
 }

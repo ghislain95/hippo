@@ -7,9 +7,17 @@ import (
 
 // Problem types (RFC 9457). Business errors use urn:hippo:problem:<slug> (api/openapi.yaml).
 const (
-	problemTypeBlank          = "about:blank"
-	problemTypeNotImplemented = "urn:hippo:problem:not-implemented"
+	problemTypeBlank            = "about:blank"
+	problemTypeNotImplemented   = "urn:hippo:problem:not-implemented"
+	problemTypeInvalidURL       = "urn:hippo:problem:invalid-url"
+	problemTypeEmptyCapture     = "urn:hippo:problem:empty-capture"
+	problemTypeAmbiguousCapture = "urn:hippo:problem:ambiguous-capture"
 )
+
+// newProblem returns a problem document for a typed response of the strict server.
+func newProblem(status int, problemType, title, detail, instance string) Problem {
+	return Problem{Type: problemType, Title: title, Status: status, Detail: &detail, Instance: &instance}
+}
 
 // writeProblem writes an application/problem+json response. detail is in French and can be
 // shown as is by the app; it never carries an internal error message.

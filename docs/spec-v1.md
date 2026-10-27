@@ -87,9 +87,9 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | id | TEXT (ULID) | Identifiant triable par date |
 | user_id | TEXT | Propriétaire |
 | kind | TEXT | `link`, `image`, `note` |
-| source | TEXT | `share`, `manual` (V2 : `rss`) |
+| source | TEXT | `share`, `manual` (V2 : `rss`) ; pas de `CHECK` en base, la valeur est vérifiée par le domaine |
 | url | TEXT, nullable | URL d'origine, telle que capturée |
-| normalized_url | TEXT, nullable | URL normalisée (RG-05), unique par utilisateur |
+| normalized_url | TEXT, nullable | URL normalisée (RG-05), unique par utilisateur à partir d'E2-02 |
 | site_name | TEXT, nullable | Nom du site, issu de l'extraction |
 | user_note | TEXT, nullable | Note de capture (contenu de l'élément pour `kind = note`) |
 | client_id | TEXT, nullable | Identifiant de capture choisi par l'appareil, unique par utilisateur (RG-08) |
@@ -99,8 +99,8 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | content_text | TEXT, nullable | Contenu extrait, conservé pour la réanalyse (~120 000 caractères max) |
 | content_truncated | INTEGER (0/1) | Le contenu dépassait la limite |
 | reading_minutes | INTEGER, nullable | Temps de lecture de l'original, calculé à l'extraction (RG-25) |
-| type_id | INTEGER, nullable | Type de contenu |
-| category_id | INTEGER, nullable | Catégorie ; null = À trier |
+| type_id | INTEGER, nullable | Type de contenu ; ajouté par la story qui crée `content_types` |
+| category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par la story qui crée `categories` |
 | title | TEXT | Titre affiché (titre d'origine avant analyse) |
 | fiche_json | TEXT (JSON), nullable | Fiche générée, au format du type |
 | search_text | TEXT | Fiche aplatie en texte, pour la recherche |
@@ -116,9 +116,16 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | read_status | TEXT | `to_read`, `in_progress`, `read` |
 | read_progress | REAL | 0 à 1 |
 | attempts, last_error | INTEGER, TEXT | Suivi des échecs |
-| batch_id | TEXT, nullable | Batch Anthropic en cours |
+| batch_id | TEXT, nullable | Batch Anthropic en cours ; ajouté par la story qui crée `batches` |
 | created_at, updated_at, extracted_at, analyzed_at, read_at, deleted_at | TEXT | Horodatage |
 | change_seq | INTEGER | Séquence de modification, pour la synchronisation |
+
+La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle porte dès E2-01 l'unicité de `client_id` par utilisateur. Trois colonnes et un index arrivent plus tard :
+
+| Ajout | Story | Raison |
+| --- | --- | --- |
+| `type_id`, `category_id`, `batch_id` | celle qui crée `content_types`, `categories`, `batches` | Elles référencent ces tables ; ajoutées par `ALTER TABLE items ADD COLUMN … REFERENCES …` |
+| Unicité de `(user_id, normalized_url)` | E2-02 | `normalized_url` reste vide avant le dédoublonnage ; E2-02 le remplit pour les liens déjà capturés, puis crée l'index |
 
 **categories** — arborescence de 2 niveaux (RG-51).
 
@@ -150,6 +157,7 @@ Unicité : `(user_id, parent_id, nom normalisé)`.
 - **assets** : images (`id`, `item_id`, `user_id`, chemin relatif sur disque, type MIME, largeur, hauteur, taille).
 - **batches** : `id` Anthropic, `user_id`, statut (`in_progress`, `ended`, `failed`), nombre d'éléments, tokens d'entrée, de sortie et de cache, `cost_usd`, dates. Les analyses immédiates sont enregistrées dans une table **analysis_calls** de même forme, pour le calcul du budget.
 - **settings** : réglages clé-valeur par utilisateur, dont `last_review_at`.
+- **sync_sequence** : une seule ligne (`id = 1`), la valeur courante de la séquence de modification. Elle n'avance que par une seule fonction du store, dans la transaction de l'écriture ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)).
 - **items_fts** : table virtuelle FTS5 sur `title`, `search_text`, `user_note`, `annotations` et les tags, tokenizer `unicode61 remove_diacritics 2`, tenue à jour par des triggers.
 
 Les migrations sont versionnées et appliquées au démarrage.
@@ -176,11 +184,11 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 
 ## API REST
 
-Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md), [ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) ; il porte aussi le catalogue des types d'erreur. Toutes les routes sont sous `/api` et exigent `Authorization: Bearer <token>`, sauf `/healthz`. JSON en `snake_case`, erreurs au format problem+json, pagination par curseur. Une route déclarée mais pas encore implémentée répond `501`. Le tableau ci-dessous résume le contrat ; en cas d'écart, le contrat gagne.
+Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md), [ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) ; il porte aussi le catalogue des types d'erreur. Toutes les routes sont sous `/api` et exigent `Authorization: Bearer <token>`, sauf `/healthz`. JSON en `snake_case`, erreurs au format problem+json, pagination par curseur. Une route déclarée mais pas encore implémentée répond `501`. Le corps JSON d'une opération implémentée est strict : un membre non déclaré ou des données après la valeur répondent `400` ; un corps JSON de plus de 1 Mio répond `413` ([conventions du backend](dev/conventions-backend.md#contrat-dapi)). Le tableau ci-dessous résume le contrat ; en cas d'écart, le contrat gagne.
 
 | Méthode | Route | Rôle |
 | --- | --- | --- |
-| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?}`, ou multipart avec une image ; `201` nouvel élément, `200` doublon ou capture rejouée (RG-04, RG-07, RG-08) |
+| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée (RG-04, RG-07, RG-08) |
 | GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
 | GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
 | PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |

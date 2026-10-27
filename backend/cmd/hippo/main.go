@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/auth"
+	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/config"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
 	"github.com/ghislain95/hippo/backend/internal/store"
@@ -89,6 +90,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		Handler: httpapi.NewServer(httpapi.Options{
 			Store:   st,
 			Auth:    auth.NewSingleUser(userID, tokenHash),
+			Capture: capture.NewService(st),
 			Logger:  logger,
 			Version: version,
 		}),

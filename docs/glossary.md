@@ -74,7 +74,7 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Recherche sémantique** *(V1.5)* | `embedding` | Recherche par le sens, grâce à des vecteurs calculés localement sur le NAS. |
 | **Éléments liés** *(V1.5)* | `related_items` | Éléments qui parlent du même sujet, calculés à partir des tags, des catégories et des vecteurs. |
 | **Jeton de synchronisation** | `sync_token` | Valeur opaque, donnée par le serveur à la fin d'une synchronisation, que l'appli renvoie la fois suivante pour ne recevoir que les changements depuis. Trop ancien (plus de 30 jours), il est refusé et l'appli resynchronise tout. |
-| **Séquence de modification** | `change_seq` | Compteur qui augmente à chaque écriture d'une ligne synchronisée ; c'est lui, et non l'heure, qui ordonne les changements envoyés à l'appli. |
+| **Séquence de modification** | `change_seq`, table `sync_sequence` | Compteur qui augmente à chaque écriture d'une ligne synchronisée ; c'est lui, et non l'heure, qui ordonne les changements envoyés à l'appli. |
 | **Marque de suppression** | `deleted_at`, *tombstone* | Trace d'un élément, d'une catégorie, d'un type ou d'un tag supprimé, gardée 30 jours pour la synchronisation : seulement son identifiant et sa date de suppression (RG-79). |
 | **Export** | `GET /api/export` | Archive Markdown de toutes les fiches, un fichier par fiche, rangés par catégorie, compatible Obsidian. |
 

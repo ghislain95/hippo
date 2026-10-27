@@ -375,7 +375,10 @@ type CaptureImageRequest struct {
 	ClientId  *Ulid              `json:"client_id,omitempty"`
 	Image     openapi_types.File `json:"image"`
 	IsPrivate *bool              `json:"is_private,omitempty"`
-	UserNote  *string            `json:"user_note,omitempty"`
+
+	// Source Where the capture comes from; `share` when absent.
+	Source   *CaptureSource `json:"source,omitempty"`
+	UserNote *string        `json:"user_note,omitempty"`
 }
 
 // CaptureRequest A link or a note. Exactly one of `url` and `note`; a note holds no `user_note` (RG-07).
@@ -388,6 +391,9 @@ type CaptureRequest struct {
 
 	// Note Text of a note item.
 	Note *string `json:"note,omitempty"`
+
+	// Source Where the capture comes from; `share` when absent.
+	Source *CaptureSource `json:"source,omitempty"`
 
 	// Url `http` or `https` URL (RG-02).
 	//

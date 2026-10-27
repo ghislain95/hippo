@@ -14,7 +14,6 @@ const bundledContract = "../../../api/openapi.bundled.gen.json"
 // requestBodies holds one valid JSON body per operation whose request body is required. A new
 // operation with a required body and no entry here fails the test, so that it gets a case.
 var requestBodies = map[string]string{
-	"createItem":            `{"url": "https://example.com/article"}`,
 	"updateItem":            `{"is_pinned": true}`,
 	"updateReadingProgress": `{"read_progress": 0.5}`,
 	"createCategory":        `{"name": "Kubernetes"}`,
@@ -34,6 +33,23 @@ var pathValues = map[string]string{
 	"{tag_id}":      "1",
 	"{type_key}":    "recipe",
 }
+
+// implementedOperations answer for real: the sweep skips them. createItem keeps a multipart
+// case below, its image format being still declared but not implemented (E2-04).
+var implementedOperations = map[string]bool{
+	"getHealth":  true,
+	"createItem": true, // capture-link (E2-01)
+}
+
+// A multipart image capture, valid for the contract.
+const (
+	multipartBoundary = "hippo-test-boundary"
+	multipartImage    = "--" + multipartBoundary + "\r\n" +
+		`Content-Disposition: form-data; name="image"; filename="capture.png"` + "\r\n" +
+		"Content-Type: image/png\r\n\r\n" +
+		"\x89PNG\r\n" +
+		"\r\n--" + multipartBoundary + "--\r\n"
+)
 
 type contractOperation struct {
 	OperationID string `json:"operationId"`
@@ -70,13 +86,7 @@ func TestEveryOperationAnswers501(t *testing.T) {
 	// Same scenario, for the multipart format of createItem (the loop above sends JSON bodies).
 	t.Run("multipart capture answers 501", func(t *testing.T) {
 		f := newFixture(t)
-		const boundary = "hippo-test-boundary"
-		body := "--" + boundary + "\r\n" +
-			`Content-Disposition: form-data; name="image"; filename="capture.png"` + "\r\n" +
-			"Content-Type: image/png\r\n\r\n" +
-			"\x89PNG\r\n" +
-			"\r\n--" + boundary + "--\r\n"
-		resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+boundary, body)
+		resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+multipartBoundary, multipartImage)
 		problem := assertProblem(t, resp, http.StatusNotImplemented)
 		if problem.Type != notImplementedType {
 			t.Errorf("multipart capture: type = %q, want %s", problem.Type, notImplementedType)
@@ -89,9 +99,6 @@ func checkEveryOperation(t *testing.T, contractPaths map[string]map[string]json.
 	f := newFixture(t)
 	count := 0
 	for _, path := range paths {
-		if path == "/healthz" {
-			continue // implemented
-		}
 		for method, rawOperation := range contractPaths[path] {
 			if method == "parameters" {
 				continue
@@ -99,6 +106,9 @@ func checkEveryOperation(t *testing.T, contractPaths map[string]map[string]json.
 			var operation contractOperation
 			if err := json.Unmarshal(rawOperation, &operation); err != nil {
 				t.Fatalf("parse %s %s: %v", method, path, err)
+			}
+			if implementedOperations[operation.OperationID] {
+				continue
 			}
 			count++
 			t.Run(operation.OperationID, func(t *testing.T) {
@@ -125,7 +135,8 @@ func checkEveryOperation(t *testing.T, contractPaths map[string]map[string]json.
 			})
 		}
 	}
-	if count < 25 {
-		t.Errorf("checked %d operations, want the 25 of the V1 contract at least", count)
+	// The V1 contract declares 26 operations; each implemented one leaves the sweep.
+	if want := 26 - len(implementedOperations); count < want {
+		t.Errorf("checked %d operations, want %d at least", count, want)
 	}
 }

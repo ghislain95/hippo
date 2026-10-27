@@ -4,7 +4,7 @@
     "title": "Hippo API",
     "version": "0.2.0",
     "summary": "Personal second brain — capture, nightly analysis, reading.",
-    "description": "Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share\nextension. This file is the source of truth (ADR-0017): the Go server and the TypeScript\ntypes are generated from it (ADR-0031), through `api/openapi.bundled.gen.json`, which\n`make generate` assembles with the fiche components of `api/fiches.gen.json` (ADR-0035).\n\n## Conventions\n\n- Every route lives under `/api` and requires `Authorization: Bearer <token>`, except\n  `/healthz` (ADR-0016). A missing or wrong token answers `401` before any routing.\n- JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`).\n- Identifiers (ADR-0035): ULIDs for items, assets and batches; integers for categories and\n  tags; content types are named by their `key`. An item references its category, content\n  type and tags by identifier, never by name.\n- Collections are paginated by cursor: query parameters `cursor` and `limit`; the response\n  carries `next_cursor`, `null` on the last page.\n- Nullability: a nullable value is declared on its property; in a `PATCH` body an absent\n  field changes nothing and an explicit `null` clears the value.\n- The fiche of an item is rendered by `fiche.template`, never by the item's content type:\n  the two differ after a type correction (RG-60), a type merge (RG-72) or for a proposed\n  type. `schema_version` tells which version of the fiche schema produced it (RG-64).\n- Operations and schemas are binding. The status codes and problem types listed for each\n  operation are provisional until the story that implements it, which amends them here\n  first.\n- An operation, request format or field declared here but not implemented yet answers\n  `501` with the problem type `urn:hippo:problem:not-implemented`.\n\n## Problem types\n\nErrors use `application/problem+json` (RFC 9457, schema `Problem`); `detail` is in French\nand can be shown as is. Generic HTTP errors (`400` for a request that breaks this\ncontract, `401`, `404` for an unknown route or another user's resource, `415`) use\n`about:blank`. Business errors use one of these types:\n\n| Type (`urn:hippo:problem:…`) | Status | Meaning |\n| --- | --- | --- |\n| `invalid-url` | 400 | The URL of a capture is not a valid `http` or `https` URL (RG-02) |\n| `empty-note` | 400 | The note of a capture is empty (RG-02) |\n| `empty-capture` | 400 | The capture holds neither a URL, a note nor an image (RG-02) |\n| `ambiguous-capture` | 400 | The capture holds a URL and a note, or a note and a capture note (RG-07) |\n| `unsupported-image` | 400 | The image is not JPEG, PNG, HEIC or WebP (RG-02) |\n| `image-too-large` | 413 | The image exceeds 20 MB (RG-02) |\n| `private-item` | 409 | A private item is never sent to the AI (RG-12, RG-33) |\n| `budget-exceeded` | 409 | The monthly AI budget is reached (RG-81) |\n| `not-ready` | 409 | The item is still being extracted (RG-33) |\n| `already-submitted` | 409 | The item is already in tonight's batch (RG-33) |\n| `not-failed` | 409 | Only a failed item can be retried (RG-35) |\n| `name-taken` | 409 | Another category under the same parent, or another tag, has this name (RG-54, RG-74) |\n| `category-too-deep` | 400 | Categories have two levels at most (RG-51) |\n| `category-not-empty` | 409 | Only an empty category can be deleted (backlog E4-07) |\n| `invalid-merge-target` | 400 | A category, type or tag cannot be merged into itself or into its own subcategory (backlog E4-07) |\n| `type-not-proposed` | 409 | Only a proposed content type can be merged into another one (RG-72) |\n| `sync-expired` | 410 | The sync token is older than the 30-day retention of deletions: resync without a token (ADR-0035) |\n| `not-implemented` | 501 | Declared in this contract, not implemented yet |\n"
+    "description": "Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share\nextension. This file is the source of truth (ADR-0017): the Go server and the TypeScript\ntypes are generated from it (ADR-0031), through `api/openapi.bundled.gen.json`, which\n`make generate` assembles with the fiche components of `api/fiches.gen.json` (ADR-0035).\n\n## Conventions\n\n- Every route lives under `/api` and requires `Authorization: Bearer <token>`, except\n  `/healthz` (ADR-0016). A missing or wrong token answers `401` before any routing.\n- JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`).\n- Identifiers (ADR-0035): ULIDs for items, assets and batches; integers for categories and\n  tags; content types are named by their `key`. An item references its category, content\n  type and tags by identifier, never by name.\n- Collections are paginated by cursor: query parameters `cursor` and `limit`; the response\n  carries `next_cursor`, `null` on the last page.\n- Nullability: a nullable value is declared on its property; in a `PATCH` body an absent\n  field changes nothing and an explicit `null` clears the value.\n- The fiche of an item is rendered by `fiche.template`, never by the item's content type:\n  the two differ after a type correction (RG-60), a type merge (RG-72) or for a proposed\n  type. `schema_version` tells which version of the fiche schema produced it (RG-64).\n- Operations and schemas are binding. The status codes and problem types listed for each\n  operation are provisional until the story that implements it, which amends them here\n  first.\n- An operation, request format or field declared here but not implemented yet answers\n  `501` with the problem type `urn:hippo:problem:not-implemented`.\n- The JSON body of an implemented operation is strict: a member this contract does not\n  declare, or data after the JSON value, answers `400` with `about:blank` before the\n  operation runs, so that a misspelt field is refused rather than silently ignored.\n- A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`.\n\n## Problem types\n\nErrors use `application/problem+json` (RFC 9457, schema `Problem`); `detail` is in French\nand can be shown as is. Generic HTTP errors (`400` for a request that breaks this\ncontract, `401`, `404` for an unknown route or another user's resource, `415`) use\n`about:blank`. Business errors use one of these types:\n\n| Type (`urn:hippo:problem:…`) | Status | Meaning |\n| --- | --- | --- |\n| `invalid-url` | 400 | The URL of a capture is not a valid `http` or `https` URL (RG-02) |\n| `empty-note` | 400 | The note of a capture is empty (RG-02) |\n| `empty-capture` | 400 | The capture holds neither a URL, a note nor an image (RG-02) |\n| `ambiguous-capture` | 400 | The capture holds a URL and a note, or a note and a capture note (RG-07) |\n| `unsupported-image` | 400 | The image is not JPEG, PNG, HEIC or WebP (RG-02) |\n| `image-too-large` | 413 | The image exceeds 20 MB (RG-02) |\n| `private-item` | 409 | A private item is never sent to the AI (RG-12, RG-33) |\n| `budget-exceeded` | 409 | The monthly AI budget is reached (RG-81) |\n| `not-ready` | 409 | The item is still being extracted (RG-33) |\n| `already-submitted` | 409 | The item is already in tonight's batch (RG-33) |\n| `not-failed` | 409 | Only a failed item can be retried (RG-35) |\n| `name-taken` | 409 | Another category under the same parent, or another tag, has this name (RG-54, RG-74) |\n| `category-too-deep` | 400 | Categories have two levels at most (RG-51) |\n| `category-not-empty` | 409 | Only an empty category can be deleted (backlog E4-07) |\n| `invalid-merge-target` | 400 | A category, type or tag cannot be merged into itself or into its own subcategory (backlog E4-07) |\n| `type-not-proposed` | 409 | Only a proposed content type can be merged into another one (RG-72) |\n| `sync-expired` | 410 | The sync token is older than the 30-day retention of deletions: resync without a token (ADR-0035) |\n| `not-implemented` | 501 | Declared in this contract, not implemented yet |\n"
   },
   "servers": [
     {
@@ -91,7 +91,7 @@
       "post": {
         "operationId": "createItem",
         "summary": "Capture an item",
-        "description": "Creates an item from a link, a note (JSON body) or an image (multipart body) and answers\nat once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same\nnormalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing\nitem with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds\nno `user_note` (RG-07).\n",
+        "description": "Creates an item from a link, a note (JSON body) or an image (multipart body) and answers\nat once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same\nnormalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing\nitem with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds\nno `user_note` (RG-07). Surrounding whitespace is trimmed from `url` and `user_note`,\nand a blank `user_note` counts as absent (RG-09). Until extraction runs, the title of a\nlink is the host name of its URL (RG-26). `source` defaults to `share`.\n\nChecks, in order: `client_id` and `source` follow this contract (`400 about:blank`);\n`url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor\n`note` (`empty-capture`); `url` not an absolute `http` or `https` URL with a host\n(`invalid-url`). A capture refused by a check stores nothing.\n",
         "tags": [
           "items"
         ],
@@ -137,14 +137,14 @@
             }
           },
           "400": {
-            "description": "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`.",
+            "description": "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`).",
             "$ref": "#/components/responses/Problem"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
           "413": {
-            "description": "`image-too-large`.",
+            "description": "`image-too-large`, or `about:blank` for a JSON body over 1 MiB.",
             "$ref": "#/components/responses/Problem"
           },
           "415": {
@@ -1803,6 +1803,11 @@
             "type": "boolean",
             "default": false
           },
+          "source": {
+            "$ref": "#/components/schemas/CaptureSource",
+            "default": "share",
+            "description": "Where the capture comes from; `share` when absent."
+          },
           "client_id": {
             "$ref": "#/components/schemas/Ulid",
             "description": "Chosen by the device; a capture replayed with the same id returns the existing item (RG-08)."
@@ -1826,6 +1831,11 @@
           "is_private": {
             "type": "boolean",
             "default": false
+          },
+          "source": {
+            "$ref": "#/components/schemas/CaptureSource",
+            "default": "share",
+            "description": "Where the capture comes from; `share` when absent."
           },
           "client_id": {
             "$ref": "#/components/schemas/Ulid"

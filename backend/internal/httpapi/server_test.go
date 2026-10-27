@@ -9,43 +9,88 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ghislain95/hippo/backend/internal/auth"
+	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
 	"github.com/ghislain95/hippo/backend/internal/store"
 	"github.com/ghislain95/hippo/backend/internal/store/storetest"
 )
 
-// testToken is a fake token, valid only in these tests.
-const testToken = "test-token-0123456789abcdef012345"
+// testToken and otherToken are fake tokens of two users, valid only in these tests.
+const (
+	testToken  = "test-token-0123456789abcdef012345"
+	otherToken = "other-token-0123456789abcdef01234"
+)
 
 const notImplementedType = "urn:hippo:problem:not-implemented"
 
 type fixture struct {
-	server *httptest.Server
-	store  *store.Store
-	logs   *bytes.Buffer
+	server  *httptest.Server
+	store   *store.Store
+	dbPath  string
+	logs    *syncBuffer
+	userID  string // owner of testToken
+	otherID string // owner of otherToken
 }
 
-// newFixture starts the real handler on a real SQLite database (docs/dev/testing.md).
+// newFixture starts the real handler on a real SQLite database (docs/dev/testing.md), with two
+// users: testToken authenticates the owner, otherToken a second user (RG-90).
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	st := storetest.Open(t)
-	userID, err := st.EnsureSingleUser(context.Background(), auth.HashToken(testToken))
+	st, dbPath := storetest.OpenWithPath(t)
+	ctx := context.Background()
+	userID, err := st.EnsureSingleUser(ctx, auth.HashToken(testToken))
 	if err != nil {
 		t.Fatalf("EnsureSingleUser: %v", err)
 	}
-	logs := &bytes.Buffer{}
+	otherID, err := st.CreateUser(ctx, "other", auth.HashToken(otherToken))
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	logs := &syncBuffer{}
 	handler := httpapi.NewServer(httpapi.Options{
 		Store:   st,
-		Auth:    auth.NewSingleUser(userID, auth.HashToken(testToken)),
+		Auth:    twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
+		Capture: capture.NewService(st),
 		Logger:  slog.New(slog.NewJSONHandler(logs, nil)),
 		Version: "test",
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return fixture{server: server, store: st, logs: logs}
+	return fixture{server: server, store: st, dbPath: dbPath, logs: logs, userID: userID, otherID: otherID}
+}
+
+// twoUsers authenticates the tokens of two users with the real single-user authenticator.
+type twoUsers [2]auth.SingleUser
+
+func (a twoUsers) Authenticate(token string) (string, bool) {
+	for _, user := range a {
+		if userID, ok := user.Authenticate(token); ok {
+			return userID, true
+		}
+	}
+	return "", false
+}
+
+// syncBuffer is a log buffer that concurrent requests can write to.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func (f fixture) get(t *testing.T, path, token string) *http.Response {
@@ -228,6 +273,41 @@ func TestAPIConventions(t *testing.T) {
 			f := newFixture(t)
 			resp := f.do(t, http.MethodPost, "/api/items", testToken, "application/json", "{not json")
 			problem := assertProblem(t, resp, http.StatusBadRequest)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+
+		t.Run("Undeclared member in the body of an implemented operation", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.do(t, http.MethodPost, "/api/items", testToken, "application/json", `{"url": "https://example.com/a", "unknown": 1}`)
+			problem := assertProblem(t, resp, http.StatusBadRequest)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+	})
+
+	t.Run("JSON bodies are bounded", func(t *testing.T) {
+		t.Run("Oversized JSON body", func(t *testing.T) {
+			f := newFixture(t)
+			body := `{"url": "https://example.com/a", "user_note": "` + strings.Repeat("a", 2<<20) + `"}`
+			resp := f.do(t, http.MethodPost, "/api/items", testToken, "application/json", body)
+			problem := assertProblem(t, resp, http.StatusRequestEntityTooLarge)
+			if problem.Type != "about:blank" {
+				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+			if got := f.itemCount(t, f.userID); got != 0 {
+				t.Errorf("items = %d, want 0", got)
+			}
+		})
+
+		// Same rule on an operation without a strict body yet: the generated decoder hits it.
+		t.Run("oversized JSON body of another operation", func(t *testing.T) {
+			f := newFixture(t)
+			body := `{"annotations": "` + strings.Repeat("a", 2<<20) + `"}`
+			resp := f.do(t, http.MethodPatch, "/api/items/01JB8Z6Q4M1X2Y3Z4A5B6C7D8E", testToken, "application/json", body)
+			problem := assertProblem(t, resp, http.StatusRequestEntityTooLarge)
 			if problem.Type != "about:blank" {
 				t.Errorf("type = %q, want about:blank", problem.Type)
 			}

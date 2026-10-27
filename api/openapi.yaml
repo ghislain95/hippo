@@ -29,6 +29,10 @@ info:
       first.
     - An operation, request format or field declared here but not implemented yet answers
       `501` with the problem type `urn:hippo:problem:not-implemented`.
+    - The JSON body of an implemented operation is strict: a member this contract does not
+      declare, or data after the JSON value, answers `400` with `about:blank` before the
+      operation runs, so that a misspelt field is refused rather than silently ignored.
+    - A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`.
 
     ## Problem types
 
@@ -112,7 +116,14 @@ paths:
         at once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same
         normalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing
         item with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds
-        no `user_note` (RG-07).
+        no `user_note` (RG-07). Surrounding whitespace is trimmed from `url` and `user_note`,
+        and a blank `user_note` counts as absent (RG-09). Until extraction runs, the title of a
+        link is the host name of its URL (RG-26). `source` defaults to `share`.
+
+        Checks, in order: `client_id` and `source` follow this contract (`400 about:blank`);
+        `url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor
+        `note` (`empty-capture`); `url` not an absolute `http` or `https` URL with a host
+        (`invalid-url`). A capture refused by a check stores nothing.
       tags: [items]
       requestBody:
         required: true
@@ -140,12 +151,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Item"
         "400":
-          description: "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`."
+          description: "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`)."
           $ref: "#/components/responses/Problem"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "413":
-          description: "`image-too-large`."
+          description: "`image-too-large`, or `about:blank` for a JSON body over 1 MiB."
           $ref: "#/components/responses/Problem"
         "415":
           description: Neither `application/json` nor `multipart/form-data`.
@@ -1125,6 +1136,10 @@ components:
         is_private:
           type: boolean
           default: false
+        source:
+          $ref: "#/components/schemas/CaptureSource"
+          default: share
+          description: Where the capture comes from; `share` when absent.
         client_id:
           $ref: "#/components/schemas/Ulid"
           description: Chosen by the device; a capture replayed with the same id returns the existing item (RG-08).
@@ -1142,6 +1157,10 @@ components:
         is_private:
           type: boolean
           default: false
+        source:
+          $ref: "#/components/schemas/CaptureSource"
+          default: share
+          description: Where the capture comes from; `share` when absent.
         client_id:
           $ref: "#/components/schemas/Ulid"
 
