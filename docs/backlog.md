@@ -79,6 +79,8 @@ Objectif unique : **savoir si la chaîne iOS fonctionne avec un compte Apple gra
 
 ### E2-01 — Capturer un lien · M
 
+✅ Terminé le 27 octobre 2026 par le change `capture-link` ([archive](../openspec/changes/archive/2026-10-27-capture-link/proposal.md)). Ajoute RG-09 et RG-26, le champ `source` du corps de capture, les corps JSON stricts et la limite de 1 Mio.
+
 > En tant que Ghislain, je veux envoyer un lien au backend et recevoir une confirmation immédiate, afin de capturer sans attendre.
 
 RG-01, RG-02, RG-03, RG-07, RG-08 · ADR-0003, ADR-0004, ADR-0016, ADR-0022, ADR-0035
@@ -92,6 +94,7 @@ RG-01, RG-02, RG-03, RG-07, RG-08 · ADR-0003, ADR-0004, ADR-0016, ADR-0022, ADR
 ### E2-02 — Dédoublonner les liens · M
 
 RG-04, RG-05
+- Hérité d'E2-01 : remplir `normalized_url` des liens déjà capturés avant de créer l'index unique `(user_id, normalized_url)`, et distinguer cet index de celui de `client_id` dans le filet de rejeu du store ([design](../openspec/changes/archive/2026-10-27-capture-link/design.md#risks--trade-offs)).
 - Les URL sont normalisées selon RG-05 ; l'URL d'origine est conservée.
 - Capturer une URL déjà présente renvoie `200` avec l'élément existant ; aucune ligne n'est créée.
 - Si la nouvelle capture a une note, elle est ajoutée à la note existante, datée.
