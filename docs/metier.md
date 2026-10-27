@@ -116,6 +116,7 @@ stateDiagram-v2
 - **RG-06** — Une capture faite **hors ligne** depuis l'appli est mise en attente sur le téléphone et envoyée automatiquement au retour du réseau. Depuis l'extension de partage, une capture hors ligne échoue avec un message clair et la possibilité de copier le lien.
 - **RG-07** — **Capture ambiguë.** Une capture qui contient à la fois une URL et une note, ou une note et une note de capture, est refusée : la forme de l'élément doit être sans ambiguïté. *(Ajoutée le 25 octobre 2026.)*
 - **RG-08** — **Capture rejouée.** Une capture peut porter un identifiant choisi par l'appareil qui l'envoie. Si cet identifiant a déjà servi pour une capture du même utilisateur, aucun nouvel élément n'est créé : l'élément existant est renvoyé. Une capture mise en attente hors ligne (RG-06) et rejouée deux fois ne crée donc jamais de doublon, même pour une note ou une image. *(Ajoutée le 25 octobre 2026.)*
+- **RG-09** — **Nettoyage de capture.** Les espaces et retours à la ligne autour de l'URL et de la note de capture sont retirés avant toute vérification. Une note de capture vide après ce nettoyage est considérée comme absente. *(Ajoutée le 27 octobre 2026.)*
 
 ### Élément privé
 
@@ -133,6 +134,7 @@ stateDiagram-v2
 - **RG-23** — **Repli.** Si l'extraction échoue (paywall, page qui exige JavaScript, Instagram, délai dépassé de 15 s), on conserve ce qu'on peut obtenir (`og:title`, `og:description`, image d'aperçu) et la note de capture. L'élément part quand même en analyse : il n'existe pas d'échec d'extraction bloquant.
 - **RG-24** — Le **contenu extrait** est conservé jusqu'à environ 120 000 caractères. Au-delà, il est coupé et l'élément est marqué **contenu tronqué** ; la fiche l'indique.
 - **RG-25** — Le **temps de lecture** de l'original est calculé à l'extraction (environ 230 mots par minute pour un texte, la durée pour une vidéo), pas par l'IA.
+- **RG-26** — **Titre provisoire.** Tant que l'extraction n'a pas eu lieu, le titre d'un lien est le nom d'hôte de son URL (`example.com`). L'extraction le remplace par le titre de la page. *(Ajoutée le 27 octobre 2026.)*
 
 ### Analyse
 
