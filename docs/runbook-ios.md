@@ -77,9 +77,9 @@ Si SideStore signale un fichier d'appairage invalide (après une mise à jour d'
 ## 6. Installer l'appli avec SideStore
 
 1. Construire le `.ipa` non signé de l'appli sur le Mac. SideStore le signe avec le compte gratuit, extension de partage comprise.
-2. L'envoyer sur l'iPhone (AirDrop vers Fichiers).
+2. Le compresser en `.zip` et envoyer le `.zip` sur l'iPhone par AirDrop. Il arrive dans Fichiers › Téléchargements ; le toucher pour en extraire le `.ipa`. Un `.ipa` envoyé seul par AirDrop est ouvert par iOS comme une appli à installer et laisse une icône cassée (« intégrité non vérifiée ») : la supprimer.
 3. Activer LocalDevVPN (Tailscale se coupe : voir section 7), en Wi-Fi.
-4. SideStore › My Apps › **+** › choisir le `.ipa`.
+4. SideStore › My Apps › **+** › choisir le `.ipa`. À la question sur les extensions, choisir **Keep app extension (register app ID for each extension)** : l'extension de partage prend son propre App ID (2 App ID par installation).
 5. Réactiver Tailscale.
 
 ## 7. Rafraîchir chaque semaine
@@ -100,7 +100,7 @@ Une appli expirée ne fait rien perdre : les données sont sur le NAS.
 | Limite | Effet | Parade |
 | --- | --- | --- |
 | 3 applis actives, SideStore compris | il reste 2 places | ne garder que Hippo |
-| 10 identifiants d'appli (App ID) par période de 7 jours | chaque installation sous un **nouvel** identifiant en consomme ; l'extension de partage compte aussi *(à confirmer en E1)* | ne jamais changer les identifiants de bundle de l'appli et de l'extension |
+| 10 identifiants d'appli (App ID) par période de 7 jours | chaque installation sous un **nouvel** identifiant en consomme ; l'extension de partage compte aussi (confirmé en E1 : 2 App ID par installation) | ne jamais changer les identifiants de bundle de l'appli et de l'extension |
 | Expiration après 7 jours | l'appli ne s'ouvre plus | rafraîchir chaque semaine (section 7) |
 | Pas d'App Groups fiables, pas de push | — | extension autonome (ADR-0014), notifications locales (ADR-0013) |
 

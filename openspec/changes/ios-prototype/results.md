@@ -139,7 +139,12 @@ iPhone 15, iOS 27.0, build Release installé depuis Xcode avec la Personal Team.
 | D1 | `/ping` en 5G par Tailscale | ✅ 190 ms |
 | D2 | Appli loin du Mac | ✅ build Release, JavaScript embarqué |
 | E1 à E4 | Rendu natif | ✅ « l'effet est bon » ; Ghislain préfère un arrondi d'environ un tiers du curseur (environ 16 points au lieu de 24), qui « fait plus fiche » : repère pour les maquettes E5 |
-| F1 à F6 | SideStore | à faire |
+| F1 | Installer SideStore avec iloader | ✅ après un contournement : la connexion de SideStore échouait avec `-80045` (Apple refuse ces connexions depuis mi-octobre 2026) ; le changement de serveur Anisette de [SideStore#1675](https://github.com/SideStore/SideStore/issues/1675) a réglé le problème. Premier rafraîchissement par « 7 DAYS » réussi |
+| F2 | Installer le `.ipa` par SideStore, puis partager | ✅ 2026-10-27 : deux liens reçus depuis Safari. Piège : un `.ipa` envoyé par AirDrop est ouvert par iOS comme une appli à installer et donne une icône cassée (« intégrité non vérifiée ») ; l'envoyer dans un `.zip`, que Fichiers décompresse |
+| F3 | Identifiants de bundle après SideStore | à relever |
+| F4 | App ID consommés | ✅ SideStore signale lui-même que l'extension compte comme un App ID à part (limite de 10 par semaine) ; choix retenu : « Keep app extension (register app ID for each extension) ». Soit 2 App ID par installation d'Hippo |
+| F5 | Rafraîchissement avec la bascule Tailscale ↔ LocalDevVPN | à faire |
+| F6 | Rafraîchissement automatique en arrière-plan | à observer d'ici le 2026-11-03, date d'expiration de l'installation du 2026-10-27 |
 
 Constats pour la suite :
 
