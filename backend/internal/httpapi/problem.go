@@ -12,6 +12,7 @@ const (
 	problemTypeInvalidURL       = "urn:hippo:problem:invalid-url"
 	problemTypeEmptyCapture     = "urn:hippo:problem:empty-capture"
 	problemTypeAmbiguousCapture = "urn:hippo:problem:ambiguous-capture"
+	problemTypeEmptyNote        = "urn:hippo:problem:empty-note"
 )
 
 // newProblem returns a problem document for a typed response of the strict server.

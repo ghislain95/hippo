@@ -46,14 +46,18 @@ export interface paths {
          *     at once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same
          *     normalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing
          *     item with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds
-         *     no `user_note` (RG-07). Surrounding whitespace is trimmed from `url` and `user_note`,
-         *     and a blank `user_note` counts as absent (RG-09). Until extraction runs, the title of a
-         *     link is the host name of its URL (RG-26). `source` defaults to `share`.
+         *     no `user_note` (RG-07). Surrounding whitespace is trimmed from `url`, `note` and
+         *     `user_note`, inner whitespace kept, and a blank `user_note` counts as absent (RG-09).
+         *     Until extraction runs, the title of a link is the host name of its URL; until analysis
+         *     runs, the title of a note is its first non-empty line, cut after 80 characters (Unicode
+         *     code points) and followed by `…` when longer (RG-26). The text of a note is stored as
+         *     its `user_note`; a note is never a duplicate (RG-04). `source` defaults to `share`.
          *
          *     Checks, in order: `client_id` and `source` follow this contract (`400 about:blank`);
          *     `url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor
-         *     `note` (`empty-capture`); `url` not an absolute `http` or `https` URL with a host
-         *     (`invalid-url`). A capture refused by a check stores nothing.
+         *     `note` (`empty-capture`); `note` empty after trimming (`empty-note`); `url` not an
+         *     absolute `http` or `https` URL with a host (`invalid-url`). A capture refused by a check
+         *     stores nothing.
          */
         post: operations["createItem"];
         delete?: never;

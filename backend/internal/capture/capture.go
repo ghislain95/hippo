@@ -20,6 +20,7 @@ import (
 // Values of the item columns set by a capture (docs/glossary.md).
 const (
 	KindLink     = "link"
+	KindNote     = "note"
 	SourceShare  = "share"
 	SourceManual = "manual"
 	StatusQueued = "queued"
@@ -34,8 +35,8 @@ var (
 	ErrAmbiguousCapture = errors.New("capture holds a url and a note, or a note and a capture note")
 	// ErrInvalidURL: the url is not an absolute http or https URL with a host (RG-02).
 	ErrInvalidURL = errors.New("capture url is not an absolute http or https url with a host")
-	// ErrNoteNotImplemented: note captures arrive with story E2-03.
-	ErrNoteNotImplemented = errors.New("note capture is not implemented yet")
+	// ErrEmptyNote: the text of a note capture is empty after trimming (RG-02, RG-09).
+	ErrEmptyNote = errors.New("capture note text is empty")
 )
 
 // ValidationError is a field of the capture that breaks the contract (client_id, source).
@@ -86,6 +87,7 @@ func NewService(st Store, paris *time.Location) *Service {
 // Capture checks and stores a capture of userID. It returns the item an earlier capture with
 // the same client id resolved to (RG-08), or the item of the same user whose normalised URL
 // matches, after appending the capture note and tightening the privacy (RG-04, RG-05, RG-15).
+// A note capture stores its trimmed text as the item's note and is never a duplicate (RG-04).
 // userID comes from the authenticated request, never from the body (RG-90). Nothing is stored
 // when the capture is refused, and no extraction nor analysis runs here (RG-01).
 func (s *Service) Capture(ctx context.Context, userID string, req Request) (Result, error) {
@@ -97,36 +99,67 @@ func (s *Service) Capture(ctx context.Context, userID string, req Request) (Resu
 		return Result{}, err
 	}
 
-	// RG-09: trim before any check; a blank capture note is absent. The note of a note
-	// capture is left to E2-03.
+	// RG-09: trim before any check; a blank capture note is absent, a blank note text is
+	// refused below (RG-02).
 	rawURL := trim(req.URL)
+	note := trim(req.Note)
 	userNote := trim(req.UserNote)
 	if userNote != nil && *userNote == "" {
 		userNote = nil
 	}
 
-	// Ambiguity first, so that the answer names the real problem (RG-07).
-	if (rawURL != nil && req.Note != nil) || (req.Note != nil && userNote != nil) {
+	// Ambiguity first, so that the answer names the real problem (RG-07): a url or a note
+	// counts when present, even blank.
+	if (rawURL != nil && note != nil) || (note != nil && userNote != nil) {
 		return Result{}, ErrAmbiguousCapture
 	}
-	if rawURL == nil && req.Note == nil {
+	if rawURL == nil && note == nil {
 		return Result{}, ErrEmptyCapture
 	}
-	if rawURL == nil {
-		return Result{}, ErrNoteNotImplemented
+	if note != nil {
+		return s.captureNote(ctx, userID, *note, source, req)
 	}
-	title, ok := provisionalTitle(*rawURL)
+	return s.captureLink(ctx, userID, *rawURL, userNote, source, req)
+}
+
+// captureNote stores the trimmed text of a note capture as a new note item, or returns the item
+// of a replayed client id (RG-08). It has no normalised URL, so it is never a duplicate and the
+// note merge never runs (RG-04).
+func (s *Service) captureNote(ctx context.Context, userID, text, source string, req Request) (Result, error) {
+	if text == "" {
+		return Result{}, ErrEmptyNote
+	}
+	in := store.NewItem{
+		Kind:      KindNote,
+		Source:    source,
+		Status:    StatusQueued,
+		Title:     noteTitle(text),
+		UserNote:  &text,
+		ClientID:  req.ClientID,
+		IsPrivate: req.IsPrivate != nil && *req.IsPrivate,
+	}
+	item, created, err := s.store.CaptureItem(ctx, userID, in, nil)
+	if err != nil {
+		return Result{}, fmt.Errorf("capture note: %w", err)
+	}
+	return Result{Item: item, Created: created}, nil
+}
+
+// captureLink checks rawURL, the trimmed url of a link capture, and stores it, or returns the
+// item of a replayed client id or of the same normalised URL (RG-04, RG-05, RG-08).
+func (s *Service) captureLink(ctx context.Context, userID, rawURL string, userNote *string, source string, req Request) (Result, error) {
+	title, ok := provisionalTitle(rawURL)
 	if !ok {
 		return Result{}, ErrInvalidURL
 	}
 
-	normalized := Normalize(*rawURL)
+	normalized := Normalize(rawURL)
 	in := store.NewItem{
 		Kind:          KindLink,
 		Source:        source,
 		Status:        StatusQueued,
 		Title:         title,
-		URL:           rawURL,
+		URL:           &rawURL,
 		NormalizedURL: &normalized,
 		UserNote:      userNote,
 		ClientID:      req.ClientID,
@@ -202,4 +235,25 @@ func provisionalTitle(rawURL string) (string, bool) {
 		return "", false
 	}
 	return strings.ToLower(host), true
+}
+
+// maxNoteTitle is the length of the provisional title of a note, in Unicode code points (RG-26).
+const maxNoteTitle = 80
+
+// noteTitle is the title of a note until analysis (RG-26): its first line that is not blank,
+// trimmed (so a \r left by a \r\n line end goes too), cut after maxNoteTitle code points and
+// followed by "…" when longer. A grapheme of several code points may be cut; the analysis
+// replaces the title. text is the trimmed, non-empty text of the note, so a line is found.
+func noteTitle(text string) string {
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if runes := []rune(line); len(runes) > maxNoteTitle {
+			return string(runes[:maxNoteTitle]) + "…"
+		}
+		return line
+	}
+	return ""
 }

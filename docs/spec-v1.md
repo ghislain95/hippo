@@ -100,7 +100,7 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | reading_minutes | INTEGER, nullable | Temps de lecture de l'original, calculé à l'extraction (RG-25) |
 | type_id | INTEGER, nullable | Type de contenu ; ajouté par la story qui crée `content_types` |
 | category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par la story qui crée `categories` |
-| title | TEXT | Titre affiché (titre d'origine avant analyse) |
+| title | TEXT | Titre affiché : avant analyse, titre provisoire (nom d'hôte d'un lien, première ligne d'une note, [RG-26](metier.md#extraction)), puis titre d'origine ou écrit par l'IA |
 | fiche_json | TEXT (JSON), nullable | Fiche générée, au format du type |
 | search_text | TEXT | Fiche aplatie en texte, pour la recherche |
 | content_ok | INTEGER (0/1), nullable | 0 = contenu pauvre (RG-37) |

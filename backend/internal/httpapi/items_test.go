@@ -22,6 +22,7 @@ const (
 	testClientID    = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8E"
 	otherClientID   = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8F"
 	privateClientID = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8G"
+	noteClientID    = "01JB8Z6Q4M1X2Y3Z4A5B6C7D8H"
 	blankType       = "about:blank"
 )
 
@@ -112,7 +113,7 @@ func itemSchema(t *testing.T) *jsonschema.Schema {
 }
 
 // TestItemCapture follows openspec/specs/item-capture/spec.md and its delta in
-// openspec/changes/dedupe-links/specs/item-capture/spec.md: one subtest per scenario, named
+// openspec/changes/capture-note/specs/item-capture/spec.md: one subtest per scenario, named
 // after it, grouped by requirement.
 func TestItemCapture(t *testing.T) {
 	t.Run("A link capture creates a queued item", func(t *testing.T) {
@@ -266,7 +267,16 @@ func TestItemCapture(t *testing.T) {
 
 		t.Run("A blank capture note does not make a note ambiguous", func(t *testing.T) {
 			f := newFixture(t)
-			assertProblemType(t, f.capture(t, testToken, `{"note": "buy milk", "user_note": "   "}`), http.StatusNotImplemented, notImplementedType)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "buy milk", "user_note": "   "}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"kind": "note", "user_note": "buy milk"})
+		})
+
+		t.Run("Ambiguity wins over an empty note", func(t *testing.T) {
+			f := newFixture(t)
+			assertProblemType(t, f.capture(t, testToken, `{"note": "   ", "user_note": "today"}`), http.StatusBadRequest, ambiguous)
+			if got := f.itemCount(t, f.userID); got != 0 {
+				t.Errorf("items = %d, want 0", got)
+			}
 		})
 	})
 
@@ -656,12 +666,7 @@ func TestItemCapture(t *testing.T) {
 		})
 	})
 
-	t.Run("Note and image captures are not available yet", func(t *testing.T) {
-		t.Run("Note capture", func(t *testing.T) {
-			f := newFixture(t)
-			assertProblemType(t, f.capture(t, testToken, `{"note": "buy milk"}`), http.StatusNotImplemented, notImplementedType)
-		})
-
+	t.Run("Image captures are not available yet", func(t *testing.T) {
 		t.Run("Image capture", func(t *testing.T) {
 			f := newFixture(t)
 			resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+multipartBoundary, multipartImage)
@@ -672,6 +677,122 @@ func TestItemCapture(t *testing.T) {
 			f := newFixture(t)
 			resp := f.do(t, http.MethodPost, "/api/items", testToken, "text/plain", "https://example.com/a")
 			assertProblemType(t, resp, http.StatusUnsupportedMediaType, blankType)
+		})
+	})
+
+	t.Run("A note capture creates a queued note item", func(t *testing.T) {
+		t.Run("Capture a note", func(t *testing.T) {
+			f := newFixture(t)
+			resp := f.capture(t, testToken, `{"note": "Buy the 10 mm socket\nfor the bike", "is_private": true, "source": "manual"}`)
+			_, item := capturedItem(t, resp, http.StatusCreated)
+			assertMembers(t, item, map[string]any{
+				"kind": "note", "status": "queued", "read_status": "to_read", "url": nil,
+				"user_note": "Buy the 10 mm socket\nfor the bike", "is_private": true, "source": "manual",
+			})
+			if got := f.itemCount(t, f.userID); got != 1 {
+				t.Errorf("items = %d, want 1", got)
+			}
+		})
+
+		t.Run("Same text twice makes two notes", func(t *testing.T) {
+			f := newFixture(t)
+			_, first := capturedItem(t, f.capture(t, testToken, `{"note": "call the plumber"}`), http.StatusCreated)
+			_, second := capturedItem(t, f.capture(t, testToken, `{"note": "call the plumber"}`), http.StatusCreated)
+			if first["id"] == second["id"] {
+				t.Errorf("both captures returned %v, want two items", first["id"])
+			}
+			if got := f.itemCount(t, f.userID); got != 2 {
+				t.Errorf("items = %d, want 2", got)
+			}
+		})
+
+		t.Run("Replayed note capture", func(t *testing.T) {
+			f := newFixture(t)
+			body := `{"note": "call the plumber", "client_id": "` + noteClientID + `"}`
+			first, _ := capturedItem(t, f.capture(t, testToken, body), http.StatusCreated)
+			replay, _ := capturedItem(t, f.capture(t, testToken, body), http.StatusOK)
+			if !bytes.Equal(replay, first) {
+				t.Errorf("replay = %s\nwant the same item %s", replay, first)
+			}
+			if got := f.itemCount(t, f.userID); got != 1 {
+				t.Errorf("items = %d, want 1", got)
+			}
+		})
+
+		t.Run("The answer matches the contract for a note", func(t *testing.T) {
+			f := newFixture(t)
+			raw, item := capturedItem(t, f.capture(t, testToken, `{"note": "buy milk"}`), http.StatusCreated)
+			instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatalf("parse body: %v", err)
+			}
+			if err := itemSchema(t).Validate(instance); err != nil {
+				t.Errorf("201 body does not match the Item schema: %v\n%s", err, raw)
+			}
+			for _, name := range []string{"tag_ids", "assets", "user_edited"} {
+				assertEmptyArray(t, item, name)
+			}
+		})
+	})
+
+	t.Run("The text of a note is trimmed and must not be empty", func(t *testing.T) {
+		t.Run("Note with surrounding whitespace", func(t *testing.T) {
+			f := newFixture(t)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "\n  first line\n\n  second line  \n"}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"user_note": "first line\n\n  second line"})
+		})
+
+		t.Run("Blank note", func(t *testing.T) {
+			f := newFixture(t)
+			for _, body := range []string{`{"note": ""}`, `{"note": " \n\t "}`} {
+				t.Log(body)
+				assertProblemType(t, f.capture(t, testToken, body), http.StatusBadRequest, "urn:hippo:problem:empty-note")
+			}
+			if got := f.itemCount(t, f.userID); got != 0 {
+				t.Errorf("items = %d, want 0", got)
+			}
+		})
+	})
+
+	t.Run("The provisional title of a note is its first line", func(t *testing.T) {
+		t.Run("Short first line", func(t *testing.T) {
+			f := newFixture(t)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "Shopping\n- eggs\n- milk"}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"title": "Shopping"})
+		})
+
+		t.Run("Long first line", func(t *testing.T) {
+			f := newFixture(t)
+			line := strings.Repeat("abcdefghij", 10)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "`+line+`\nmore"}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"title": line[:80] + "…"})
+		})
+
+		t.Run("Exactly 80 characters", func(t *testing.T) {
+			f := newFixture(t)
+			line := strings.Repeat("é", 40) + strings.Repeat("a", 40) // 80 characters, 120 bytes
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "`+line+`"}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"title": line})
+		})
+
+		t.Run("Leading blank lines", func(t *testing.T) {
+			f := newFixture(t)
+			_, item := capturedItem(t, f.capture(t, testToken, `{"note": "   \n\n  Idea: a shelf  \nmore"}`), http.StatusCreated)
+			assertMembers(t, item, map[string]any{"title": "Idea: a shelf"})
+		})
+	})
+
+	t.Run("A note capture keeps its text out of the logs", func(t *testing.T) {
+		t.Run("Note text is not logged", func(t *testing.T) {
+			f := newFixture(t)
+			capturedItem(t, f.capture(t, testToken, `{"note": "private thought about the plumber"}`), http.StatusCreated)
+			logs := f.logs.String()
+			if strings.Contains(logs, "private thought") {
+				t.Errorf("logs contain the note text:\n%s", logs)
+			}
+			if !strings.Contains(logs, `"status":201`) {
+				t.Errorf("logs have no request line with status 201:\n%s", logs)
+			}
 		})
 	})
 

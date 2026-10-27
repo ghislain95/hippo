@@ -62,6 +62,11 @@ func link(url string) store.NewItem {
 	return store.NewItem{Kind: "link", Source: "share", Status: "queued", Title: "example.com", URL: ptr(url), NormalizedURL: ptr(url)}
 }
 
+// note is a note capture: no url, no normalised URL, the text as its note.
+func note(text string) store.NewItem {
+	return store.NewItem{Kind: "note", Source: "share", Status: "queued", Title: text, UserNote: ptr(text)}
+}
+
 // appendNote is a merge that appends note after a "|", unless the note already equals it. It
 // records the clock it received.
 func appendNote(note string, received *time.Time) store.NoteMerge {
@@ -355,6 +360,40 @@ func TestCaptureItem(t *testing.T) {
 		second, created := capture(t, st, user, in, keepNote)
 		if !created || second.ID == first.ID {
 			t.Errorf("second capture = %s (created %v), want a new item", second.ID, created)
+		}
+	})
+
+	t.Run("two identical notes make two items and a known client_id replays a note", func(t *testing.T) {
+		st := storetest.Open(t)
+		user := newUser(t, st, "owner")
+		in := note("call the plumber")
+		first, created := capture(t, st, user, in, nil)
+		if !created || first.Kind != "note" || first.URL != nil || first.UserNote == nil || *first.UserNote != "call the plumber" {
+			t.Fatalf("first note = %+v (created %v), want a new note item without url", first, created)
+		}
+		second, created := capture(t, st, user, in, nil)
+		if !created || second.ID == first.ID {
+			t.Errorf("second note = %s (created %v), want a new item", second.ID, created)
+		}
+
+		replayed, _ := capture(t, st, user, withClientID(note("call the plumber"), testClientID), nil)
+		sequence := store.SequenceForTest(t, st)
+		replay, created := capture(t, st, user, withClientID(note("something else"), testClientID), nil)
+		if created || replay.ID != replayed.ID || *replay.UserNote != "call the plumber" {
+			t.Errorf("replay = %+v (created %v), want the item %s unchanged", replay, created, replayed.ID)
+		}
+		if got := store.SequenceForTest(t, st); got != sequence {
+			t.Errorf("sequence after replay = %d, want %d", got, sequence)
+		}
+		if got := store.ItemCountForTest(t, st, user); got != 3 {
+			t.Errorf("items = %d, want 3", got)
+		}
+		for _, item := range []store.Item{first, second, replayed} {
+			nulls := store.NullColumnsForTest(t, st, user, item.ID)
+			if !nulls["url"] || !nulls["normalized_url"] || nulls["user_note"] {
+				t.Errorf("note %s: url, normalized_url, user_note NULL = %v, %v, %v; want true, true, false",
+					item.ID, nulls["url"], nulls["normalized_url"], nulls["user_note"])
+			}
 		}
 	})
 
