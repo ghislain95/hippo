@@ -41,4 +41,4 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0033](0033-strategie-de-test.md) | Stratégie de test : Go standard et jest-expo | Accepté | Projet |
 | [0034](0034-auto-merge-github.md) | Fusion différée par l'auto-merge de GitHub | Accepté | Projet |
 | [0035](0035-contrat-identifiants-et-synchronisation.md) | Contrat d'API : fiches générées, identifiants et synchronisation | Accepté | Backend, appli |
-| [0036](0036-extension-de-partage-swift.md) | Extension de partage native en Swift | Proposé | Appli |
+| [0036](0036-extension-de-partage-swift.md) | Extension de partage native en Swift | Accepté | Appli |

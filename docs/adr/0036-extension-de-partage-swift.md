@@ -1,6 +1,6 @@
 # ADR-0036 — Extension de partage native en Swift
 
-- **Statut** : Proposé
+- **Statut** : Accepté
 - **Date** : 2026-10-27
 
 ## Contexte

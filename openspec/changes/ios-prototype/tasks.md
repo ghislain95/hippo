@@ -45,6 +45,6 @@
 ## 7. Results and decision
 
 - [x] 7.1 Fill `results.md` with Ghislain's observations and measures, and fix the runbook wherever reality differed
-- [ ] 7.2 Record the decision of E1-04: the ADR-0014 status, plus a new ADR through `/new-adr` for the Swift extension if it holds (or for the alternative chosen). Update `docs/spec-v1.md` (libraries, risks) and `docs/backlog.md` (E1 done), and verify `make check-docs` passes
+- [x] 7.2 Record the decision of E1-04: the ADR-0014 status, plus a new ADR through `/new-adr` for the Swift extension if it holds (or for the alternative chosen). Update `docs/spec-v1.md` (libraries, risks) and `docs/backlog.md` (E1 done), and verify `make check-docs` passes
 - [ ] 7.3 Remove `spikes/` in its own commit, and verify `git ls-files spikes` is empty and `make check` passes
 - [ ] 7.4 Run the `code-reviewer` pass on the branch, then `/opsx:verify`, and verify no 🛑 nor 🔴 is left
