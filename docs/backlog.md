@@ -112,6 +112,8 @@ RG-01, RG-02, RG-04, RG-07, RG-08, RG-09, RG-26
 
 ### E2-04 — Capturer une image · M
 
+✅ Terminé le 27 octobre 2026 par le change `capture-image` ([archive](../openspec/changes/archive/2026-10-27-capture-image/proposal.md)). Étend RG-26 (titre provisoire d'une image) ; le retrait des métadonnées et la conversion HEIC avant analyse sont renvoyés à E3-01.
+
 RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 - `POST /api/items` en multipart avec une image JPEG, PNG, HEIC ou WebP de 20 Mo maximum crée un élément `image` et une ligne `assets`.
 - Une image rejouée avec un `client_id` déjà utilisé renvoie `200` avec l'élément existant, sans nouvelle image (RG-08).

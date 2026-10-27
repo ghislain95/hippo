@@ -30,7 +30,7 @@
 
 ## 7. Integration checks
 
-- [ ] 7.1 `make check` is green
+- [x] 7.1 `make check` is green
 - [x] 7.2 `code-reviewer` pass on the uncommitted diff, with no 🛑 nor 🔴 left open
 - [x] 7.3 `/opsx:verify` passes
-- [ ] 7.4 /dod-check passes (make check green, definition of done in docs/dev/workflow.md)
+- [x] 7.4 /dod-check passes (make check green, definition of done in docs/dev/workflow.md)
