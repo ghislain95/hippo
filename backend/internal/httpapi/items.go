@@ -16,8 +16,8 @@ import (
 // itemsPath is the instance of the problems of POST /api/items.
 const itemsPath = "/api/items"
 
-// CreateItem captures a link (POST /api/items, E2-01). A note capture and an image capture
-// answer 501 until E2-03 and E2-04.
+// CreateItem captures a link or a note (POST /api/items, E2-01 to E2-03). An image capture
+// answers 501 until E2-04.
 func (h *handlers) CreateItem(ctx context.Context, request CreateItemRequestObject) (CreateItemResponseObject, error) {
 	if request.MultipartBody != nil {
 		return nil, errNotImplemented // image capture, E2-04
@@ -62,10 +62,10 @@ func createItemError(err error) (CreateItemResponseObject, error) {
 	}
 	var validation *capture.ValidationError
 	switch {
-	case errors.Is(err, capture.ErrNoteNotImplemented):
-		return nil, errNotImplemented // note capture, E2-03
 	case errors.Is(err, capture.ErrEmptyCapture):
 		return badRequest(problemTypeEmptyCapture, "Empty capture", "La capture ne contient ni lien ni note."), nil
+	case errors.Is(err, capture.ErrEmptyNote):
+		return badRequest(problemTypeEmptyNote, "Empty note", "La note est vide."), nil
 	case errors.Is(err, capture.ErrAmbiguousCapture):
 		return badRequest(problemTypeAmbiguousCapture, "Ambiguous capture",
 			"La capture contient à la fois un lien et une note, ou une note et une note de capture."), nil

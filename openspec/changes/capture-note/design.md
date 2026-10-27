@@ -18,10 +18,10 @@ See `proposal.md`. Since E2-01 and E2-02, `capture.Service.Capture` validates th
 
 | Area | Change |
 | --- | --- |
-| `api/openapi.yaml` | None expected: `createItem` already declares `note` and `empty-note`. If its description still says a note answers `501`, it is corrected (documentation only), then `make generate`. |
-| `backend/internal/capture` | Trimming of `note` (RG-09), `empty-note` check (RG-02), `noteTitle` (RG-26), note path calling the store. |
-| `backend/internal/store` | `CaptureItem` accepts an item without normalised URL: the duplicate lookup is skipped when `normalized_url` is null (a note is never a duplicate, RG-04); replay and insert unchanged. |
-| `backend/internal/httpapi` | Mapping of the new domain error to `urn:hippo:problem:empty-note`; tests. |
+| `api/openapi.yaml` | Documentation only: `createItem` already declares `note` and `empty-note`, and its description did not say a note answers `501`, but it did not describe a note either. It now says that `note` is trimmed (RG-09), gives the title of a note (RG-26), that the text is stored as `user_note` and never a duplicate (RG-04), and lists `empty-note` in the order of the checks; then `make generate`. |
+| `backend/internal/capture` | Trimming of `note` (RG-09), `ErrEmptyNote` (RG-02), `noteTitle` (RG-26), note path (`captureNote`) calling the store with a nil merge; the link path moves to `captureLink`. `ErrNoteNotImplemented` is removed. |
+| `backend/internal/store` | No code change: `CaptureItem` already skipped the duplicate lookup when `normalized_url` is null (E2-02, for links captured before it), so a note is never a duplicate (RG-04); replay and insert unchanged. A store test covers the note case. |
+| `backend/internal/httpapi` | Mapping of `ErrEmptyNote` to `urn:hippo:problem:empty-note`; the `501` mapping of a note is removed; tests. |
 
 No migration. Prompt and fiche schemas unchanged.
 

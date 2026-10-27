@@ -2,6 +2,17 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Surrounding whitespace is removed from a capture
+Before any check, leading and trailing whitespace (spaces, tabs, line breaks) SHALL be removed from `url`, `note` and `user_note`, inner whitespace kept; a `user_note` that is empty after this SHALL be treated as absent. The stored `url` and note text are the trimmed ones (RG-09).
+
+#### Scenario: Link shared with a trailing line break
+- **WHEN** the user captures `{"url": "  https://example.com/a\n"}`
+- **THEN** the answer is `201` with `url` `https://example.com/a`
+
+#### Scenario: Blank capture note
+- **WHEN** the user captures `{"url": "https://example.com/a", "user_note": "  \n "}`
+- **THEN** the answer is `201` with `user_note` null
+
 ### Requirement: An ambiguous capture is refused
 A capture holding both a `url` and a `note`, or both a `note` and a `user_note`, SHALL be refused with `400` and type `urn:hippo:problem:ambiguous-capture`, before the URL is checked, and nothing SHALL be stored. A field counts as held when it is present and not null; a `user_note` blank after trimming does not count (RG-07, RG-09).
 
