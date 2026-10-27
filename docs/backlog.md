@@ -104,6 +104,8 @@ RG-04, RG-05
 
 ### E2-03 — Capturer une note · M
 
+✅ Terminé le 27 octobre 2026 par le change `capture-note` ([archive](../openspec/changes/archive/2026-10-27-capture-note/proposal.md)). Étend RG-09 (texte d'une note nettoyé) et RG-26 (titre provisoire d'une note).
+
 RG-01, RG-02, RG-04, RG-07, RG-08, RG-09, RG-26
 - `POST /api/items` avec `{note}` crée un élément de forme `note` ; le texte vide est refusé (`empty-note`).
 - Une note accompagnée d'une note de capture est refusée (`400 ambiguous-capture`, RG-07).
