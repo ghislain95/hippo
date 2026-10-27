@@ -141,4 +141,4 @@ Apple refuse ces connexions depuis mi-octobre 2026. Le contournement de [SideSto
 4. User Customizations › **Reset adi.pb**.
 5. Se reconnecter : c'est plus lent que d'habitude.
 
-Si ça ne suffit plus : réinstaller l'appli depuis Xcode chaque semaine (section 3), le repli d'ADR-0013.
+Si ça ne suffit plus : réinstaller l'appli depuis Xcode chaque semaine (section 3). C'est possible, mais demande le Mac : ADR-0013 l'avait écarté pour cette raison.

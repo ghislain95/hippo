@@ -4,7 +4,7 @@ Checklist des essais de Ghislain sur l'iPhone, puis les résultats observés. La
 
 ## Préparation sur le Mac
 
-1. Runbook §1 (Xcode) et §2 (Tailscale), jusqu'à `serve --bg 8787`. Noter l'adresse `https://<machine>.<tailnet>.ts.net`.
+1. Runbook §1 (Xcode) et §2 (Tailscale), en publiant le serveur d'écho : `serve --bg 8787` à la place de 8080. Noter l'adresse `https://<machine>.<tailnet>.ts.net`.
 2. Lancer le serveur d'écho, dans un terminal qui reste ouvert :
 
    ```bash

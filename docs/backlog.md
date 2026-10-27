@@ -47,7 +47,7 @@ Fait en séance sur le Mac, en reprenant les pratiques de geomni et wifisense. L
 
 Objectif unique : **savoir si la chaîne iOS fonctionne avec un compte Apple gratuit**. Le code est jeté ensuite.
 
-✅ Terminé le 27 octobre 2026 par le change `ios-prototype` : [résultats](../openspec/changes/archive/2026-10-27-ios-prototype/results.md), [runbook iOS](runbook-ios.md), [ADR-0036](adr/0036-extension-de-partage-swift.md). Les quatre stories ci-dessous sont faites.
+✅ Terminé le 27 octobre 2026 par le change `ios-prototype` : [résultats](../openspec/changes/archive/2026-10-27-ios-prototype/results.md), [runbook iOS](runbook-ios.md), [ADR-0036](adr/0036-extension-de-partage-swift.md). Les quatre stories ci-dessous sont faites. À suivre : le rafraîchissement automatique de SideStore n'était pas encore observé au 27 octobre 2026 (voir le [runbook iOS](runbook-ios.md#6-rafraîchir-chaque-semaine)).
 
 ### E1-01 — Partager une URL vers un serveur de test · M
 
@@ -299,14 +299,13 @@ RG-01 à RG-06, RG-10 · ADR-0014, ADR-0036
 - Extension en Swift et SwiftUI, cible générée par `@bacons/apple-targets` (nouvelle dépendance de l'appli, ADR-0036).
 - Points ouverts par le prototype E1, à trancher au cadrage :
   - conventions du code Swift (format, lint, tests) ;
-  - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02) ;
-  - arrondi des cartes : Ghislain préfère environ 16 points ;
-  - rafraîchissement automatique de SideStore, pas encore observé au 27 octobre 2026.
+  - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02).
 
 ### E5-03 — Bibliothèque · M
 
 RG-95, RG-96
 - Liste des éléments en cartes (titre, site, type, pastille de catégorie, badge « en attente » tant que non analysé).
+- Repère du prototype E1 pour les maquettes : effet verre apprécié, arrondi des cartes d'environ 16 points plutôt que 24.
 - Recherche et filtres combinables ; bandeau « Reprendre la lecture » pour le dernier élément en cours.
 
 ### E5-04 — Fiche et templates · M

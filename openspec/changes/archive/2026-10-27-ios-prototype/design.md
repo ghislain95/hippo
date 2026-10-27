@@ -81,7 +81,7 @@ Versions come from `npx expo install`, never pinned by hand.
 ### D6. Echo server
 
 - It listens on `127.0.0.1:8787` only, so it is reachable from the tailnet through `tailscale serve` and never from the LAN.
-- `GET /ping` returns `{"ok": true}`. `POST /api/items` checks the token, then accepts the JSON or multipart forms. It answers `201` with the form, the URL or note length, and the image size.
+- `GET /ping` returns `{"ok": true}`; every route, `/ping` included, requires the Bearer token. `POST /api/items` checks the token, then accepts the JSON or multipart forms. It answers `201` with the form, the URL or note length, and the image size.
 - It logs one line per request: method, route, form, sizes, status. It never logs the token, the note text or the URL query.
 - Received images are written to `echo/received/` (gitignored), so Ghislain can check that they are intact.
 - A Go test covers: bad token, link, note, image, and malformed body.
@@ -107,7 +107,7 @@ Ghislain notes them in the QA checklist, for a link and for a large screenshot.
 
 ### D9. Where results live
 
-- The results report is `openspec/changes/ios-prototype/results.md`, archived with the change. It is written in French, unlike the other artifacts: it is the checklist Ghislain fills on the iPhone and reads to steer (ADR-0028).
+- The results report is `results.md` in the change folder, archived with the change. It is written in French, unlike the other artifacts: it is the checklist Ghislain fills on the iPhone and reads to steer (ADR-0028).
 - The lasting procedure goes to `docs/runbook-ios.md`.
 - The decision goes to ADR-0014's status, or to a new ADR through `/new-adr` if the result departs from it. A Swift extension built with `@bacons/apple-targets` replaces a library that `docs/spec-v1.md` lists, which is worth its own ADR.
 - A commit `chore(ios-prototype): remove the prototype code` empties `spikes/` before the pull request.
