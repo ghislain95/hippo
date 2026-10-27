@@ -141,10 +141,10 @@ iPhone 15, iOS 27.0, build Release installé depuis Xcode avec la Personal Team.
 | E1 à E4 | Rendu natif | ✅ « l'effet est bon » ; Ghislain préfère un arrondi d'environ un tiers du curseur (environ 16 points au lieu de 24), qui « fait plus fiche » : repère pour les maquettes E5 |
 | F1 | Installer SideStore avec iloader | ✅ après un contournement : la connexion de SideStore échouait avec `-80045` (Apple refuse ces connexions depuis mi-octobre 2026) ; le changement de serveur Anisette de [SideStore#1675](https://github.com/SideStore/SideStore/issues/1675) a réglé le problème. Premier rafraîchissement par « 7 DAYS » réussi |
 | F2 | Installer le `.ipa` par SideStore, puis partager | ✅ 2026-10-27 : deux liens reçus depuis Safari. Piège : un `.ipa` envoyé par AirDrop est ouvert par iOS comme une appli à installer et donne une icône cassée (« intégrité non vérifiée ») ; l'envoyer dans un `.zip`, que Fichiers décompresse |
-| F3 | Identifiants de bundle après SideStore | à relever |
+| F3 | Identifiants de bundle après SideStore | ⚠️ SideStore ajoute l'identifiant d'équipe : `com.ghislain95.hippo.spike.<équipe>` et `com.ghislain95.hippo.spike.<équipe>.share`. Sans conséquence ici, puisque rien ne dépend de l'identifiant (pas d'App Group, ADR-0014) ; à garder en tête pour toute capacité liée à l'identifiant |
 | F4 | App ID consommés | ✅ SideStore signale lui-même que l'extension compte comme un App ID à part (limite de 10 par semaine) ; choix retenu : « Keep app extension (register app ID for each extension) ». Soit 2 App ID par installation d'Hippo |
-| F5 | Rafraîchissement avec la bascule Tailscale ↔ LocalDevVPN | à faire |
-| F6 | Rafraîchissement automatique en arrière-plan | à observer d'ici le 2026-11-03, date d'expiration de l'installation du 2026-10-27 |
+| F5 | Rafraîchissement avec la bascule Tailscale ↔ LocalDevVPN | ✅ LocalDevVPN, Refresh All, retour à Tailscale : le partage remarche |
+| F6 | Rafraîchissement automatique en arrière-plan | à observer : le 2026-10-27, l'installation de la veille affiche « expires in 6 days », sans rafraîchissement automatique pour l'instant ; elle expire le 2026-11-03 |
 
 Constats pour la suite :
 
@@ -155,4 +155,15 @@ Constats pour la suite :
 
 ## Décision (E1-04)
 
-*À remplir après les essais.*
+La chaîne iOS tient avec un compte Apple gratuit. Les ADR 0012 à 0014 ne sont pas remis en cause, et E5 peut avancer.
+
+- **ADR-0014 confirmé** : l'extension envoie elle-même la capture, sans App Group, avec l'URL et le token injectés au build.
+- **ADR-0013 confirmé** : installation et rafraîchissement par SideStore, avec la bascule de VPN. La connexion de SideStore reste fragile : l'erreur `-80045` a demandé un contournement.
+- **ADR-0036 (nouveau)** : l'extension est écrite en Swift et générée par `@bacons/apple-targets`, à la place de la librairie `expo-share-extension` prévue par la spec.
+- **ADR-0015 confirmé en pratique** : `tailscale serve` en HTTPS, sans exception ATS dans l'extension.
+- **Pas de compte Apple payant** : rien dans le prototype ne l'a demandé.
+
+Points ouverts pour E5-02 :
+- le format des images, toutes reçues en JPEG (RG-02) ;
+- les conventions du code Swift (format, lint, tests) ;
+- l'arrondi des cartes, plutôt 16 points que 24 d'après Ghislain.

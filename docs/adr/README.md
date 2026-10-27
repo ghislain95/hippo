@@ -18,8 +18,8 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0010](0010-categorie-unique-et-tags.md) | Une seule catégorie par élément, deux niveaux, des tags | Accepté | Métier |
 | [0011](0011-types-de-contenu-et-templates.md) | Types de contenu avec une fiche et un template dédiés | Accepté | Métier, appli |
 | [0012](0012-appli-expo.md) | Appli mobile en Expo (React Native) | Accepté | Appli |
-| [0013](0013-distribution-ios-gratuite.md) | Distribution iOS avec un compte Apple gratuit et SideStore | Accepté | Appli |
-| [0014](0014-extension-de-partage-autonome.md) | Extension de partage autonome | Accepté, à confirmer (E1) | Appli |
+| [0013](0013-distribution-ios-gratuite.md) | Distribution iOS avec un compte Apple gratuit et SideStore | Accepté, confirmé par E1 | Appli |
+| [0014](0014-extension-de-partage-autonome.md) | Extension de partage autonome | Accepté, confirmé par E1, en Swift (0036) | Appli |
 | [0015](0015-reseau-tailscale.md) | Accès réseau par Tailscale, en HTTPS, sans port ouvert | Accepté | Infra |
 | [0016](0016-authentification-token.md) | Authentification par token d'API statique | Accepté | Backend |
 | [0017](0017-contrat-openapi.md) | Contrat d'API OpenAPI comme source de vérité | Accepté, précisé par 0031 et 0035 | Backend, appli |
@@ -41,3 +41,4 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0033](0033-strategie-de-test.md) | Stratégie de test : Go standard et jest-expo | Accepté | Projet |
 | [0034](0034-auto-merge-github.md) | Fusion différée par l'auto-merge de GitHub | Accepté | Projet |
 | [0035](0035-contrat-identifiants-et-synchronisation.md) | Contrat d'API : fiches générées, identifiants et synchronisation | Accepté | Backend, appli |
+| [0036](0036-extension-de-partage-swift.md) | Extension de partage native en Swift | Proposé | Appli |

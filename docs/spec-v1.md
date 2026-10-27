@@ -226,7 +226,7 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 
 **Extension de partage** ([ADR-0014](adr/0014-extension-de-partage-autonome.md)) : URL, texte et images ; mini formulaire (aperçu, note, Privé, Enregistrer) ; envoie elle-même au NAS ; URL et token injectés au build ; message clair et « Copier le lien » si le serveur est injoignable.
 
-**Librairies prévues** : expo-router, TanStack Query, expo-sqlite, react-native-reanimated, expo-haptics, expo-share-extension, une librairie de coloration syntaxique. Repli pour l'extension : extension native Swift minimale.
+**Librairies prévues** : expo-router, TanStack Query, expo-sqlite, react-native-reanimated, expo-haptics, une librairie de coloration syntaxique. Extension de partage en Swift, générée par `@bacons/apple-targets` ([ADR-0036](adr/0036-extension-de-partage-swift.md)).
 
 ## Déploiement sur le NAS
 
@@ -289,8 +289,9 @@ Tarifs de Haiku 4.5 relevés en octobre 2026 : 1 $ / 5 $ par million de tokens (
 
 | Risque | Parade | Quand vérifier |
 | --- | --- | --- |
-| L'extension de partage refuse de se signer avec un compte Apple gratuit | Config injectée au build, sans App Groups ; repli sur une extension Swift minimale | Prototype (E1) |
-| SideStore et Tailscale sont deux VPN, iOS n'en garde qu'un actif | Couper Tailscale le temps du rafraîchissement hebdomadaire | Prototype (E1) |
+| L'extension de partage refuse de se signer avec un compte Apple gratuit | Config injectée au build, sans App Groups ; extension Swift ([ADR-0036](adr/0036-extension-de-partage-swift.md)) | ✅ Écarté par le prototype E1 (2026-10-27) |
+| SideStore et Tailscale sont deux VPN, iOS n'en garde qu'un actif | Couper Tailscale le temps du rafraîchissement hebdomadaire ([runbook](runbook-ios.md)) | ✅ Écarté par le prototype E1 (2026-10-27) |
+| Apple casse la connexion de SideStore (erreur `-80045` en octobre 2026) | Contournement par le serveur Anisette ([runbook](runbook-ios.md)) ; à défaut, réinstallation depuis Xcode chaque semaine (ADR-0013) | À chaque rafraîchissement |
 | SideStore demande un premier appairage depuis un ordinateur | Fait une seule fois sur le Mac | Installation |
 | Une fiche technique perd une information importante | Jeu de test avant chaque changement de prompt ; contenu original conservé, réanalyse possible | Avant la mise en service, puis à chaque changement |
 | Contenus très longs coupés | Élément marqué « tronqué » ; découpage en sections en V1.5 | Premiers usages |

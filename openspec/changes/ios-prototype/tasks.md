@@ -31,7 +31,7 @@
 - [x] 5.2 Build and run on the simulator (`npx expo run:ios`), share a page from Safari to the extension with the echo server on `http://127.0.0.1:8787`, and verify the echo server logs the link, a note and an image
 - [x] 5.3 Check the glass screen and the network tab on the simulator, and verify with screenshots
 - [x] 5.4 Write `npm run ipa` (unsigned Release archive packed as `Payload/*.app`), and verify the `.ipa` holds the app and its `PlugIns/*.appex`
-- [ ] 5.5 Write `docs/runbook-ios.md` (in French): Tailscale account and HTTPS certificates, `tailscale serve`, Apple ID in Xcode and developer mode, install through Xcode, SideStore pairing, install and weekly refresh with the Tailscale switch, bundle identifiers to keep. Verify every command in it against what was run, and verify `make check-docs` passes
+- [x] 5.5 Write `docs/runbook-ios.md` (in French): Tailscale account and HTTPS certificates, `tailscale serve`, Apple ID in Xcode and developer mode, install through Xcode, SideStore pairing, install and weekly refresh with the Tailscale switch, bundle identifiers to keep. Verify every command in it against what was run, and verify `make check-docs` passes
 - [x] 5.6 Write the QA checklist in `openspec/changes/ios-prototype/results.md` (each step, expected result, a blank for the observed result and the measures), and give it to Ghislain
 
 ## 6. On-device QA (Ghislain)
@@ -39,12 +39,12 @@
 - [x] 6.1 Signing and install through Xcode with the free account: the app and the extension run on the iPhone
 - [x] 6.2 Sharing from Safari and Instagram (link with a note, text, screenshot) reaches the echo server through `tailscale serve` in HTTPS, on Wi-Fi then on 4G
 - [x] 6.3 Offline sharing shows the clear error and copies the link (RG-06)
-- [ ] 6.4 Install through SideStore, then a refresh from the iPhone with the Tailscale switch
+- [x] 6.4 Install through SideStore, then a refresh from the iPhone with the Tailscale switch
 - [x] 6.5 Glass screen judged on the iPhone; measures noted for a link and a large screenshot
 
 ## 7. Results and decision
 
-- [ ] 7.1 Fill `results.md` with Ghislain's observations and measures, and fix the runbook wherever reality differed
+- [x] 7.1 Fill `results.md` with Ghislain's observations and measures, and fix the runbook wherever reality differed
 - [ ] 7.2 Record the decision of E1-04: the ADR-0014 status, plus a new ADR through `/new-adr` for the Swift extension if it holds (or for the alternative chosen). Update `docs/spec-v1.md` (libraries, risks) and `docs/backlog.md` (E1 done), and verify `make check-docs` passes
 - [ ] 7.3 Remove `spikes/` in its own commit, and verify `git ls-files spikes` is empty and `make check` passes
 - [ ] 7.4 Run the `code-reviewer` pass on the branch, then `/opsx:verify`, and verify no 🛑 nor 🔴 is left
