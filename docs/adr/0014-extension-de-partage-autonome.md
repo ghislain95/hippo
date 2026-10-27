@@ -1,6 +1,6 @@
 # ADR-0014 — Extension de partage autonome
 
-- **Statut** : Accepté, à confirmer par le prototype (epic E1)
+- **Statut** : Accepté, confirmé par le prototype E1 le 2026-10-27 — précisé par [ADR-0036](0036-extension-de-partage-swift.md)
 - **Date** : 2026-10-10
 
 ## Contexte

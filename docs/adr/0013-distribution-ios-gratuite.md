@@ -1,6 +1,6 @@
 # ADR-0013 — Distribution iOS avec un compte Apple gratuit et SideStore
 
-- **Statut** : Accepté
+- **Statut** : Accepté, confirmé par le prototype E1 le 2026-10-27 (connexion de SideStore à surveiller : voir le [runbook iOS](../runbook-ios.md))
 - **Date** : 2026-10-10
 
 ## Contexte
