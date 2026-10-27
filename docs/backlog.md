@@ -154,6 +154,10 @@ RG-12, RG-30, RG-31, RG-32 · ADR-0005, ADR-0006
 - Chaque requête suit [`prompt/README.md`](prompt/README.md) : partie fixe, référentiel, outil forcé, plafond de sortie, cache.
 - **Test obligatoire** : un élément privé n'apparaît dans aucune requête, quel que soit son statut.
 - Les éléments envoyés passent à `submitted` ; le batch est enregistré dans `batches`.
+- À trancher au cadrage avec Ghislain (hérité d'E2-02 et d'E2-04, 27 octobre 2026) :
+  - retirer les métadonnées (EXIF, position GPS) de la copie d'une image envoyée à l'IA ; le fichier sur le NAS reste intact ;
+  - convertir un HEIC avant l'envoi, l'API ne lisant que JPEG, PNG, GIF et WebP (l'appli et l'extension envoient du JPEG) ;
+  - que faire du résultat d'un élément rendu privé pendant qu'il est `submitted` (RG-15) ; la sélection revérifie `is_private` dans la transaction d'envoi.
 
 ### E3-02 — Suivre le batch et appliquer les résultats · M
 
