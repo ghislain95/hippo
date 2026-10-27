@@ -39,6 +39,12 @@ linters:
               desc: the store knows nothing of HTTP
             - pkg: github.com/ghislain95/hippo/backend/internal/httpapi
               desc: the store sits below the transport
+        domains-know-no-transport:
+          files:
+            - "**/internal/capture/**"
+          deny:
+            - pkg: net/http
+              desc: a domain knows nothing of HTTP; httpapi translates its errors
         generated-api-only-in-httpapi:
           files:
             - "$all"

@@ -71,11 +71,6 @@ func (notImplemented) ListItems(context.Context, ListItemsRequestObject) (ListIt
 	return nil, errNotImplemented
 }
 
-// CreateItem is not implemented yet.
-func (notImplemented) CreateItem(context.Context, CreateItemRequestObject) (CreateItemResponseObject, error) {
-	return nil, errNotImplemented
-}
-
 // DeleteItem is not implemented yet.
 func (notImplemented) DeleteItem(context.Context, DeleteItemRequestObject) (DeleteItemResponseObject, error) {
 	return nil, errNotImplemented

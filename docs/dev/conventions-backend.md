@@ -42,6 +42,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - `oapi-codegen` génère l'interface stricte du serveur (`StrictServerInterface`) et le routage `net/http` ([ADR-0031](../adr/0031-generation-depuis-les-contrats.md)). Le handler implémente cette interface : une route oubliée ou un type faux ne compile pas.
 - JSON en `snake_case`, dates ISO 8601 UTC (`time.Time` en UTC). Identifiants ([ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)) : ULID (`TEXT`) pour les éléments, les images et les batchs ; entiers pour les catégories et les tags ; clé (`key`) pour les types de contenu.
 - **Nullabilité** : un scalaire nullable s'écrit `type: [T, "null"]` sur la propriété, une référence nullable `anyOf: [{$ref: …}, {type: "null"}]` ; la fiche est facultative plutôt que nullable. Jamais de schéma nullable nommé (oapi-codegen le rend non nullable), jamais `type: [object, "null"]` avec un `oneOf`. Dans un corps `PATCH`, un champ absent ne change rien et un `null` explicite efface (types `nullable.Nullable[T]`).
+- **Corps JSON strict** : le décodeur généré (`encoding/json` par défaut) ignore les membres inconnus et les données après la valeur, et ne vérifie ni `pattern` ni `enum`. Chaque opération implémentée inscrit donc son corps JSON dans le registre du middleware de corps strict de `httpapi` : membre non déclaré ou données après la valeur → `400 about:blank`. Ce middleware borne aussi tout corps `application/json` à 1 Mio (`413 about:blank`). Les `pattern` et `enum` (`Ulid`, `CaptureSource`…) sont vérifiés dans le domaine.
 - Les erreurs métier ont un type stable du catalogue de `api/openapi.yaml` ; une opération déclarée mais pas encore implémentée répond `501 not-implemented` (stub embarqué par `handlers`, remplacé par la story qui l'implémente).
 - Pagination par curseur : paramètres `cursor` et `limit`, réponse `{ "items": [...], "next_cursor": "…" | null }`. Le curseur est opaque pour le client.
 
@@ -68,6 +69,8 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Requêtes paramétrées (`?`) uniquement ; aucune concaténation de valeur.
 - `defer rows.Close()` et vérification de `rows.Err()`.
 - Les tables synchronisées (éléments, catégories, types de contenu, tags) portent `updated_at` et la séquence de modification `change_seq`, incrémentée à chaque écriture, qui ordonne la synchronisation ; les suppressions laissent une marque `deleted_at`, sans contenu, pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md), [ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)).
+- **La séquence n'avance que par la fonction dédiée du store** (`internal/store/sequence.go`), appelée dans la transaction de l'écriture : elle incrémente l'unique ligne de `sync_sequence` et renvoie la nouvelle valeur. Toute écriture d'une ligne synchronisée passe par elle ; pas de trigger, pas de `MAX(change_seq) + 1`.
+- `change_seq` est `NOT NULL` **sans défaut** : une insertion qui oublie la séquence échoue au lieu d'écrire une valeur fausse.
 
 ### Migrations
 

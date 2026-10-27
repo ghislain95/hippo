@@ -25,7 +25,7 @@ The generated server decodes JSON bodies with `encoding/json` defaults (`oapi-co
 | Area | Change |
 | --- | --- |
 | `api/openapi.yaml` | `source` (optional `$ref: CaptureSource`, default `share`) on `CaptureRequest` and on `CaptureImageRequest` (so E2-04 does not reopen the contract); `createItem` 413 also covers a JSON body over 1 MiB (`about:blank`); the introduction states the strict-body and 1 MiB rules. No new operation, no new problem type. |
-| `backend/internal/capture` (new) | Domain of the capture: cleaning (RG-09), validation (RG-02, RG-07, `client_id`, `source`), provisional title (RG-26), call to the store. No `net/http`, no generated code (`docs/dev/conventions-backend.md`, "Dépendances entre couches"). |
+| `backend/internal/capture` (new) | Domain of the capture: cleaning (RG-09), validation (RG-02, RG-07, `client_id`, `source`), provisional title (RG-26), call to the store. No `net/http`, no generated code (`docs/dev/conventions-backend.md`, "Dépendances entre couches"); a new `depguard` rule of `backend/.golangci.yml` (`domains-know-no-transport`) refuses `net/http` there, the existing one already refuses `httpapi`. |
 | `backend/internal/store` | `00002_items.sql`; `items.go` (insert-or-replay, read by id); `sequence.go` (the only writer of `sync_sequence`); `CreateUser`, shared with `EnsureSingleUser`. |
 | `backend/internal/httpapi` | `CreateItem` handler; strict JSON body and size-limit middleware; mapping of `capture` errors to problems and of a stored item to `Item`; `CreateItem` stub removed. |
 | `backend/cmd/hippo` | Wiring of the capture service into `httpapi.Options`. |
@@ -49,7 +49,7 @@ A migration is required; it is a new file and `00001_init.sql` is untouched (`do
 
 ### Insert or replay in one transaction (RG-08)
 
-`store` exposes one function that, in a single transaction: when a `client_id` is given, reads the item of this user with this `client_id` and returns it with `created = false`; otherwise advances the sequence, inserts the row, reads it back and returns it with `created = true`. Writers being serialised, two concurrent replays cannot both insert; the unique index is the backstop, and a unique violation on it is answered by reading the existing row (replay), never by a `500`. The answer is always built from the row read back, so a `201` and a later `200` serialise the same dates (millisecond `timeLayout`).
+`store` exposes one function that, in a single transaction: when a `client_id` is given, reads the item of this user with this `client_id` and returns it with `created = false`; otherwise advances the sequence, inserts the row, reads it back and returns it with `created = true`. Writers being serialised, two concurrent replays cannot both insert; the unique index is the backstop, and a unique violation on it is answered by reading the existing row (replay), never by a `500`. The backstop is reached in a store test through an unexported variant that skips the lookup (`captureItem(…, replayFirst bool)`), since serialised writers never reach it otherwise. The answer is always built from the row read back, so a `201` and a later `200` serialise the same dates (millisecond `timeLayout`).
 
 The replay runs before any future deduplication by URL (E2-02), so that a replay never appends a note (RG-08 over RG-04).
 
@@ -66,7 +66,7 @@ An oversized body answers `413 about:blank`, whether the middleware or the gener
 
 1. `401` (`requireAuth`), then `413` / `400 about:blank` (middleware and generated decoder).
 2. Neither JSON nor multipart (both bodies nil) → `415`; multipart → `501` (E2-04).
-3. `client_id` present and not a ULID (`oklog/ulid/v2` `ParseStrict`, already a dependency; `""` included) → `400 about:blank`; `source` present and not `share`/`manual` → `400 about:blank`.
+3. `client_id` present and not a ULID in its canonical form (`oklog/ulid/v2` `ParseStrict`, already a dependency, and the parsed id printed back equal to the value: `ParseStrict` accepts lower case, the contract pattern does not; `""` included) → `400 about:blank`; `source` present and not `share`/`manual` → `400 about:blank`.
 4. Trim `url` and `user_note` (`strings.TrimSpace`); a blank `user_note` becomes absent (RG-09). `note` is not trimmed here (E2-03).
 5. `url` and `note` present, or `note` and `user_note` present → `ambiguous-capture` (RG-07).
 6. Neither `url` nor `note` → `empty-capture` (RG-02). A JSON `null` body decodes to an empty request and lands here.
@@ -94,9 +94,11 @@ Ambiguity comes before the URL check so that the answer names the real problem. 
 
 `items.user_id` references `users(id)`, so the two-user test needs a real second user. `store.CreateUser` inserts one (used by `EnsureSingleUser` and by tests); a test authenticator maps two test tokens to two user ids. No production path creates a second user.
 
+"Nothing is stored" is checked by `storetest.ItemCount`, which counts a user's items through a read-only connection to the test database (`storetest.OpenWithPath`): no API reads items yet, and the store gains no production method for tests.
+
 ### Clock and identifiers
 
-Dates and the ULID timestamp both come from the store's injected clock (`Store.now`): `ulid.MustNew(ulid.Timestamp(now), entropy)` with a monotonic entropy source guarded by a mutex (`oklog/ulid/v2@v2.1.2`, `ulid.go` `Monotonic`).
+Dates and the ULID timestamp both come from the store's injected clock (`Store.now`): `ulid.New(ulid.Timestamp(now), entropy)` (its error returned, no panic) with a monotonic entropy source guarded by a mutex (`oklog/ulid/v2@v2.1.2`, `ulid.go` `Monotonic`).
 
 ### Response time
 
@@ -108,6 +110,9 @@ E2-01 asks for an answer in under 200 ms. The capture runs no network call and o
 - [Case-insensitive member names and duplicate keys stay accepted] → no field of the contract differs from another by case only.
 - [`normalized_url` empty for links captured before E2-02] → no real data before the app ships (E5); E2-02 fills it before creating its index.
 - [Columns added later by `ALTER TABLE`] → their order differs from `docs/spec-v1.md`; nothing depends on it.
+- [The 1 MiB limit and the strict decoding key on `Content-Type: application/json`, while the generated decoder of a JSON-only operation decodes any body] → harmless today (`POST /api/items` answers `415` without a JSON or multipart type); the first story that implements a JSON-only operation applies both to every non-multipart body and adds a "body without Content-Type" scenario.
+- [The replay safety net treats any unique violation as a `client_id` replay] → only one unique index exists today; E2-02, which adds the `(user_id, normalized_url)` index, must tell the two apart, or a duplicate link carrying a new `client_id` would answer `500`.
+- [`httpapi` reads `store.Item` through `capture.Result`] → accepted for now: the domain adds no behaviour to the item yet; the layer diagram of `docs/dev/conventions-backend.md` gets the read-only arrow if a later domain keeps the pattern.
 
 ## Migration Plan
 

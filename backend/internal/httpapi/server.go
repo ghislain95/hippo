@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/ghislain95/hippo/backend/internal/capture"
 )
 
 // Pinger reports whether the database answers.
@@ -21,10 +23,16 @@ type Authenticator interface {
 	Authenticate(token string) (userID string, ok bool)
 }
 
+// Capturer captures items (internal/capture).
+type Capturer interface {
+	Capture(ctx context.Context, userID string, req capture.Request) (capture.Result, error)
+}
+
 // Options are the dependencies of the HTTP server.
 type Options struct {
 	Store   Pinger
 	Auth    Authenticator
+	Capture Capturer
 	Logger  *slog.Logger
 	Version string
 }
@@ -32,11 +40,10 @@ type Options struct {
 // NewServer returns the HTTP handler of the whole API: /healthz is public, everything under
 // /api/ requires a valid bearer token.
 func NewServer(opts Options) http.Handler {
-	handlers := &handlers{store: opts.Store, version: opts.Version}
+	handlers := &handlers{store: opts.Store, capture: opts.Capture, version: opts.Version}
 	strict := NewStrictHandlerWithOptions(handlers, nil, StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
-			writeProblem(w, r, http.StatusBadRequest, problemTypeBlank, "Bad request", "La requête est invalide.")
-		},
+		// A body the generated decoder cannot read: 413 over the JSON limit, 400 otherwise.
+		RequestErrorHandlerFunc: writeBodyError,
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, errNotImplemented) {
 				opts.Logger.DebugContext(r.Context(), "operation not implemented", slog.String("route", routeOf(r.Context())))
@@ -50,7 +57,8 @@ func NewServer(opts Options) http.Handler {
 
 	mux := http.NewServeMux()
 	HandlerWithOptions(strict, StdHTTPServerOptions{
-		BaseRouter: mux,
+		BaseRouter:  mux,
+		Middlewares: []MiddlewareFunc{strictJSONBodies},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
 			writeProblem(w, r, http.StatusBadRequest, problemTypeBlank, "Bad request", "La requête est invalide.")
 		},
@@ -73,6 +81,7 @@ func NewServer(opts Options) http.Handler {
 type handlers struct {
 	notImplemented
 	store   Pinger
+	capture Capturer
 	version string
 }
 

@@ -46,7 +46,14 @@ export interface paths {
          *     at once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same
          *     normalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing
          *     item with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds
-         *     no `user_note` (RG-07).
+         *     no `user_note` (RG-07). Surrounding whitespace is trimmed from `url` and `user_note`,
+         *     and a blank `user_note` counts as absent (RG-09). Until extraction runs, the title of a
+         *     link is the host name of its URL (RG-26). `source` defaults to `share`.
+         *
+         *     Checks, in order: `client_id` and `source` follow this contract (`400 about:blank`);
+         *     `url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor
+         *     `note` (`empty-capture`); `url` not an absolute `http` or `https` URL with a host
+         *     (`invalid-url`). A capture refused by a check stores nothing.
          */
         post: operations["createItem"];
         delete?: never;
@@ -675,6 +682,11 @@ export interface components {
             user_note?: string;
             /** @default false */
             is_private: boolean;
+            /**
+             * @description Where the capture comes from; `share` when absent.
+             * @default share
+             */
+            source: components["schemas"]["CaptureSource"];
             /** @description Chosen by the device; a capture replayed with the same id returns the existing item (RG-08). */
             client_id?: components["schemas"]["Ulid"];
         };
@@ -685,6 +697,11 @@ export interface components {
             user_note?: string;
             /** @default false */
             is_private: boolean;
+            /**
+             * @description Where the capture comes from; `share` when absent.
+             * @default share
+             */
+            source: components["schemas"]["CaptureSource"];
             client_id?: components["schemas"]["Ulid"];
         };
         /** @description Fields to change; absent fields stay as they are, `null` clears a nullable field. */
@@ -1222,10 +1239,10 @@ export interface operations {
                     "application/json": components["schemas"]["Item"];
                 };
             };
-            /** @description Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`. */
+            /** @description Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`). */
             400: components["responses"]["Problem"];
             401: components["responses"]["Unauthorized"];
-            /** @description `image-too-large`. */
+            /** @description `image-too-large`, or `about:blank` for a JSON body over 1 MiB. */
             413: components["responses"]["Problem"];
             /** @description Neither `application/json` nor `multipart/form-data`. */
             415: components["responses"]["Problem"];
