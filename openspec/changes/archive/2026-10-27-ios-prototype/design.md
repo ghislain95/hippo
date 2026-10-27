@@ -107,7 +107,7 @@ Ghislain notes them in the QA checklist, for a link and for a large screenshot.
 
 ### D9. Where results live
 
-- The results report is `openspec/changes/ios-prototype/results.md`, archived with the change.
+- The results report is `openspec/changes/ios-prototype/results.md`, archived with the change. It is written in French, unlike the other artifacts: it is the checklist Ghislain fills on the iPhone and reads to steer (ADR-0028).
 - The lasting procedure goes to `docs/runbook-ios.md`.
 - The decision goes to ADR-0014's status, or to a new ADR through `/new-adr` if the result departs from it. A Swift extension built with `@bacons/apple-targets` replaces a library that `docs/spec-v1.md` lists, which is worth its own ADR.
 - A commit `chore(ios-prototype): remove the prototype code` empties `spikes/` before the pull request.

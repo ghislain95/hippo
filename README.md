@@ -126,7 +126,7 @@ cd app && HIPPO_API_URL=http://127.0.0.1:8080 HIPPO_API_TOKEN=<API_TOKEN> npx ex
 make app                                      # serveur de développement Expo
 ```
 
-L'installation sur l'iPhone avec SideStore et le compte Apple gratuit est décrite par l'epic E1 (`docs/runbook-ios.md`, à écrire).
+L'installation sur l'iPhone avec SideStore et le compte Apple gratuit est décrite dans le [runbook iOS](docs/runbook-ios.md).
 
 ### Toutes les commandes
 

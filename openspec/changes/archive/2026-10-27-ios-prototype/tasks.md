@@ -40,11 +40,11 @@
 - [x] 6.2 Sharing from Safari and Instagram (link with a note, text, screenshot) reaches the echo server through `tailscale serve` in HTTPS, on Wi-Fi then on 4G
 - [x] 6.3 Offline sharing shows the clear error and copies the link (RG-06)
 - [x] 6.4 Install through SideStore, then a refresh from the iPhone with the Tailscale switch
-- [x] 6.5 Glass screen judged on the iPhone; measures noted for a link and a large screenshot
+- [x] 6.5 Glass screen judged on the iPhone; measures noted for a link and a large photo
 
 ## 7. Results and decision
 
 - [x] 7.1 Fill `results.md` with Ghislain's observations and measures, and fix the runbook wherever reality differed
 - [x] 7.2 Record the decision of E1-04: the ADR-0014 status, plus a new ADR through `/new-adr` for the Swift extension if it holds (or for the alternative chosen). Update `docs/spec-v1.md` (libraries, risks) and `docs/backlog.md` (E1 done), and verify `make check-docs` passes
-- [ ] 7.3 Remove `spikes/` in its own commit, and verify `git ls-files spikes` is empty and `make check` passes
+- [x] 7.3 Remove `spikes/` in its own commit, and verify `git ls-files spikes` is empty and `make check` passes
 - [ ] 7.4 Run the `code-reviewer` pass on the branch, then `/opsx:verify`, and verify no 🛑 nor 🔴 is left

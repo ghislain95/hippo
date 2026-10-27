@@ -1,6 +1,6 @@
 # Prototype iOS E1 — QA et résultats
 
-Checklist des essais de Ghislain sur l'iPhone, puis les résultats observés. La procédure durable est dans [`docs/runbook-ios.md`](../../../docs/runbook-ios.md). Les commandes ci-dessous portent sur le code jetable de `spikes/e1-ios/`, retiré avant la PR (il reste dans l'historique de la branche `docs/ios-prototype`).
+Checklist des essais de Ghislain sur l'iPhone, puis les résultats observés. La procédure durable est dans [`docs/runbook-ios.md`](../../../../docs/runbook-ios.md). Les commandes ci-dessous portent sur le code jetable de `spikes/e1-ios/`, ajouté par le commit 372efc3 et retiré par 672cc3e : il reste dans l'historique de `main`.
 
 ## Préparation sur le Mac
 
@@ -17,7 +17,7 @@ Checklist des essais de Ghislain sur l'iPhone, puis les résultats observés. La
    cd spikes/e1-ios/app && HIPPO_SPIKE_URL=https://<machine>.<tailnet>.ts.net npm run configure
    ```
 
-4. Installer depuis Xcode, iPhone branché (runbook §3 et §4) :
+4. Installer depuis Xcode, iPhone branché (runbook §3) :
 
    ```bash
    cd spikes/e1-ios/app && HIPPO_APPLE_TEAM_ID=<équipe> npx expo run:ios --device --configuration Release
@@ -83,20 +83,20 @@ Colonne « Observé » : ce qui s'est passé, même quand c'est conforme. Colonn
 
 | # | Essai | Attendu | Observé | OK |
 | --- | --- | --- | --- | --- |
-| F1 | Installer SideStore (runbook §5) | SideStore s'ouvre, rafraîchi une fois | | |
-| F2 | Supprimer l'appli installée par Xcode, puis installer le `.ipa` dans SideStore (runbook §6) | l'appli **et** l'extension marchent (refaire B1) | | |
+| F1 | Installer SideStore (runbook §4) | SideStore s'ouvre, rafraîchi une fois | | |
+| F2 | Supprimer l'appli installée par Xcode, puis installer le `.ipa` dans SideStore (runbook §5) | l'appli **et** l'extension marchent (refaire B1) | | |
 | F3 | Identifiants de bundle après installation par SideStore | noter s'ils ont changé (SideStore › Réglages › App IDs) | | |
 | F4 | Nombre d'App ID consommés | noter le compteur (l'extension compte-t-elle ?) | | |
-| F5 | Rafraîchissement avec la bascule Tailscale ↔ LocalDevVPN (runbook §7) | rafraîchi ; puis B2 marche à nouveau ; noter la durée | | |
+| F5 | Rafraîchissement avec la bascule Tailscale ↔ LocalDevVPN (runbook §6) | rafraîchi ; puis B2 marche à nouveau ; noter la durée | | |
 | F6 | Rafraîchissement automatique en arrière-plan, quelques jours plus tard | noter s'il a eu lieu | | |
 
 ## Mesures
 
-| Mesure | Lien (B1) | Lien en 4G (B2) | Capture d'écran (B6) | Grande photo (B7) |
+| Mesure | Lien (B1) | Lien en réseau mobile (B2) | Capture d'écran (B6) | Grande photo (B7) |
 | --- | --- | --- | --- | --- |
-| Temps depuis l'ouverture de l'extension | | | | |
-| Durée de l'envoi | | 0,18 s (5G) | | 0,67 s (5G) |
-| Mémoire de l'extension | | 26,6 Mo | | 28,4 Mo |
+| Temps depuis l'ouverture de l'extension | non mesuré | non mesuré | non mesuré | non mesuré |
+| Durée de l'envoi | non mesuré | 0,18 s (5G) | non mesuré | 0,67 s (5G) |
+| Mémoire de l'extension | non mesuré | 26,6 Mo | non mesuré | 28,4 Mo |
 
 Repère : la capture doit tenir en moins de 5 secondes (objectif de la spec V1). La limite de mémoire d'une extension de partage est d'environ 120 Mo. « Temps depuis l'ouverture » compte aussi la saisie de la note ; « Durée de l'envoi » ne compte que le réseau.
 
@@ -130,7 +130,7 @@ iPhone 15, iOS 27.0, build Release installé depuis Xcode avec la Personal Team.
 | A1 | Signature et installation avec le compte gratuit | ✅ un profil « iOS Team Provisioning Profile » pour l'appli et un pour l'extension ; installation par `devicectl` après activation du mode développeur et confiance dans le compte |
 | A2 | « Hippo E1 » dans la feuille de partage de Safari | ✅ |
 | B1 | Safari, page avec une note de capture, en Wi-Fi | ✅ `form=link`, note de 25 caractères |
-| B2 | Partage en 5G par Tailscale | ✅ une recette : envoi 0,18 s, 26,6 Mo |
+| B2 | Partage en 5G par Tailscale | ✅ un lien : envoi 0,18 s, 26,6 Mo |
 | B3, B4 | Instagram, publication et reel | ✅ l'extension apparaît ; Instagram partage l'URL elle-même : `form=link`, hôte `www.instagram.com`, rien dans la note |
 | B5 | Notes, texte sans lien | ✅ `form=note`, 7 343 caractères, privé |
 | B6, B7 | Photos, capture d'écran et grande photo | ✅ `form=image` ; **toutes les images arrivent en `image/jpeg`** (149 Ko, 415 Ko, 1,8 Mo), pas dans leur format d'origine ; grande photo en 5G : envoi 0,67 s, 28,4 Mo |
@@ -155,7 +155,7 @@ Constats pour la suite :
 
 ## Décision (E1-04)
 
-La chaîne iOS tient avec un compte Apple gratuit. Les ADR 0012 à 0014 ne sont pas remis en cause, et E5 peut avancer.
+La chaîne iOS tient avec un compte Apple gratuit. ADR-0013 et ADR-0014 sont confirmés, ADR-0012 est précisé par ADR-0036, et E5 peut avancer.
 
 - **ADR-0014 confirmé** : l'extension envoie elle-même la capture, sans App Group, avec l'URL et le token injectés au build.
 - **ADR-0013 confirmé** : installation et rafraîchissement par SideStore, avec la bascule de VPN. La connexion de SideStore reste fragile : l'erreur `-80045` a demandé un contournement.

@@ -11,7 +11,7 @@ L'extension de partage est la porte d'entrée de l'appli (ADR-0014). La spec pr�
 - elle crée un App Group par défaut, ce qu'ADR-0013 et ADR-0014 évitent ;
 - React Native dans une extension pèse sur la limite de mémoire d'iOS, d'environ 120 Mo.
 
-ADR-0014 nommait déjà le repli : une extension native Swift minimale. Le prototype l'a construite avec `@bacons/apple-targets`, qui génère la cible Xcode depuis un dossier `targets/` du projet Expo à chaque `expo prebuild`. Résultats sur un iPhone 15 sous iOS 27 ([`results.md`](../../openspec/changes/ios-prototype/results.md)) :
+ADR-0014 nommait déjà le repli : une extension native Swift minimale. Le prototype l'a construite avec `@bacons/apple-targets`, qui génère la cible Xcode depuis un dossier `targets/` du projet Expo à chaque `expo prebuild`. Résultats sur un iPhone 15 sous iOS 27 ([`results.md`](../../openspec/changes/archive/2026-10-27-ios-prototype/results.md)) :
 
 - signature avec le compte gratuit, par Xcode puis par SideStore ;
 - partage depuis Safari, Instagram, Photos et Notes ;

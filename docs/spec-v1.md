@@ -66,7 +66,7 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 | IA | Claude Haiku 4.5, API Message Batches, SDK `anthropic-sdk-go`, derrière une interface `Analyzer` | [0005](adr/0005-haiku-batch.md) |
 | Sortie de l'IA | Outil `classify_item` forcé, validé par JSON Schema | [0006](adr/0006-sortie-structuree.md) |
 | Contrat d'API | OpenAPI 3.1, `oapi-codegen` côté Go, client TypeScript généré | [0017](adr/0017-contrat-openapi.md) |
-| Mobile | Expo (React Native), development build, extension de partage | [0012](adr/0012-appli-expo.md), [0014](adr/0014-extension-de-partage-autonome.md) |
+| Mobile | Expo (React Native), development build, extension de partage en Swift | [0012](adr/0012-appli-expo.md), [0014](adr/0014-extension-de-partage-autonome.md), [0036](adr/0036-extension-de-partage-swift.md) |
 | Installation iOS | Compte Apple gratuit + SideStore | [0013](adr/0013-distribution-ios-gratuite.md) |
 | Réseau | Tailscale, HTTPS via `tailscale serve` | [0015](adr/0015-reseau-tailscale.md) |
 | Authentification | Token d'API statique (Bearer) | [0016](adr/0016-authentification-token.md) |

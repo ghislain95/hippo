@@ -1,6 +1,6 @@
 # ADR-0012 — Appli mobile en Expo (React Native)
 
-- **Statut** : Accepté
+- **Statut** : Accepté — précisé par [ADR-0036](0036-extension-de-partage-swift.md) (extension de partage en Swift, sans `expo-share-extension`)
 - **Date** : 2026-10-10
 
 ## Contexte

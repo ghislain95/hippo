@@ -12,14 +12,14 @@ Le travail de la V1, découpé en epics et en user stories, **dans l'ordre de r�
 | Epic | Objectif | Dépend de |
 | --- | --- | --- |
 | [E0](#e0--fondations) | Projet prêt pour le développement avec des agents | — |
-| [E1](#e1--prototype-ios-jetable) | Lever le risque iOS (extension de partage, SideStore, Tailscale) | E0 |
+| [E1](#e1--prototype-ios-jetable) | Lever le risque iOS (extension de partage, SideStore, Tailscale) — ✅ réussi (27 octobre 2026) | E0 |
 | [E2](#e2--capture-et-extraction) | Capturer et extraire, côté backend | E0 |
 | [E3](#e3--analyse) | Analyser la nuit, avec Haiku, sous contrôle des coûts | E2 |
 | [E4](#e4--bibliothèque-revue-et-recherche-api) | Lire, chercher, corriger, réviser, exporter (API) | E3 |
 | [E5](#e5--appli-mobile) | L'appli iPhone et son extension de partage | E1, E4 |
 | [E6](#e6--mise-en-production) | Faire tourner Hippo sur le NAS, sauvegardé | E2 |
 
-E2 à E4 peuvent commencer en parallèle de E1 : ils n'en dépendent pas. Mais **si E1 échoue, on revoit les ADR 0012 à 0014 avant d'avancer sur E5**.
+E2 à E4 peuvent commencer en parallèle de E1 : ils n'en dépendent pas. Mais **si E1 échoue, on revoit les ADR 0012 à 0014 avant d'avancer sur E5**. E1 a réussi : ADR-0013 et ADR-0014 sont confirmés, et l'extension sera en Swift ([ADR-0036](adr/0036-extension-de-partage-swift.md)).
 
 ---
 
@@ -46,6 +46,8 @@ Fait en séance sur le Mac, en reprenant les pratiques de geomni et wifisense. L
 ## E1 — Prototype iOS jetable
 
 Objectif unique : **savoir si la chaîne iOS fonctionne avec un compte Apple gratuit**. Le code est jeté ensuite.
+
+✅ Terminé le 27 octobre 2026 par le change `ios-prototype` : [résultats](../openspec/changes/archive/2026-10-27-ios-prototype/results.md), [runbook iOS](runbook-ios.md), [ADR-0036](adr/0036-extension-de-partage-swift.md). Les quatre stories ci-dessous sont faites.
 
 ### E1-01 — Partager une URL vers un serveur de test · M
 
@@ -291,9 +293,15 @@ ADR-0012, ADR-0017
 
 ### E5-02 — Extension de partage · M
 
-RG-01 à RG-06, RG-10 · ADR-0014
+RG-01 à RG-06, RG-10 · ADR-0014, ADR-0036
 - Partager un lien, un texte ou une image ouvre un mini formulaire : aperçu, note facultative, interrupteur Privé décoché, bouton Enregistrer.
 - Confirmation visible en moins de 5 secondes avec un bon réseau ; message clair et bouton « Copier le lien » si le serveur est injoignable.
+- Extension en Swift et SwiftUI, cible générée par `@bacons/apple-targets` (nouvelle dépendance de l'appli, ADR-0036).
+- Points ouverts par le prototype E1, à trancher au cadrage :
+  - conventions du code Swift (format, lint, tests) ;
+  - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02) ;
+  - arrondi des cartes : Ghislain préfère environ 16 points ;
+  - rafraîchissement automatique de SideStore, pas encore observé au 27 octobre 2026.
 
 ### E5-03 — Bibliothèque · M
 
