@@ -93,6 +93,8 @@ RG-01, RG-02, RG-03, RG-07, RG-08 · ADR-0003, ADR-0004, ADR-0016, ADR-0022, ADR
 
 ### E2-02 — Dédoublonner les liens · M
 
+✅ Terminé le 27 octobre 2026 par le change `dedupe-links` ([archive](../openspec/changes/archive/2026-10-27-dedupe-links/proposal.md)). Précise RG-04 (note datée) et ajoute RG-15 (un doublon ne fait que rendre privé).
+
 RG-04, RG-05
 - Hérité d'E2-01 ([design](../openspec/changes/archive/2026-10-27-capture-link/design.md#risks--trade-offs)) : le remplissage de `normalized_url` des liens déjà capturés est abandonné le 27 octobre 2026, car aucune donnée réelle n'existe avant E6 et une migration n'est que du SQL ([ADR-0032](adr/0032-migrations-goose.md)) ; ces liens restent hors dédoublonnage. Le filet de rejeu du store distingue la violation d'unicité par l'instruction en cause (insertion dans `capture_ids` ou dans `items`), pas par le message de SQLite.
 - Les URL sont normalisées selon RG-05 ; l'URL d'origine est conservée.
