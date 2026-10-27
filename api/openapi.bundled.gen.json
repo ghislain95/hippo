@@ -4,7 +4,7 @@
     "title": "Hippo API",
     "version": "0.2.0",
     "summary": "Personal second brain — capture, nightly analysis, reading.",
-    "description": "Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share\nextension. This file is the source of truth (ADR-0017): the Go server and the TypeScript\ntypes are generated from it (ADR-0031), through `api/openapi.bundled.gen.json`, which\n`make generate` assembles with the fiche components of `api/fiches.gen.json` (ADR-0035).\n\n## Conventions\n\n- Every route lives under `/api` and requires `Authorization: Bearer <token>`, except\n  `/healthz` (ADR-0016). A missing or wrong token answers `401` before any routing.\n- JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`).\n- Identifiers (ADR-0035): ULIDs for items, assets and batches; integers for categories and\n  tags; content types are named by their `key`. An item references its category, content\n  type and tags by identifier, never by name.\n- Collections are paginated by cursor: query parameters `cursor` and `limit`; the response\n  carries `next_cursor`, `null` on the last page.\n- Nullability: a nullable value is declared on its property; in a `PATCH` body an absent\n  field changes nothing and an explicit `null` clears the value.\n- The fiche of an item is rendered by `fiche.template`, never by the item's content type:\n  the two differ after a type correction (RG-60), a type merge (RG-72) or for a proposed\n  type. `schema_version` tells which version of the fiche schema produced it (RG-64).\n- Operations and schemas are binding. The status codes and problem types listed for each\n  operation are provisional until the story that implements it, which amends them here\n  first.\n- An operation, request format or field declared here but not implemented yet answers\n  `501` with the problem type `urn:hippo:problem:not-implemented`.\n- The JSON body of an implemented operation is strict: a member this contract does not\n  declare, or data after the JSON value, answers `400` with `about:blank` before the\n  operation runs, so that a misspelt field is refused rather than silently ignored.\n- A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`.\n\n## Problem types\n\nErrors use `application/problem+json` (RFC 9457, schema `Problem`); `detail` is in French\nand can be shown as is. Generic HTTP errors (`400` for a request that breaks this\ncontract, `401`, `404` for an unknown route or another user's resource, `415`) use\n`about:blank`. Business errors use one of these types:\n\n| Type (`urn:hippo:problem:…`) | Status | Meaning |\n| --- | --- | --- |\n| `invalid-url` | 400 | The URL of a capture is not a valid `http` or `https` URL (RG-02) |\n| `empty-note` | 400 | The note of a capture is empty (RG-02) |\n| `empty-capture` | 400 | The capture holds neither a URL, a note nor an image (RG-02) |\n| `ambiguous-capture` | 400 | The capture holds a URL and a note, or a note and a capture note (RG-07) |\n| `unsupported-image` | 400 | The image is not JPEG, PNG, HEIC or WebP (RG-02) |\n| `image-too-large` | 413 | The image exceeds 20 MB (RG-02) |\n| `private-item` | 409 | A private item is never sent to the AI (RG-12, RG-33) |\n| `budget-exceeded` | 409 | The monthly AI budget is reached (RG-81) |\n| `not-ready` | 409 | The item is still being extracted (RG-33) |\n| `already-submitted` | 409 | The item is already in tonight's batch (RG-33) |\n| `not-failed` | 409 | Only a failed item can be retried (RG-35) |\n| `name-taken` | 409 | Another category under the same parent, or another tag, has this name (RG-54, RG-74) |\n| `category-too-deep` | 400 | Categories have two levels at most (RG-51) |\n| `category-not-empty` | 409 | Only an empty category can be deleted (backlog E4-07) |\n| `invalid-merge-target` | 400 | A category, type or tag cannot be merged into itself or into its own subcategory (backlog E4-07) |\n| `type-not-proposed` | 409 | Only a proposed content type can be merged into another one (RG-72) |\n| `sync-expired` | 410 | The sync token is older than the 30-day retention of deletions: resync without a token (ADR-0035) |\n| `not-implemented` | 501 | Declared in this contract, not implemented yet |\n"
+    "description": "Contract between the Hippo backend (Go, on the home NAS) and the Expo app and its share\nextension. This file is the source of truth (ADR-0017): the Go server and the TypeScript\ntypes are generated from it (ADR-0031), through `api/openapi.bundled.gen.json`, which\n`make generate` assembles with the fiche components of `api/fiches.gen.json` (ADR-0035).\n\n## Conventions\n\n- Every route lives under `/api` and requires `Authorization: Bearer <token>`, except\n  `/healthz` (ADR-0016). A missing or wrong token answers `401` before any routing.\n- JSON in `snake_case`; dates in ISO 8601 UTC (`format: date-time`).\n- Identifiers (ADR-0035): ULIDs for items, assets and batches; integers for categories and\n  tags; content types are named by their `key`. An item references its category, content\n  type and tags by identifier, never by name.\n- Collections are paginated by cursor: query parameters `cursor` and `limit`; the response\n  carries `next_cursor`, `null` on the last page.\n- Nullability: a nullable value is declared on its property; in a `PATCH` body an absent\n  field changes nothing and an explicit `null` clears the value.\n- The fiche of an item is rendered by `fiche.template`, never by the item's content type:\n  the two differ after a type correction (RG-60), a type merge (RG-72) or for a proposed\n  type. `schema_version` tells which version of the fiche schema produced it (RG-64).\n- Operations and schemas are binding. The status codes and problem types listed for each\n  operation are provisional until the story that implements it, which amends them here\n  first.\n- An operation, request format or field declared here but not implemented yet answers\n  `501` with the problem type `urn:hippo:problem:not-implemented`.\n- The JSON body of an implemented operation is strict: a member this contract does not\n  declare, or data after the JSON value, answers `400` with `about:blank` before the\n  operation runs, so that a misspelt field is refused rather than silently ignored.\n- A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`. A\n  multipart body is 21 MiB at most, each of its text fields 1 MiB.\n- Every response carries `X-Content-Type-Options: nosniff`.\n\n## Problem types\n\nErrors use `application/problem+json` (RFC 9457, schema `Problem`); `detail` is in French\nand can be shown as is. Generic HTTP errors (`400` for a request that breaks this\ncontract, `401`, `404` for an unknown route or another user's resource, `415`) use\n`about:blank`. Business errors use one of these types:\n\n| Type (`urn:hippo:problem:…`) | Status | Meaning |\n| --- | --- | --- |\n| `invalid-url` | 400 | The URL of a capture is not a valid `http` or `https` URL (RG-02) |\n| `empty-note` | 400 | The note of a capture is empty (RG-02) |\n| `empty-capture` | 400 | The capture holds neither a URL, a note nor an image (RG-02) |\n| `ambiguous-capture` | 400 | The capture holds a URL and a note, or a note and a capture note (RG-07) |\n| `unsupported-image` | 400 | The image is not JPEG, PNG, HEIC or WebP (RG-02) |\n| `image-too-large` | 413 | The image exceeds 20 MB (RG-02) |\n| `private-item` | 409 | A private item is never sent to the AI (RG-12, RG-33) |\n| `budget-exceeded` | 409 | The monthly AI budget is reached (RG-81) |\n| `not-ready` | 409 | The item is still being extracted (RG-33) |\n| `already-submitted` | 409 | The item is already in tonight's batch (RG-33) |\n| `not-failed` | 409 | Only a failed item can be retried (RG-35) |\n| `name-taken` | 409 | Another category under the same parent, or another tag, has this name (RG-54, RG-74) |\n| `category-too-deep` | 400 | Categories have two levels at most (RG-51) |\n| `category-not-empty` | 409 | Only an empty category can be deleted (backlog E4-07) |\n| `invalid-merge-target` | 400 | A category, type or tag cannot be merged into itself or into its own subcategory (backlog E4-07) |\n| `type-not-proposed` | 409 | Only a proposed content type can be merged into another one (RG-72) |\n| `sync-expired` | 410 | The sync token is older than the 30-day retention of deletions: resync without a token (ADR-0035) |\n| `not-implemented` | 501 | Declared in this contract, not implemented yet |\n"
   },
   "servers": [
     {
@@ -91,7 +91,7 @@
       "post": {
         "operationId": "createItem",
         "summary": "Capture an item",
-        "description": "Creates an item from a link, a note (JSON body) or an image (multipart body) and answers\nat once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same\nnormalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing\nitem with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds\nno `user_note` (RG-07). Surrounding whitespace is trimmed from `url`, `note` and\n`user_note`, inner whitespace kept, and a blank `user_note` counts as absent (RG-09).\nUntil extraction runs, the title of a link is the host name of its URL; until analysis\nruns, the title of a note is its first non-empty line, cut after 80 characters (Unicode\ncode points) and followed by `…` when longer (RG-26). The text of a note is stored as\nits `user_note`; a note is never a duplicate (RG-04). `source` defaults to `share`.\n\nChecks, in order: `client_id` and `source` follow this contract (`400 about:blank`);\n`url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor\n`note` (`empty-capture`); `note` empty after trimming (`empty-note`); `url` not an\nabsolute `http` or `https` URL with a host (`invalid-url`). A capture refused by a check\nstores nothing.\n",
+        "description": "Creates an item from a link, a note (JSON body) or an image (multipart body) and answers\nat once; extraction and analysis come later (RG-01 to RG-08). A duplicate link (same\nnormalised URL, RG-04, RG-05) or a replayed `client_id` (RG-08) returns the existing\nitem with `200`. A JSON body holds exactly one of `url` and `note`; a note capture holds\nno `user_note` (RG-07). Surrounding whitespace is trimmed from `url`, `note` and\n`user_note`, inner whitespace kept, and a blank `user_note` counts as absent (RG-09).\nUntil extraction runs, the title of a link is the host name of its URL; until analysis\nruns, the title of a note is its first non-empty line, cut after 80 characters (Unicode\ncode points) and followed by `…` when longer (RG-26). The text of a note is stored as\nits `user_note`; a note is never a duplicate (RG-04). `source` defaults to `share`.\n\nChecks of a JSON body, in order: `client_id` and `source` follow this contract (`400\nabout:blank`); `url` with `note`, or `note` with `user_note` (`ambiguous-capture`);\nneither `url` nor `note` (`empty-capture`); `note` empty after trimming (`empty-note`);\n`url` not an absolute `http` or `https` URL with a host (`invalid-url`). A capture\nrefused by a check stores nothing.\n\nAn image capture (multipart body, schema `CaptureImageRequest`) creates an `image` item\nwith one asset; an image is never a duplicate (RG-04). Its format is recognised from\nits content, whatever type or file name the client declares (RG-02). Until analysis\nruns, its title is the first non-empty line of its `user_note`, cut as for a note, or\nelse `Image du <day> <month> <year>`, the day the server receives it in Paris time,\nthe month in French and `1er` for the first day (RG-26). A replayed `client_id` returns\nthe existing item and stores no new file (RG-08). The parts may come in any order:\nevery part is read first, then checked, in this order: a declared `Content-Length`\nor a body over 21 MiB (`413 about:blank`); an `image` over 20 MB, 20 × 1024 × 1024\nbytes (`413 image-too-large`); the structure (`400 about:blank`: undeclared or repeated\nfield, `url` and `note` included, a second file, no `image`, a text field over 1 MiB or\nnot UTF-8, `is_private` other than exactly `true` or `false`); `client_id` and\n`source`, as for JSON (`400 about:blank`); the format (`unsupported-image`). An upload\nhas 5 minutes.\n",
         "tags": [
           "items"
         ],
@@ -137,14 +137,14 @@
             }
           },
           "400": {
-            "description": "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`).",
+            "description": "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member or field, data after the value, malformed `client_id`, unknown `source`, malformed multipart structure).",
             "$ref": "#/components/responses/Problem"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
           "413": {
-            "description": "`image-too-large`, or `about:blank` for a JSON body over 1 MiB.",
+            "description": "`image-too-large` for an image over 20 MB, or `about:blank` for a JSON body over 1 MiB or a multipart body over 21 MiB.",
             "$ref": "#/components/responses/Problem"
           },
           "415": {
@@ -479,13 +479,29 @@
       "get": {
         "operationId": "getAsset",
         "summary": "Download an image",
-        "description": "The image file of an item, as captured.",
+        "description": "The image file of an item, byte for byte as captured, to the user who owns it; `404`\nfor an unknown asset or another user's (RG-90). An asset never changes, so it may be\ncached for good; range requests and validators are not supported. A download has 5\nminutes.\n",
         "tags": [
           "items"
         ],
         "responses": {
           "200": {
-            "description": "The image.",
+            "description": "The image, with its recognised type as `Content-Type`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `private, max-age=31536000, immutable`.",
+                "schema": {
+                  "type": "string",
+                  "const": "private, max-age=31536000, immutable"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Always `nosniff`.",
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
             "content": {
               "image/*": {
                 "schema": {
@@ -1374,21 +1390,27 @@
           },
           "mime_type": {
             "type": "string",
-            "examples": [
-              "image/jpeg"
+            "description": "The type recognised from the content of the file (RG-02).",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/heic",
+              "image/webp"
             ]
           },
           "width": {
             "type": [
               "integer",
               "null"
-            ]
+            ],
+            "description": "In pixels, for JPEG and PNG; `null` for HEIC and WebP."
           },
           "height": {
             "type": [
               "integer",
               "null"
-            ]
+            ],
+            "description": "In pixels, for JPEG and PNG; `null` for HEIC and WebP."
           },
           "size_bytes": {
             "type": "integer",
@@ -1816,21 +1838,25 @@
       },
       "CaptureImageRequest": {
         "type": "object",
-        "description": "An image capture (screenshot or photo), 20 MB at most (RG-02).",
+        "description": "An image capture (screenshot or photo): exactly one `image` file and, optionally, the text fields below, each once, in any order. Any other field is refused.",
         "required": [
           "image"
         ],
+        "additionalProperties": false,
         "properties": {
           "image": {
             "type": "string",
-            "format": "binary"
+            "format": "binary",
+            "description": "JPEG, PNG, HEIC or WebP, 20 MB (20 × 1024 × 1024 bytes) at most (RG-02); stored as sent. Its declared type and file name are ignored."
           },
           "user_note": {
-            "type": "string"
+            "type": "string",
+            "description": "Capture note (RG-03), 1 MiB at most; trimmed, blank means absent (RG-09)."
           },
           "is_private": {
             "type": "boolean",
-            "default": false
+            "default": false,
+            "description": "Exactly `true` or `false` (RG-10)."
           },
           "source": {
             "$ref": "#/components/schemas/CaptureSource",
@@ -1838,7 +1864,8 @@
             "description": "Where the capture comes from; `share` when absent."
           },
           "client_id": {
-            "$ref": "#/components/schemas/Ulid"
+            "$ref": "#/components/schemas/Ulid",
+            "description": "Chosen by the device; a capture replayed with the same id returns the existing item (RG-08)."
           }
         }
       },

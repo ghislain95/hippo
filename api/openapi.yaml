@@ -32,7 +32,9 @@ info:
     - The JSON body of an implemented operation is strict: a member this contract does not
       declare, or data after the JSON value, answers `400` with `about:blank` before the
       operation runs, so that a misspelt field is refused rather than silently ignored.
-    - A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`.
+    - A JSON body is 1 MiB at most; a larger one answers `413` with `about:blank`. A
+      multipart body is 21 MiB at most, each of its text fields 1 MiB.
+    - Every response carries `X-Content-Type-Options: nosniff`.
 
     ## Problem types
 
@@ -123,11 +125,26 @@ paths:
         code points) and followed by `…` when longer (RG-26). The text of a note is stored as
         its `user_note`; a note is never a duplicate (RG-04). `source` defaults to `share`.
 
-        Checks, in order: `client_id` and `source` follow this contract (`400 about:blank`);
-        `url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor
-        `note` (`empty-capture`); `note` empty after trimming (`empty-note`); `url` not an
-        absolute `http` or `https` URL with a host (`invalid-url`). A capture refused by a check
-        stores nothing.
+        Checks of a JSON body, in order: `client_id` and `source` follow this contract (`400
+        about:blank`); `url` with `note`, or `note` with `user_note` (`ambiguous-capture`);
+        neither `url` nor `note` (`empty-capture`); `note` empty after trimming (`empty-note`);
+        `url` not an absolute `http` or `https` URL with a host (`invalid-url`). A capture
+        refused by a check stores nothing.
+
+        An image capture (multipart body, schema `CaptureImageRequest`) creates an `image` item
+        with one asset; an image is never a duplicate (RG-04). Its format is recognised from
+        its content, whatever type or file name the client declares (RG-02). Until analysis
+        runs, its title is the first non-empty line of its `user_note`, cut as for a note, or
+        else `Image du <day> <month> <year>`, the day the server receives it in Paris time,
+        the month in French and `1er` for the first day (RG-26). A replayed `client_id` returns
+        the existing item and stores no new file (RG-08). The parts may come in any order:
+        every part is read first, then checked, in this order: a declared `Content-Length`
+        or a body over 21 MiB (`413 about:blank`); an `image` over 20 MB, 20 × 1024 × 1024
+        bytes (`413 image-too-large`); the structure (`400 about:blank`: undeclared or repeated
+        field, `url` and `note` included, a second file, no `image`, a text field over 1 MiB or
+        not UTF-8, `is_private` other than exactly `true` or `false`); `client_id` and
+        `source`, as for JSON (`400 about:blank`); the format (`unsupported-image`). An upload
+        has 5 minutes.
       tags: [items]
       requestBody:
         required: true
@@ -162,12 +179,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Item"
         "400":
-          description: "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`)."
+          description: "Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member or field, data after the value, malformed `client_id`, unknown `source`, malformed multipart structure)."
           $ref: "#/components/responses/Problem"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "413":
-          description: "`image-too-large`, or `about:blank` for a JSON body over 1 MiB."
+          description: "`image-too-large` for an image over 20 MB, or `about:blank` for a JSON body over 1 MiB or a multipart body over 21 MiB."
           $ref: "#/components/responses/Problem"
         "415":
           description: Neither `application/json` nor `multipart/form-data`.
@@ -382,11 +399,26 @@ paths:
     get:
       operationId: getAsset
       summary: Download an image
-      description: The image file of an item, as captured.
+      description: |
+        The image file of an item, byte for byte as captured, to the user who owns it; `404`
+        for an unknown asset or another user's (RG-90). An asset never changes, so it may be
+        cached for good; range requests and validators are not supported. A download has 5
+        minutes.
       tags: [items]
       responses:
         "200":
-          description: The image.
+          description: The image, with its recognised type as `Content-Type`.
+          headers:
+            Cache-Control:
+              description: Always `private, max-age=31536000, immutable`.
+              schema:
+                type: string
+                const: private, max-age=31536000, immutable
+            X-Content-Type-Options:
+              description: Always `nosniff`.
+              schema:
+                type: string
+                const: nosniff
           content:
             image/*:
               schema:
@@ -943,11 +975,14 @@ components:
           $ref: "#/components/schemas/Ulid"
         mime_type:
           type: string
-          examples: ["image/jpeg"]
+          description: The type recognised from the content of the file (RG-02).
+          enum: [image/jpeg, image/png, image/heic, image/webp]
         width:
           type: [integer, "null"]
+          description: In pixels, for JPEG and PNG; `null` for HEIC and WebP.
         height:
           type: [integer, "null"]
+          description: In pixels, for JPEG and PNG; `null` for HEIC and WebP.
         size_bytes:
           type: integer
           format: int64
@@ -1157,23 +1192,32 @@ components:
 
     CaptureImageRequest:
       type: object
-      description: An image capture (screenshot or photo), 20 MB at most (RG-02).
+      description: >-
+        An image capture (screenshot or photo): exactly one `image` file and, optionally, the
+        text fields below, each once, in any order. Any other field is refused.
       required: [image]
+      additionalProperties: false
       properties:
         image:
           type: string
           format: binary
+          description: >-
+            JPEG, PNG, HEIC or WebP, 20 MB (20 × 1024 × 1024 bytes) at most (RG-02); stored as
+            sent. Its declared type and file name are ignored.
         user_note:
           type: string
+          description: Capture note (RG-03), 1 MiB at most; trimmed, blank means absent (RG-09).
         is_private:
           type: boolean
           default: false
+          description: Exactly `true` or `false` (RG-10).
         source:
           $ref: "#/components/schemas/CaptureSource"
           default: share
           description: Where the capture comes from; `share` when absent.
         client_id:
           $ref: "#/components/schemas/Ulid"
+          description: Chosen by the device; a capture replayed with the same id returns the existing item (RG-08).
 
     ItemPatch:
       type: object

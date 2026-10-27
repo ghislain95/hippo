@@ -102,3 +102,30 @@ func SeedVersion2ForTest(t testing.TB, path, clientID string) (userID, itemID st
 	}
 	return userID, itemID
 }
+
+// InsertAssetRowForTest inserts an asset row by SQL, with the user and item it is given (tests
+// of 00004 only: no function of the store can write an asset of another user than its item's).
+func InsertAssetRowForTest(t testing.TB, s *Store, id, itemID, userID string) error {
+	t.Helper()
+	_, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO assets (id, item_id, user_id, path, mime_type, size_bytes, created_at)
+		 VALUES (?, ?, ?, 'test.png', 'image/png', 1, '2026-10-27T10:00:00.000Z')`, id, itemID, userID)
+	return err
+}
+
+// AssetCountForTest counts the assets of a user (tests only).
+func AssetCountForTest(t testing.TB, s *Store, userID string) int {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM assets WHERE user_id = ?`, userID).Scan(&count); err != nil {
+		t.Fatalf("count assets: %v", err)
+	}
+	return count
+}
+
+// ItemAssetsForTest lists the assets of an item of a user, as the item read back does (tests
+// only).
+func ItemAssetsForTest(t testing.TB, s *Store, userID, itemID string) ([]Asset, error) {
+	t.Helper()
+	return assetsOfItem(t.Context(), s.db, userID, itemID)
+}

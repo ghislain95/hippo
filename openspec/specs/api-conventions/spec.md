@@ -94,3 +94,10 @@ A request whose `application/json` body exceeds 1 MiB SHALL answer `413` with a 
 #### Scenario: Oversized JSON body
 - **WHEN** an authenticated client sends `POST /api/items` with a JSON body of 2 MiB
 - **THEN** the API answers `413` with a problem body of type `about:blank` and nothing is stored
+
+### Requirement: Every response forbids content sniffing
+Every response of the backend, `/healthz` and errors included, SHALL carry `X-Content-Type-Options: nosniff`, so that a client never interprets a body as another type than the one declared (ADR-0017).
+
+#### Scenario: Every response carries nosniff
+- **WHEN** a client calls `GET /healthz`, an API route without token, an unknown route and a capture
+- **THEN** every answer carries the header `X-Content-Type-Options: nosniff`

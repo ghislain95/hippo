@@ -1,13 +1,14 @@
 // Package capture is the domain of the capture: what a capture must hold, how it is cleaned and
-// checked, the state of a freshly captured item, and what a duplicate link does to the item it
-// matches (RG-01 to RG-10, RG-15, RG-26). It knows neither HTTP nor the generated API code
-// (docs/dev/conventions-backend.md).
+// checked, the state of a freshly captured item, what a duplicate link does to the item it
+// matches, and how an image and its file are stored (RG-01 to RG-10, RG-15, RG-26). It knows
+// neither HTTP nor the generated API code (docs/dev/conventions-backend.md).
 package capture
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -70,18 +71,22 @@ type Result struct {
 // Store is the storage the capture needs.
 type Store interface {
 	CaptureItem(ctx context.Context, userID string, in store.NewItem, merge store.NoteMerge) (store.Item, bool, error)
+	// NewID returns a new ULID, for an asset whose file is named before its transaction.
+	NewID() (string, error)
 }
 
 // Service captures items.
 type Service struct {
-	store Store
-	paris *time.Location
+	store  Store
+	paris  *time.Location
+	logger *slog.Logger
 }
 
 // NewService returns a capture service storing into st. paris is the time zone of the dates
-// written in a note (RG-04), from LoadParis.
-func NewService(st Store, paris *time.Location) *Service {
-	return &Service{store: st, paris: paris}
+// written in a note (RG-04), from LoadParis. logger receives the failures that do not change
+// the answer (a file left after a replayed image); it never receives content.
+func NewService(st Store, paris *time.Location, logger *slog.Logger) *Service {
+	return &Service{store: st, paris: paris, logger: logger}
 }
 
 // Capture checks and stores a capture of userID. It returns the item an earlier capture with

@@ -112,9 +112,10 @@ func itemSchema(t *testing.T) *jsonschema.Schema {
 	return schema
 }
 
-// TestItemCapture follows openspec/specs/item-capture/spec.md and its delta in
-// openspec/changes/capture-note/specs/item-capture/spec.md: one subtest per scenario, named
-// after it, grouped by requirement.
+// TestItemCapture follows openspec/specs/item-capture/spec.md for links and notes, and the
+// requirement "A capture body must be JSON or multipart" of its delta in
+// openspec/changes/capture-image/specs/item-capture/spec.md (images: TestImageCapture): one
+// subtest per scenario, named after it, grouped by requirement.
 func TestItemCapture(t *testing.T) {
 	t.Run("A link capture creates a queued item", func(t *testing.T) {
 		t.Run("Capture a link", func(t *testing.T) {
@@ -666,13 +667,7 @@ func TestItemCapture(t *testing.T) {
 		})
 	})
 
-	t.Run("Image captures are not available yet", func(t *testing.T) {
-		t.Run("Image capture", func(t *testing.T) {
-			f := newFixture(t)
-			resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+multipartBoundary, multipartImage)
-			assertProblemType(t, resp, http.StatusNotImplemented, notImplementedType)
-		})
-
+	t.Run("A capture body must be JSON or multipart", func(t *testing.T) {
 		t.Run("Unsupported body format", func(t *testing.T) {
 			f := newFixture(t)
 			resp := f.do(t, http.MethodPost, "/api/items", testToken, "text/plain", "https://example.com/a")

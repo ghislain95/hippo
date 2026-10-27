@@ -18,15 +18,19 @@ var ErrNotFound = errors.New("not found")
 
 // NewItem is a captured item to store. Nil pointers are stored as NULL, never as "".
 type NewItem struct {
-	Kind          string
-	Source        string
-	Status        string
-	Title         string
+	Kind   string
+	Source string
+	Status string
+	Title  string
+	// TitleAt, when set, computes the title from the store's clock at insert time instead of
+	// Title, so that a dated title (RG-26) and created_at share one clock reading.
+	TitleAt       func(now time.Time) string
 	URL           *string
 	NormalizedURL *string // RG-05; nil for a capture that is never a duplicate (RG-04)
 	UserNote      *string
 	ClientID      *string
 	IsPrivate     bool
+	Asset         *NewAsset // the image of an image capture, inserted with the new item only
 }
 
 // NoteMerge computes the note of an existing item after a duplicate capture (RG-04), from its
@@ -70,6 +74,7 @@ type Item struct {
 	AnalyzedAt       *time.Time
 	ReadAt           *time.Time
 	ChangeSeq        int64
+	Assets           []Asset // never nil
 }
 
 // CaptureItem stores a capture of userID, in one write transaction (RG-04, RG-08, RG-90):
@@ -164,6 +169,11 @@ func (s *Store) resolveCapture(ctx context.Context, tx *sql.Tx, userID string, i
 	if err != nil {
 		return Item{}, false, err
 	}
+	if in.Asset != nil {
+		if err := insertAsset(ctx, tx, userID, id, *in.Asset, now); err != nil {
+			return Item{}, false, err
+		}
+	}
 	if err := recordClientID(ctx, tx, userID, in.ClientID, id, now); err != nil {
 		return Item{}, false, err
 	}
@@ -215,10 +225,14 @@ func (s *Store) insertItem(ctx context.Context, tx *sql.Tx, userID string, in Ne
 		return "", fmt.Errorf("capture item: %w", err)
 	}
 	date := now.Format(timeLayout)
+	title := in.Title
+	if in.TitleAt != nil {
+		title = in.TitleAt(now)
+	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO items (id, user_id, kind, source, url, normalized_url, user_note, is_private, status, title, created_at, updated_at, change_seq)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, in.Kind, in.Source, in.URL, in.NormalizedURL, in.UserNote, boolInt(in.IsPrivate), in.Status, in.Title, date, date, seq,
+		id, userID, in.Kind, in.Source, in.URL, in.NormalizedURL, in.UserNote, boolInt(in.IsPrivate), in.Status, title, date, date, seq,
 	); err != nil {
 		return "", asUniqueViolation("items", fmt.Errorf("insert item: %w", err))
 	}
@@ -292,6 +306,7 @@ func (s *Store) Item(ctx context.Context, userID, id string) (Item, error) {
 // querier is what a read needs from a *sql.DB or a *sql.Tx.
 type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 const itemColumns = `id, user_id, kind, source, title, url, site_name, user_note, is_private, status,
@@ -302,7 +317,7 @@ const itemColumns = `id, user_id, kind, source, title, url, site_name, user_note
 func itemByID(ctx context.Context, db querier, userID, id string) (Item, error) {
 	row := db.QueryRowContext(ctx,
 		`SELECT `+itemColumns+` FROM items WHERE user_id = ? AND id = ? AND deleted_at IS NULL`, userID, id)
-	return scanItem(row)
+	return withAssets(ctx, db, row)
 }
 
 // itemByClientID returns the item a capture of userID with clientID resolved to. Both tables
@@ -312,7 +327,7 @@ func itemByClientID(ctx context.Context, db querier, userID, clientID string) (I
 		`SELECT `+itemColumns+` FROM items
 		 WHERE user_id = ? AND deleted_at IS NULL
 		   AND id = (SELECT item_id FROM capture_ids WHERE user_id = ? AND client_id = ?)`, userID, userID, clientID)
-	return scanItem(row)
+	return withAssets(ctx, db, row)
 }
 
 // itemByNormalizedURL returns the item of userID with this normalised URL (RG-04). The
@@ -321,7 +336,19 @@ func itemByClientID(ctx context.Context, db querier, userID, clientID string) (I
 func itemByNormalizedURL(ctx context.Context, db querier, userID, normalizedURL string) (Item, error) {
 	row := db.QueryRowContext(ctx,
 		`SELECT `+itemColumns+` FROM items WHERE user_id = ? AND normalized_url = ?`, userID, normalizedURL)
-	return scanItem(row)
+	return withAssets(ctx, db, row)
+}
+
+// withAssets reads the item of row and its assets, so that every item read back carries them.
+func withAssets(ctx context.Context, db querier, row *sql.Row) (Item, error) {
+	item, err := scanItem(row)
+	if err != nil {
+		return Item{}, err
+	}
+	if item.Assets, err = assetsOfItem(ctx, db, item.UserID, item.ID); err != nil {
+		return Item{}, fmt.Errorf("read item %s: %w", item.ID, err)
+	}
+	return item, nil
 }
 
 func scanItem(row *sql.Row) (Item, error) {

@@ -34,22 +34,12 @@ var pathValues = map[string]string{
 	"{type_key}":    "recipe",
 }
 
-// implementedOperations answer for real: the sweep skips them. createItem keeps a multipart
-// case below, its image format being still declared but not implemented (E2-04).
+// implementedOperations answer for real: the sweep skips them.
 var implementedOperations = map[string]bool{
 	"getHealth":  true,
-	"createItem": true, // capture-link (E2-01)
+	"createItem": true, // capture-link (E2-01), capture-image (E2-04)
+	"getAsset":   true, // capture-image (E2-04)
 }
-
-// A multipart image capture, valid for the contract.
-const (
-	multipartBoundary = "hippo-test-boundary"
-	multipartImage    = "--" + multipartBoundary + "\r\n" +
-		`Content-Disposition: form-data; name="image"; filename="capture.png"` + "\r\n" +
-		"Content-Type: image/png\r\n\r\n" +
-		"\x89PNG\r\n" +
-		"\r\n--" + multipartBoundary + "--\r\n"
-)
 
 type contractOperation struct {
 	OperationID string `json:"operationId"`
@@ -81,16 +71,6 @@ func TestEveryOperationAnswers501(t *testing.T) {
 
 	t.Run("Every declared operation answers 501 until implemented", func(t *testing.T) {
 		checkEveryOperation(t, contract.Paths, paths)
-	})
-
-	// Same scenario, for the multipart format of createItem (the loop above sends JSON bodies).
-	t.Run("multipart capture answers 501", func(t *testing.T) {
-		f := newFixture(t)
-		resp := f.do(t, http.MethodPost, "/api/items", testToken, "multipart/form-data; boundary="+multipartBoundary, multipartImage)
-		problem := assertProblem(t, resp, http.StatusNotImplemented)
-		if problem.Type != notImplementedType {
-			t.Errorf("multipart capture: type = %q, want %s", problem.Type, notImplementedType)
-		}
 	})
 }
 

@@ -15,6 +15,7 @@ backend/
 │   │   └── api.gen.go      généré depuis api/openapi.yaml (jamais édité)
 │   ├── store/              SQLite : ouverture, migrations, requêtes ; un fichier par table métier
 │   │   └── migrations/     NNNNN_<nom>.sql (goose), embarquées dans le binaire
+│   ├── assetfs/            fichiers des images sous DATA_DIR/assets ; feuille, sans HTTP ni base
 │   ├── analysis/schema/    schéma classify_item assemblé (généré), embarqué
 │   └── <domaine>/          un package par domaine métier, créé par le change qui l'introduit
 └── testdata/               fixtures (pages enregistrées, réponses de l'IA, jeu de test)
@@ -35,6 +36,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - `store` ne connaît ni HTTP ni les domaines au-dessus de lui.
 - Seul `internal/analysis` importe `anthropic-sdk-go`, derrière l'interface `Analyzer` ([ADR-0005](../adr/0005-haiku-batch.md)).
 - Ces règles sont vérifiées par `depguard` dans `backend/.golangci.yml` : une violation casse le lint.
+- `assetfs` est une feuille, importée seulement par `httpapi` et `cmd/hippo` (le domaine `capture` déclare l'interface dont il a besoin) : elle ne connaît ni HTTP, ni la base, ni aucun autre package Hippo. Deux règles `depguard` le vérifient : `assetfs-is-a-leaf` pour ce qu'elle importe, et celle du domaine `capture`, qui lui interdit d'importer `assetfs` (E2-04).
 
 ## Contrat d'API
 
@@ -42,7 +44,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - `oapi-codegen` génère l'interface stricte du serveur (`StrictServerInterface`) et le routage `net/http` ([ADR-0031](../adr/0031-generation-depuis-les-contrats.md)). Le handler implémente cette interface : une route oubliée ou un type faux ne compile pas.
 - JSON en `snake_case`, dates ISO 8601 UTC (`time.Time` en UTC). Identifiants ([ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)) : ULID (`TEXT`) pour les éléments, les images et les batchs ; entiers pour les catégories et les tags ; clé (`key`) pour les types de contenu.
 - **Nullabilité** : un scalaire nullable s'écrit `type: [T, "null"]` sur la propriété, une référence nullable `anyOf: [{$ref: …}, {type: "null"}]` ; la fiche est facultative plutôt que nullable. Jamais de schéma nullable nommé (oapi-codegen le rend non nullable), jamais `type: [object, "null"]` avec un `oneOf`. Dans un corps `PATCH`, un champ absent ne change rien et un `null` explicite efface (types `nullable.Nullable[T]`).
-- **Corps JSON strict** : le décodeur généré (`encoding/json` par défaut) ignore les membres inconnus et les données après la valeur, et ne vérifie ni `pattern` ni `enum`. Chaque opération implémentée inscrit donc son corps JSON dans le registre du middleware de corps strict de `httpapi` : membre non déclaré ou données après la valeur → `400 about:blank`. Ce middleware borne aussi tout corps `application/json` à 1 Mio (`413 about:blank`). Les `pattern` et `enum` (`Ulid`, `CaptureSource`…) sont vérifiés dans le domaine.
+- **Corps JSON strict** : le décodeur généré (`encoding/json` par défaut) ignore les membres inconnus et les données après la valeur, et ne vérifie ni `pattern` ni `enum`. Chaque opération implémentée inscrit donc son corps JSON dans le registre du middleware de corps strict de `httpapi` : membre non déclaré ou données après la valeur → `400 about:blank`. Ce middleware borne aussi tout corps `application/json` à 1 Mio (`413 about:blank`). Un second middleware de `httpapi`, `boundTransfers`, borne le corps `multipart/form-data` de `POST /api/items` à 21 Mio et pose par `http.ResponseController` les délais propres à une route, au lieu des 60 s globales du serveur : 5 minutes de lecture et d'écriture pour ce multipart (la réponse part après l'envoi), 5 minutes d'écriture pour `GET /api/assets/{asset_id}`. Les `pattern` et `enum` (`Ulid`, `CaptureSource`…) sont vérifiés dans le domaine.
 - Les erreurs métier ont un type stable du catalogue de `api/openapi.yaml` ; une opération déclarée mais pas encore implémentée répond `501 not-implemented` (stub embarqué par `handlers`, remplacé par la story qui l'implémente).
 - Pagination par curseur : paramètres `cursor` et `limit`, réponse `{ "items": [...], "next_cursor": "…" | null }`. Le curseur est opaque pour le client.
 
@@ -77,6 +79,17 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Fichiers SQL `internal/store/migrations/NNNNN_<nom_snake_case>.sql`, annotés `-- +goose Up`, appliqués au démarrage par goose utilisé comme librairie ([ADR-0032](../adr/0032-migrations-goose.md)).
 - **Une migration appliquée n'est jamais modifiée, supprimée ni renommée** : on en ajoute une. La CI le vérifie.
 - Pas de migration descendante : un retour arrière passe par la sauvegarde ([ADR-0020](../adr/0020-sauvegardes.md)).
+
+## Fichiers des images
+
+Les images sont sur le disque, sous `DATA_DIR/assets`, référencées par la table `assets` ([ADR-0004](../adr/0004-sqlite.md), modèle dans la [spec](../spec-v1.md#modèle-de-données)). Seul `internal/assetfs` y touche.
+
+- **Un fichier est écrit et renommé avant la transaction**, jamais après la validation : fichier temporaire `.tmp-<aléatoire>` dans `DATA_DIR/assets` (même système de fichiers que la destination), `fsync`, renommage en `<user_id>/<asset_id>.<ext>`, `fsync` du dossier. Une ligne ne pointe donc jamais vers un fichier absent.
+- **Il est supprimé sur tout chemin d'échec** : vérification refusée après l'écriture, capture rejouée, erreur, transaction qui n'aboutit pas. Seul un nouvel élément validé garde son fichier.
+- Un crash entre le renommage et la validation laisse un fichier orphelin : accepté. Au démarrage, `cmd/hippo` crée `DATA_DIR/assets` et supprime les seuls fichiers `.tmp-*`.
+- Droits : fichiers `0640`, dossiers `0750`.
+- Le chemin est construit à partir d'identifiants du serveur uniquement, jamais d'une valeur de la requête ; la lecture passe par `os.Root` sur `DATA_DIR/assets`.
+- Le nom et le type déclarés par le client ne sont ni stockés ni logués.
 
 ## Configuration
 

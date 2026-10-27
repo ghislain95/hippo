@@ -45,6 +45,24 @@ linters:
           deny:
             - pkg: net/http
               desc: a domain knows nothing of HTTP; httpapi translates its errors
+        capture-knows-no-file-store:
+          files:
+            - "**/internal/capture/**"
+            - "!$test" # the tests build real uploads
+          deny:
+            - pkg: github.com/ghislain95/hippo/backend/internal/assetfs
+              desc: capture consumes its capture.Image interface; httpapi hands it an assetfs.Upload
+        assetfs-is-a-leaf:
+          files:
+            - "**/internal/assetfs/**"
+            - "!$test" # its external tests import it
+          deny:
+            - pkg: net/http
+              desc: assetfs stores image files; it knows nothing of HTTP
+            - pkg: database/sql
+              desc: assetfs knows nothing of the database
+            - pkg: github.com/ghislain95/hippo/backend/internal/
+              desc: assetfs is a leaf package; it depends on no other package of Hippo
         generated-api-only-in-httpapi:
           files:
             - "$all"

@@ -112,6 +112,8 @@ RG-01, RG-02, RG-04, RG-07, RG-08, RG-09, RG-26
 
 ### E2-04 — Capturer une image · M
 
+✅ Terminé le 27 octobre 2026 par le change `capture-image` ([archive](../openspec/changes/archive/2026-10-27-capture-image/proposal.md)). Étend RG-26 (titre provisoire d'une image) ; le retrait des métadonnées et la conversion HEIC avant analyse sont renvoyés à E3-01.
+
 RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 - `POST /api/items` en multipart avec une image JPEG, PNG, HEIC ou WebP de 20 Mo maximum crée un élément `image` et une ligne `assets`.
 - Une image rejouée avec un `client_id` déjà utilisé renvoie `200` avec l'élément existant, sans nouvelle image (RG-08).
@@ -154,6 +156,10 @@ RG-12, RG-30, RG-31, RG-32 · ADR-0005, ADR-0006
 - Chaque requête suit [`prompt/README.md`](prompt/README.md) : partie fixe, référentiel, outil forcé, plafond de sortie, cache.
 - **Test obligatoire** : un élément privé n'apparaît dans aucune requête, quel que soit son statut.
 - Les éléments envoyés passent à `submitted` ; le batch est enregistré dans `batches`.
+- À trancher au cadrage avec Ghislain (hérité d'E2-02 et d'E2-04, 27 octobre 2026) :
+  - retirer les métadonnées (EXIF, position GPS) de la copie d'une image envoyée à l'IA ; le fichier sur le NAS reste intact ;
+  - convertir un HEIC avant l'envoi, l'API ne lisant que JPEG, PNG, GIF et WebP (l'appli et l'extension envoient du JPEG) ;
+  - que faire du résultat d'un élément rendu privé pendant qu'il est `submitted` (RG-15) ; la sélection revérifie `is_private` dans la transaction d'envoi.
 
 ### E3-02 — Suivre le batch et appliquer les résultats · M
 
@@ -241,6 +247,7 @@ RG-75, RG-76
 
 RG-79
 - `DELETE /api/items/{id}` supprime l'élément, ses tags associés et ses images sur disque ; une trace `deleted_at` reste pour la synchronisation (ADR-0018).
+- Hérité d'E2-04 (27 octobre 2026) : purger les fichiers d'image sous `DATA_DIR/assets` en plus des lignes `assets`, et nettoyer les fichiers orphelins éventuels laissés par un crash pendant une capture ([conventions du backend](dev/conventions-backend.md#fichiers-des-images)).
 
 ### E4-06 — Revue · M
 
@@ -308,6 +315,7 @@ RG-01 à RG-06, RG-10 · ADR-0014, ADR-0036
 - Points ouverts par le prototype E1, à trancher au cadrage :
   - conventions du code Swift (format, lint, tests) ;
   - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02).
+- Hérité d'E2-04 (27 octobre 2026) : vérifier la taille de l'image (20 Mo, RG-02) avant l'envoi. Un `413` reçu en plein envoi peut arriver comme une erreur réseau, et l'extension afficherait à tort « serveur injoignable ».
 
 ### E5-03 — Bibliothèque · M
 
@@ -329,6 +337,7 @@ RG-40 à RG-45, RG-75 à RG-78 · ADR-0011
 
 RG-01 à RG-08
 - Coller une URL, écrire ou dicter une note, choisir une image dans la photothèque, interrupteur Privé.
+- Hérité d'E2-04 (27 octobre 2026) : vérifier la taille de l'image (20 Mo, RG-02) avant l'envoi. Un `413` reçu en plein envoi peut arriver comme une erreur réseau, et une capture mise en attente hors ligne (RG-06) le rejouerait sans fin.
 - Hors ligne : la capture est mise en file locale et envoyée au retour du réseau, avec un `client_id` généré à la capture, pour qu'un renvoi ne crée jamais de doublon (RG-08).
 
 ### E5-06 — Revue · M
@@ -372,6 +381,7 @@ ADR-0015
 
 ADR-0020
 - Sauvegarde locale nocturne (base et images), 14 jours conservés.
+- Hérité d'E2-04 (27 octobre 2026) : copier la base (`VACUUM INTO`) puis les images de `DATA_DIR/assets`, en excluant les fichiers temporaires `.tmp-*`. Dans cet ordre, une image orpheline est possible, une ligne sans fichier ne l'est pas.
 - Sauvegarde externe chiffrée (service à choisir).
 - Restauration testée une fois, procédure dans `docs/runbook-nas.md`.
 

@@ -53,11 +53,26 @@ export interface paths {
          *     code points) and followed by `…` when longer (RG-26). The text of a note is stored as
          *     its `user_note`; a note is never a duplicate (RG-04). `source` defaults to `share`.
          *
-         *     Checks, in order: `client_id` and `source` follow this contract (`400 about:blank`);
-         *     `url` with `note`, or `note` with `user_note` (`ambiguous-capture`); neither `url` nor
-         *     `note` (`empty-capture`); `note` empty after trimming (`empty-note`); `url` not an
-         *     absolute `http` or `https` URL with a host (`invalid-url`). A capture refused by a check
-         *     stores nothing.
+         *     Checks of a JSON body, in order: `client_id` and `source` follow this contract (`400
+         *     about:blank`); `url` with `note`, or `note` with `user_note` (`ambiguous-capture`);
+         *     neither `url` nor `note` (`empty-capture`); `note` empty after trimming (`empty-note`);
+         *     `url` not an absolute `http` or `https` URL with a host (`invalid-url`). A capture
+         *     refused by a check stores nothing.
+         *
+         *     An image capture (multipart body, schema `CaptureImageRequest`) creates an `image` item
+         *     with one asset; an image is never a duplicate (RG-04). Its format is recognised from
+         *     its content, whatever type or file name the client declares (RG-02). Until analysis
+         *     runs, its title is the first non-empty line of its `user_note`, cut as for a note, or
+         *     else `Image du <day> <month> <year>`, the day the server receives it in Paris time,
+         *     the month in French and `1er` for the first day (RG-26). A replayed `client_id` returns
+         *     the existing item and stores no new file (RG-08). The parts may come in any order:
+         *     every part is read first, then checked, in this order: a declared `Content-Length`
+         *     or a body over 21 MiB (`413 about:blank`); an `image` over 20 MB, 20 × 1024 × 1024
+         *     bytes (`413 image-too-large`); the structure (`400 about:blank`: undeclared or repeated
+         *     field, `url` and `note` included, a second file, no `image`, a text field over 1 MiB or
+         *     not UTF-8, `is_private` other than exactly `true` or `false`); `client_id` and
+         *     `source`, as for JSON (`400 about:blank`); the format (`unsupported-image`). An upload
+         *     has 5 minutes.
          */
         post: operations["createItem"];
         delete?: never;
@@ -176,7 +191,10 @@ export interface paths {
         };
         /**
          * Download an image
-         * @description The image file of an item, as captured.
+         * @description The image file of an item, byte for byte as captured, to the user who owns it; `404`
+         *     for an unknown asset or another user's (RG-90). An asset never changes, so it may be
+         *     cached for good; range requests and validators are not supported. A download has 5
+         *     minutes.
          */
         get: operations["getAsset"];
         put?: never;
@@ -573,9 +591,14 @@ export interface components {
         /** @description An image of an item, stored on the NAS. */
         Asset: {
             id: components["schemas"]["Ulid"];
-            /** @example image/jpeg */
-            mime_type: string;
+            /**
+             * @description The type recognised from the content of the file (RG-02).
+             * @enum {string}
+             */
+            mime_type: "image/jpeg" | "image/png" | "image/heic" | "image/webp";
+            /** @description In pixels, for JPEG and PNG; `null` for HEIC and WebP. */
             width: number | null;
+            /** @description In pixels, for JPEG and PNG; `null` for HEIC and WebP. */
             height: number | null;
             /** Format: int64 */
             size_bytes: number;
@@ -694,18 +717,26 @@ export interface components {
             /** @description Chosen by the device; a capture replayed with the same id returns the existing item (RG-08). */
             client_id?: components["schemas"]["Ulid"];
         };
-        /** @description An image capture (screenshot or photo), 20 MB at most (RG-02). */
+        /** @description An image capture (screenshot or photo): exactly one `image` file and, optionally, the text fields below, each once, in any order. Any other field is refused. */
         CaptureImageRequest: {
-            /** Format: binary */
+            /**
+             * Format: binary
+             * @description JPEG, PNG, HEIC or WebP, 20 MB (20 × 1024 × 1024 bytes) at most (RG-02); stored as sent. Its declared type and file name are ignored.
+             */
             image: string;
+            /** @description Capture note (RG-03), 1 MiB at most; trimmed, blank means absent (RG-09). */
             user_note?: string;
-            /** @default false */
+            /**
+             * @description Exactly `true` or `false` (RG-10).
+             * @default false
+             */
             is_private: boolean;
             /**
              * @description Where the capture comes from; `share` when absent.
              * @default share
              */
             source: components["schemas"]["CaptureSource"];
+            /** @description Chosen by the device; a capture replayed with the same id returns the existing item (RG-08). */
             client_id?: components["schemas"]["Ulid"];
         };
         /** @description Fields to change; absent fields stay as they are, `null` clears a nullable field. */
@@ -1243,10 +1274,10 @@ export interface operations {
                     "application/json": components["schemas"]["Item"];
                 };
             };
-            /** @description Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member, data after the value, malformed `client_id`, unknown `source`). */
+            /** @description Invalid capture: `invalid-url`, `empty-note`, `empty-capture`, `ambiguous-capture`, `unsupported-image`; `about:blank` for a body that breaks this contract (undeclared member or field, data after the value, malformed `client_id`, unknown `source`, malformed multipart structure). */
             400: components["responses"]["Problem"];
             401: components["responses"]["Unauthorized"];
-            /** @description `image-too-large`, or `about:blank` for a JSON body over 1 MiB. */
+            /** @description `image-too-large` for an image over 20 MB, or `about:blank` for a JSON body over 1 MiB or a multipart body over 21 MiB. */
             413: components["responses"]["Problem"];
             /** @description Neither `application/json` nor `multipart/form-data`. */
             415: components["responses"]["Problem"];
@@ -1419,9 +1450,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The image. */
+            /** @description The image, with its recognised type as `Content-Type`. */
             200: {
                 headers: {
+                    /** @description Always `private, max-age=31536000, immutable`. */
+                    "Cache-Control"?: "private, max-age=31536000, immutable";
+                    /** @description Always `nosniff`. */
+                    "X-Content-Type-Options"?: "nosniff";
                     [name: string]: unknown;
                 };
                 content: {

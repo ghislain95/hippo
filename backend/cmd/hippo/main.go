@@ -22,6 +22,7 @@ import (
 	"time"
 	_ "time/tzdata" // the Paris zone of RG-04 without a time zone database in the image
 
+	"github.com/ghislain95/hippo/backend/internal/assetfs"
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/config"
@@ -34,6 +35,7 @@ var version = "dev"
 
 const (
 	databaseFile    = "hippo.db"
+	assetsDirectory = "assets" // image files, under DATA_DIR (ADR-0004, ADR-0019)
 	shutdownTimeout = 10 * time.Second
 )
 
@@ -86,6 +88,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		}
 	}()
 
+	assets, err := openAssets(filepath.Join(cfg.DataDir, assetsDirectory), logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := assets.Close(); err != nil {
+			logger.Error("close assets directory", slog.String("error", err.Error()))
+		}
+	}()
+
 	tokenHash := auth.HashToken(cfg.APIToken)
 	userID, err := st.EnsureSingleUser(ctx, tokenHash)
 	if err != nil {
@@ -95,18 +107,41 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(httpapi.Options{
-			Store:   st,
-			Auth:    auth.NewSingleUser(userID, tokenHash),
-			Capture: capture.NewService(st, paris),
-			Logger:  logger,
-			Version: version,
+			Store:      st,
+			Auth:       auth.NewSingleUser(userID, tokenHash),
+			Capture:    capture.NewService(st, paris, logger),
+			Assets:     st,
+			AssetFiles: assets,
+			Logger:     logger,
+			Version:    version,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second, // image uploads up to 20 MB (RG-02)
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// Image uploads and downloads get 5 minutes, set per request by httpapi.
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	return serve(ctx, server, logger)
+}
+
+// openAssets creates the assets directory if needed, removes the temporary files an
+// interrupted upload left, and fails at once when the service cannot write there.
+func openAssets(path string, logger *slog.Logger) (*assetfs.Dir, error) {
+	assets, err := assetfs.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := assets.RemoveTemps()
+	if err == nil {
+		err = assets.CheckWritable()
+	}
+	if err != nil {
+		return nil, errors.Join(err, assets.Close())
+	}
+	if removed > 0 {
+		logger.Info("removed leftover temporary uploads", slog.Int("count", removed))
+	}
+	return assets, nil
 }
 
 // serve runs the server until ctx is cancelled (SIGINT, SIGTERM), then drains it.

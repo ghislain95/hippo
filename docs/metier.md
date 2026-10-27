@@ -135,7 +135,7 @@ stateDiagram-v2
 - **RG-23** — **Repli.** Si l'extraction échoue (paywall, page qui exige JavaScript, Instagram, délai dépassé de 15 s), on conserve ce qu'on peut obtenir (`og:title`, `og:description`, image d'aperçu) et la note de capture. L'élément part quand même en analyse : il n'existe pas d'échec d'extraction bloquant.
 - **RG-24** — Le **contenu extrait** est conservé jusqu'à environ 120 000 caractères. Au-delà, il est coupé et l'élément est marqué **contenu tronqué** ; la fiche l'indique.
 - **RG-25** — Le **temps de lecture** de l'original est calculé à l'extraction (environ 230 mots par minute pour un texte, la durée pour une vidéo), pas par l'IA.
-- **RG-26** — **Titre provisoire.** Tant que l'extraction n'a pas eu lieu, le titre d'un lien est le nom d'hôte de son URL (`example.com`). L'extraction le remplace par le titre de la page. Tant que l'analyse n'a pas eu lieu, le titre d'une note est sa première ligne non vide, coupée à 80 caractères et suivie de « … » quand elle est plus longue. *(Ajoutée le 27 octobre 2026, étendue aux notes le même jour.)*
+- **RG-26** — **Titre provisoire.** Tant que l'extraction n'a pas eu lieu, le titre d'un lien est le nom d'hôte de son URL (`example.com`). L'extraction le remplace par le titre de la page. Tant que l'analyse n'a pas eu lieu, le titre d'une note est sa première ligne non vide, coupée à 80 caractères et suivie de « … » quand elle est plus longue ; le titre d'une image est la première ligne de sa note de capture, coupée de la même façon, ou à défaut « Image du 27 octobre 2026 » (jour de la capture à l'heure de Paris). *(Ajoutée le 27 octobre 2026, étendue aux notes et aux images le même jour.)*
 
 ### Analyse
 

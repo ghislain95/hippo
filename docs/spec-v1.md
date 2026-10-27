@@ -100,7 +100,7 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | reading_minutes | INTEGER, nullable | Temps de lecture de l'original, calculé à l'extraction (RG-25) |
 | type_id | INTEGER, nullable | Type de contenu ; ajouté par la story qui crée `content_types` |
 | category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par la story qui crée `categories` |
-| title | TEXT | Titre affiché : avant analyse, titre provisoire (nom d'hôte d'un lien, première ligne d'une note, [RG-26](metier.md#extraction)), puis titre d'origine ou écrit par l'IA |
+| title | TEXT | Titre affiché : avant analyse, titre provisoire (nom d'hôte d'un lien, première ligne d'une note, note de capture ou date d'une image, [RG-26](metier.md#extraction)), puis titre d'origine ou écrit par l'IA |
 | fiche_json | TEXT (JSON), nullable | Fiche générée, au format du type |
 | search_text | TEXT | Fiche aplatie en texte, pour la recherche |
 | content_ok | INTEGER (0/1), nullable | 0 = contenu pauvre (RG-37) |
@@ -138,6 +138,24 @@ La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle évolue ai
 
 Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y est aussi enregistrée, pour que son rejeu n'ajoute pas sa note une seconde fois et ne rende pas l'élément privé à nouveau (RG-08 prime sur RG-04). La table n'est pas synchronisée vers l'appli : elle n'a ni `updated_at` ni `change_seq`.
 
+**assets** — les images rattachées à un élément, créée par E2-04 (migration `00004_assets.sql`). Le fichier est sur le disque, la ligne le référence ([ADR-0004](adr/0004-sqlite.md)).
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| id | TEXT (ULID) | Identifiant de l'image |
+| item_id | TEXT (ULID) | Élément auquel l'image est rattachée |
+| user_id | TEXT | Propriétaire, le même que celui de l'élément |
+| path | TEXT | Chemin relatif à `DATA_DIR/assets`, de la forme `<user_id>/<asset_id>.<ext>`, construit uniquement à partir d'identifiants du serveur |
+| mime_type | TEXT | `image/jpeg`, `image/png`, `image/heic` ou `image/webp` (`CHECK`), reconnu au contenu du fichier |
+| width, height | INTEGER, nullable | Dimensions en pixels, remplies pour JPEG et PNG, nulles pour HEIC et WebP |
+| size_bytes | INTEGER | Taille du fichier |
+| created_at | TEXT | Réception de l'image |
+
+- Clé étrangère `(item_id, user_id)` vers `items (id, user_id)` (index unique `items_id_user`) : une image n'appartient qu'à un élément du même utilisateur (RG-90). Index `assets_item` sur `item_id`.
+- `assets` n'est pas réservée à `kind = image` : RG-23 prévoit une image d'aperçu pour un lien.
+- La table n'est pas synchronisée seule : les images voyagent dans `Item` (`SyncPage.items`). Elles sont insérées dans la transaction qui avance le `change_seq` de l'élément ; toute modification ultérieure des images d'un élément doit l'avancer aussi.
+- Le fichier est écrit et renommé **avant** la transaction, et supprimé si elle n'aboutit pas ([conventions du backend](dev/conventions-backend.md#fichiers-des-images)) : aucune ligne ne pointe vers un fichier absent. Un fichier orphelin reste possible après un crash entre l'écriture et la validation ; il est sans effet.
+
 **categories** — arborescence de 2 niveaux (RG-51).
 
 | Champ | Type | Rôle |
@@ -165,7 +183,6 @@ Unicité : `(user_id, parent_id, nom normalisé)`.
 **Autres tables**
 
 - **tags** (`id` entier, `user_id`, `name` unique par utilisateur, `updated_at`, `deleted_at`, `change_seq` ; un tag fusionné laisse une trace) et **item_tags** (`item_id`, `tag_id`).
-- **assets** : images (`id`, `item_id`, `user_id`, chemin relatif sur disque, type MIME, largeur, hauteur, taille).
 - **batches** : `id` Anthropic, `user_id`, statut (`in_progress`, `ended`, `failed`), nombre d'éléments, tokens d'entrée, de sortie et de cache, `cost_usd`, dates. Les analyses immédiates sont enregistrées dans une table **analysis_calls** de même forme, pour le calcul du budget.
 - **settings** : réglages clé-valeur par utilisateur, dont `last_review_at`.
 - **sync_sequence** : une seule ligne (`id = 1`), la valeur courante de la séquence de modification. Elle n'avance que par une seule fonction du store, dans la transaction de l'écriture ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)).
@@ -199,7 +216,7 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 
 | Méthode | Route | Rôle |
 | --- | --- | --- |
-| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée avec l'élément existant (RG-04, RG-07, RG-08) ; un doublon ajoute sa note datée (RG-04) et ne fait que resserrer la confidentialité : il peut rendre l'élément privé, jamais public (RG-15) |
+| POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image (voir ci-dessous) ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée avec l'élément existant (RG-04, RG-07, RG-08) ; un doublon ajoute sa note datée (RG-04) et ne fait que resserrer la confidentialité : il peut rendre l'élément privé, jamais public (RG-15) |
 | GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
 | GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
 | PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |
@@ -207,7 +224,7 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 | DELETE | /api/items/{item_id} | Supprimer |
 | POST | /api/items/{item_id}/analyze | Analyse immédiate |
 | POST | /api/items/{item_id}/retry | Remettre un élément `failed` en file |
-| GET | /api/assets/{asset_id} | Récupérer une image |
+| GET | /api/assets/{asset_id} | Récupérer une image, intacte, à son propriétaire seul (voir ci-dessous) |
 | GET | /api/review | Éléments analysés depuis la dernière revue, propositions |
 | POST | /api/review/done | Marquer la revue comme faite |
 | GET, POST | /api/categories | Arborescence ; créer une catégorie |
@@ -223,6 +240,17 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 | GET | /api/export | Archive Markdown |
 | GET | /api/stats | Éléments par statut, file, échecs, coût du mois |
 | GET | /healthz | État du service, sans authentification |
+
+**Capture d'une image** (E2-04) — `POST /api/items` en `multipart/form-data` :
+
+- Champs : `image` (le fichier, obligatoire), `user_note`, `is_private` (exactement `true` ou `false`), `client_id`, `source`, dans n'importe quel ordre. Les champs texte suivent les règles de la capture JSON (RG-08, RG-09). Un champ non déclaré ou répété, un second fichier, un `image` absent ou une valeur mal formée répondent `400 about:blank`.
+- Format : JPEG, PNG, HEIC ou WebP, reconnu au contenu du fichier ; le type et le nom de fichier déclarés par le client sont ignorés. Sinon `400 unsupported-image` (RG-02).
+- Taille : 20 Mo au plus, soit 20 × 1024 × 1024 octets ; au-delà, `413 image-too-large`. Le corps entier est borné à 21 Mio (`413 about:blank`), chaque champ texte à 1 Mio.
+- L'envoi dispose de 5 minutes, au lieu des 60 s du serveur, pour qu'une image de 20 Mo passe sur un réseau mobile lent.
+- Rien n'est stocké en cas de refus. Une capture rejouée répond `200` avec l'élément et son image existante, sans nouveau fichier (RG-08) ; une image n'est jamais un doublon (RG-04).
+- L'ordre exact des vérifications est dans le contrat.
+
+**Lecture d'une image** — `GET /api/assets/{asset_id}` renvoie le fichier tel que capturé, métadonnées comprises, avec son `Content-Type` enregistré et `Cache-Control: private, max-age=31536000, immutable`. Une image d'un autre utilisateur ou inconnue répond `404`. Toutes les réponses portent `X-Content-Type-Options: nosniff`.
 
 ## Application mobile
 

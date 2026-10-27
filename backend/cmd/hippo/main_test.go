@@ -3,7 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"io/fs"
+	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,6 +70,41 @@ func TestRun(t *testing.T) {
 		port := freePort(t)
 		if err := healthcheck(context.Background(), func(string) string { return "127.0.0.1:" + port }); err == nil {
 			t.Error("healthcheck on a closed port: want an error")
+		}
+	})
+}
+
+func TestOpenAssets(t *testing.T) {
+	t.Run("creates the assets directory and removes leftover temporary uploads only", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "assets")
+		if err := os.MkdirAll(filepath.Join(dir, "user"), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		for _, name := range []string{".tmp-leftover", "user/asset.png"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+				t.Fatalf("write %s: %v", name, err)
+			}
+		}
+		assets, err := openAssets(dir, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatalf("openAssets: %v", err)
+		}
+		t.Cleanup(func() { _ = assets.Close() })
+		if _, err := os.Stat(filepath.Join(dir, ".tmp-leftover")); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("leftover temporary file: stat = %v, want removed", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "user", "asset.png")); err != nil {
+			t.Errorf("committed file: %v, want kept", err)
+		}
+	})
+
+	t.Run("fails when the data directory cannot hold it", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := openAssets(filepath.Join(file, "assets"), slog.New(slog.NewJSONHandler(io.Discard, nil))); err == nil {
+			t.Error("openAssets under a file: want an error")
 		}
 	})
 }
