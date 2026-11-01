@@ -143,6 +143,14 @@ RG-10 à RG-14 · ADR-0023
 - Décocher Privé remet l'élément dans la file.
 - Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14).
 
+### E2-08 — Extraire un PDF · M
+
+RG-21, RG-23, RG-24, RG-25 · ADR-0008 — *ajoutée le 1er novembre 2026 à la demande de Ghislain*
+- Pour un lien vers un PDF, le texte est extrait et conservé comme celui d'une page web ; le titre vient des métadonnées du PDF, sinon du nom du fichier ; le temps de lecture est calculé.
+- PDF scanné (sans texte), protégé ou illisible : repli sans contenu (RG-23).
+- Avant d'ajouter la dépendance : comparer 2 ou 3 bibliothèques Go sans CGO sur des PDF de test (article, scanné, abîmé) et soumettre le résultat à Ghislain (dépendance nouvelle).
+- Jusqu'à cette story, un lien vers un PDF passe en repli sans contenu (E2-05).
+
 ---
 
 ## E3 — Analyse
