@@ -1,10 +1,11 @@
-// Command hippo is the Hippo backend: HTTP API, SQLite storage and, later, the extraction and
-// the nightly analysis (ADR-0003).
+// Command hippo is the Hippo backend: HTTP API, SQLite storage, the extraction of captured
+// items and, later, the nightly analysis (ADR-0003).
 //
 // Usage:
 //
-//	hippo              start the server (configuration from environment variables)
-//	hippo healthcheck  probe the local /healthz, for the Docker healthcheck
+//	hippo               start the server (configuration from environment variables)
+//	hippo healthcheck   probe the local /healthz, for the Docker healthcheck
+//	hippo extract-page  read one page from stdin, as the child of the extraction (internal use)
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/config"
+	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
@@ -40,6 +42,11 @@ const (
 )
 
 func main() {
+	// The child that reads one page for the extraction, bounded in memory and in time: it loads
+	// no configuration, opens no database and logs nothing (internal/extraction, RunChild).
+	if len(os.Args) > 1 && os.Args[1] == extraction.ChildCommand {
+		os.Exit(extraction.RunChild(os.Stdin, os.Stdout))
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	// After the first signal, restore the default handling: a second Ctrl-C during the drain
 	// stops the process at once.
@@ -104,12 +111,42 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return err
 	}
 
+	// The extraction runs in the background, one item at a time; it never reaches a local or
+	// private address (RG-27). The deferred functions run in reverse order: Run has returned,
+	// so nothing writes any more, before the store is closed.
+	// Each page is read by a child process of this binary (`hippo extract-page`), so that a
+	// page whose tree is too heavy kills the child, not the service.
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate the binary for the page reader: %w", err)
+	}
+	worker := extraction.NewWorker(extraction.Options{
+		Store:         st,
+		Policy:        extraction.PublicAddress,
+		Logger:        logger,
+		Version:       version,
+		ReaderCommand: []string{executable, extraction.ChildCommand},
+	})
+	// The worker has its own context: a server that fails without any signal (port taken) stops
+	// it too, instead of waiting for a signal that never comes.
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		worker.Run(workerCtx)
+	}()
+	defer func() {
+		cancelWorker()
+		<-workerDone
+	}()
+	worker.Wake() // the items left queued at the last stop
+
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(httpapi.Options{
 			Store:      st,
 			Auth:       auth.NewSingleUser(userID, tokenHash),
-			Capture:    capture.NewService(st, paris, logger),
+			Capture:    capture.NewService(st, worker, paris, logger),
 			Assets:     st,
 			AssetFiles: assets,
 			Logger:     logger,

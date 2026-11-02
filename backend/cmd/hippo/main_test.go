@@ -53,6 +53,31 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("returns an error when the port is taken, without waiting for a signal", func(t *testing.T) {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("listen: %v", err)
+		}
+		t.Cleanup(func() { _ = listener.Close() })
+		env := map[string]string{
+			"API_TOKEN": "test-token-0123456789abcdef012345",
+			"HTTP_ADDR": listener.Addr().String(),
+			"DATA_DIR":  t.TempDir(),
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- run(context.Background(), nil, func(name string) string { return env[name] }, &bytes.Buffer{})
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "listen") {
+				t.Errorf("run() error = %v, want a listen error", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("run did not return: the extraction worker outlived the server")
+		}
+	})
+
 	t.Run("refuses to start with an invalid configuration", func(t *testing.T) {
 		err := run(context.Background(), nil, func(string) string { return "" }, &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "API_TOKEN") {

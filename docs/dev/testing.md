@@ -28,7 +28,7 @@ Les tests d'intégration démarrent le vrai handler (`httpapi.NewServer(...)`) d
 
 ### Dépendances externes
 
-- **Aucun accès réseau en test.** Les pages web et transcriptions sont des fichiers enregistrés dans `backend/testdata/` (servis par un `httptest.Server` local si le code fait une requête HTTP).
+- **Aucun accès réseau en test.** Les pages web et transcriptions sont des fichiers fictifs dans `backend/testdata/` (servis par un `httptest.Server` local si le code fait une requête HTTP), jamais de vraies pages : le dépôt est public. Les pages dont la taille ou la forme compte (texte de 200 000 caractères, page de 2 Mo, pages hostiles des relectures, liste de cartes) sont construites par `internal/extraction/pagestest` au lieu d'être versionnées. Le processus enfant qui lit une page est, en test, le binaire de test lui-même : son `TestMain` exécute `extraction.RunChild` quand il est appelé avec `extract-page`, et d'autres modes simulent un enfant qui reste bloqué (il le signale par une FIFO, sans attente), qui plante ou qui répond n'importe quoi. L'extraction accepte `127.0.0.1` grâce à une politique d'adresses de test ([HTTP sortant](conventions-backend.md#http-sortant)).
 - **IA** : le pipeline dépend de l'interface `Analyzer` ([ADR-0005](../adr/0005-haiku-batch.md)) ; les tests utilisent une fausse implémentation qui rejoue des réponses `classify_item` enregistrées et **enregistre les requêtes reçues**. Ce n'est pas un mock du stockage : c'est la frontière avec un service tiers.
 - **Horloge** : injectée (`func() time.Time`), jamais `time.Now()` dans le code testé quand le résultat en dépend (batch de 2 h, budget du mois, dates de revue).
 
@@ -77,7 +77,7 @@ Décrit dans [eval-set.md](../prompt/eval-set.md) ; lancé par `/eval-prompt`. L
 
 | Où | Quoi |
 | --- | --- |
-| `backend/testdata/` | Pages HTML et transcriptions enregistrées, réponses `classify_item`, images de test |
+| `backend/testdata/` | Pages HTML et transcriptions fictives, réponses `classify_item`, images de test |
 | `backend/testdata/eval/` | Cas du jeu de test et rapports |
 | `docs/prompt/schemas/examples/` | Un exemple de réponse `classify_item` par type de fiche, validé contre le schéma assemblé ; réutilisé par les tests de templates et d'export |
 | `app/src/**/__fixtures__/` | Réponses d'API pour les tests de l'appli |

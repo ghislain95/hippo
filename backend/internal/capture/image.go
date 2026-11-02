@@ -144,7 +144,7 @@ func (s *Service) CaptureImage(ctx context.Context, userID string, req ImageRequ
 	if err != nil {
 		return Result{}, fmt.Errorf("capture image: %w", err)
 	}
-	return Result{Item: item, Created: created}, nil
+	return s.created(Result{Item: item, Created: created}), nil
 }
 
 // imageFormat is a recognised image format, with the dimensions of a decoded header.

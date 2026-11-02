@@ -63,6 +63,15 @@ linters:
               desc: assetfs knows nothing of the database
             - pkg: github.com/ghislain95/hippo/backend/internal/
               desc: assetfs is a leaf package; it depends on no other package of Hippo
+        page-reading-only-in-extraction:
+          files:
+            - "$all"
+            - "!**/internal/extraction/**"
+          deny:
+            - pkg: codeberg.org/readeck/go-readability
+              desc: only internal/extraction reads web pages
+            - pkg: golang.org/x/net
+              desc: only internal/extraction parses HTML and decodes charsets
         generated-api-only-in-httpapi:
           files:
             - "$all"
@@ -84,6 +93,12 @@ linters:
       - comments
       - std-error-handling
     rules:
+      # The extraction runs its own binary (os.Executable) as the child that reads a page, with
+      # fixed arguments and an environment of its own (internal/extraction/child.go).
+      - path: internal/extraction/child\.go
+        linters:
+          - gosec
+        text: G204
       - path: _test\.go
         linters:
           - bodyclose # bodies are closed in t.Cleanup by the test helpers

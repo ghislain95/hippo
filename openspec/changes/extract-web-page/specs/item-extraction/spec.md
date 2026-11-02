@@ -7,7 +7,7 @@ Describes what happens to a captured item between `queued` and `extracted`: the 
 ## ADDED Requirements
 
 ### Requirement: Every captured item reaches extracted without blocking
-After a capture, and at start-up for any item left `queued`, the backend SHALL extract the item in the background, without any AI call, and set its `status` to `extracted` with `extracted_at`, whatever the outcome of the page; a capture SHALL never wait for it. Only a stop of the backend or a network outage on the NAS side leaves an item `queued`, to be retried (RG-20, RG-23).
+After a capture, and at start-up for any item left `queued`, the backend SHALL extract the item in the background, without any AI call, and set its `status` to `extracted` with `extracted_at`, whatever the outcome of the page; a capture SHALL never wait for it. Only a stop of the backend or a network outage on the NAS side leaves an item `queued`, to be retried; a link that alone keeps failing on the network, while other links succeed, falls back at its third such failure (RG-20, RG-23).
 
 #### Scenario: A captured link becomes extracted
 - **GIVEN** a page served with a title and an article
@@ -28,6 +28,16 @@ After a capture, and at start-up for any item left `queued`, the backend SHALL e
 - **GIVEN** the NAS cannot resolve any host name
 - **WHEN** the user captures a link
 - **THEN** the item stays `queued`, and becomes `extracted` once the network is back
+
+#### Scenario: A link that keeps failing on the network falls back
+- **GIVEN** a link whose resolution fails on the NAS side at every pass, while another link succeeds between passes
+- **WHEN** three passes have taken place
+- **THEN** the item becomes `extracted` with `extraction_mode` `fallback`
+
+#### Scenario: A NAS outage never makes a link fall back
+- **GIVEN** no link can succeed during 5 passes
+- **WHEN** the five passes have taken place
+- **THEN** the item stays `queued`
 
 #### Scenario: A page that crashed the backend is not fetched again
 - **GIVEN** a link whose extraction had started when the backend stopped abruptly
@@ -61,7 +71,7 @@ For a link to an HTML page answered with a success status, the extraction SHALL 
 - **THEN** the item's `title` is `Crème brûlée`
 
 ### Requirement: Long content is truncated and marked
-Content longer than 120 000 characters SHALL be cut at a word boundary at most 120 000 characters long and the item marked `content_truncated`; shorter content SHALL be kept whole (RG-24).
+Content longer than 120 000 characters SHALL be cut at a word boundary at most 120 000 characters long and the item marked `content_truncated`; shorter content SHALL be kept whole (RG-24). This applies to the description kept by a fallback as to the main content of a page.
 
 #### Scenario: Very long article
 - **GIVEN** a recorded page whose main content is 200 000 characters long
@@ -72,8 +82,13 @@ Content longer than 120 000 characters SHALL be cut at a word boundary at most 1
 - **WHEN** the user captures the URL of an article of 5 000 characters
 - **THEN** the item has `content_truncated` false and its content holds the whole article
 
+#### Scenario: Very long description in a fallback
+- **GIVEN** a page answered `200` whose only text is an `og:description` of 2 000 000 characters
+- **WHEN** the user captures its URL
+- **THEN** the item has `extraction_mode` `fallback`, `content_truncated` true, `reading_minutes` null, and its content is at most 120 000 characters long and ends on a whole word
+
 ### Requirement: A failed extraction falls back
-When the page cannot be read — no answer within 15 s in total, an HTTP error status, a body over 5 MB, a body that is not HTML, an empty or too short main content — the item SHALL still become `extracted` with `extraction_mode` `fallback`: its title is `og:title`, else the page `<title>`, else the provisional title, `og:description` read only on a success status; `reading_minutes` SHALL stay null and the item is never marked truncated. A link never gets `extraction_mode` `none`, which is kept for notes and images (RG-23, RG-26).
+When the page cannot be read — no answer within 15 s in total, an HTTP error status, a body over 2 MB, a body that is not HTML, an empty or too short main content, a page whose reading needs more memory or time than allowed — the item SHALL still become `extracted` with `extraction_mode` `fallback`: its title is `og:title`, else the page `<title>`, else the provisional title, `og:description` read only on a success status; `reading_minutes` SHALL stay null, and a description longer than 120 000 characters is cut and marked `content_truncated` as content is (RG-24). A link never gets `extraction_mode` `none`, which is kept for notes and images (RG-23, RG-26).
 
 #### Scenario: Page that does not answer in time
 - **GIVEN** a page that answers after 20 s
@@ -95,9 +110,13 @@ When the page cannot be read — no answer within 15 s in total, an HTTP error s
 - **WHEN** the user captures its URL
 - **THEN** the item has `extraction_mode` `fallback`, its content is `A short summary` and `reading_minutes` is null
 
+#### Scenario: Page too heavy to read
+- **GIVEN** a page of about 200 KB built so that its tree needs more memory than the reading is allowed
+- **WHEN** the user captures its URL
+- **THEN** the item becomes `extracted` with `extraction_mode` `fallback`, and the backend keeps answering
 
 #### Scenario: Oversized page
-- **GIVEN** a page whose body exceeds 5 MB, compressed or not
+- **GIVEN** a page whose body exceeds 2 MB, compressed or not
 - **WHEN** the user captures its URL
 - **THEN** the item becomes `extracted` with `extraction_mode` `fallback` without the body being read beyond the limit
 
