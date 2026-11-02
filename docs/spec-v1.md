@@ -62,7 +62,7 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 | --- | --- | --- |
 | Backend | Go, librairie standard `net/http`, `log/slog` | [0003](adr/0003-backend-go.md) |
 | Base de données | SQLite (WAL) + FTS5, driver `modernc.org/sqlite`, images sur disque | [0004](adr/0004-sqlite.md) |
-| Extraction | go-readability ; transcriptions YouTube | [0008](adr/0008-extraction-et-reanalyse.md) |
+| Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; transcriptions YouTube | [0008](adr/0008-extraction-et-reanalyse.md) |
 | IA | Claude Haiku 4.5, API Message Batches, SDK `anthropic-sdk-go`, derrière une interface `Analyzer` | [0005](adr/0005-haiku-batch.md) |
 | Sortie de l'IA | Outil `classify_item` forcé, validé par JSON Schema | [0006](adr/0006-sortie-structuree.md) |
 | Contrat d'API | OpenAPI 3.1, `oapi-codegen` côté Go, client TypeScript généré | [0017](adr/0017-contrat-openapi.md) |
@@ -94,7 +94,7 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | user_note | TEXT, nullable | Note de capture (contenu de l'élément pour `kind = note`) |
 | is_private | INTEGER (0/1) | 1 = jamais envoyé à l'IA ; 0 par défaut |
 | status | TEXT | `queued`, `extracted`, `submitted`, `analyzed`, `failed` |
-| extraction_mode | TEXT, nullable | `full`, `fallback`, `none` |
+| extraction_mode | TEXT, nullable | `full`, `fallback`, `none` ; `none` pour une note ou une image seulement ([extraction](#extraction-dun-élément)) |
 | content_text | TEXT, nullable | Contenu extrait, conservé pour la réanalyse (~120 000 caractères max) |
 | content_truncated | INTEGER (0/1) | Le contenu dépassait la limite |
 | reading_minutes | INTEGER, nullable | Temps de lecture de l'original, calculé à l'extraction (RG-25) |
@@ -156,6 +156,20 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 - La table n'est pas synchronisée seule : les images voyagent dans `Item` (`SyncPage.items`). Elles sont insérées dans la transaction qui avance le `change_seq` de l'élément ; toute modification ultérieure des images d'un élément doit l'avancer aussi.
 - Le fichier est écrit et renommé **avant** la transaction, et supprimé si elle n'aboutit pas ([conventions du backend](dev/conventions-backend.md#fichiers-des-images)) : aucune ligne ne pointe vers un fichier absent. Un fichier orphelin reste possible après un crash entre l'écriture et la validation ; il est sans effet.
 
+**extraction_attempts** — la tentative d'extraction en cours d'un lien, créée par E2-05 (migration `00005_extraction_attempts.sql`). Rôle : [marqueur de tentative](#extraction-dun-élément).
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| item_id | TEXT (ULID) | Clé primaire : le lien en cours d'extraction |
+| user_id | TEXT | Propriétaire, le même que celui de l'élément |
+| started_at | TEXT, nullable | Début du téléchargement en cours (ISO 8601 UTC) ; null quand aucun téléchargement n'est en cours (après un arrêt ou un report réseau) |
+| network_retries | INTEGER | Nombre de reports comptés pour panne réseau (un report compte seulement si un autre lien a joint son site entre-temps) ; au 3e report compté, le lien passe en repli |
+| outcome | TEXT, nullable | Null : tentative en cours ou interrompue ; `deferred_pdf` (`CHECK`) : lien répondu en PDF, laissé en file pour E2-08 |
+
+- Clé étrangère `(item_id, user_id)` vers `items (id, user_id)` : une tentative n'appartient qu'à un élément du même utilisateur (RG-90). Table `STRICT`.
+- `started_at` est renseigné et validé avant le téléchargement. Au démarrage, une ligne dont `started_at` est renseigné signale un téléchargement interrompu par un crash : le lien passe en repli sans être retéléchargé. Un arrêt ou un report réseau remet `started_at` à null et garde la ligne, avec son compteur. La ligne est supprimée dans la transaction qui écrit l'élément en `extracted`.
+- La table n'est pas synchronisée vers l'appli : ni `updated_at` ni `change_seq`.
+
 **categories** — arborescence de 2 niveaux (RG-51).
 
 | Champ | Type | Rôle |
@@ -195,7 +209,7 @@ Les migrations sont versionnées et appliquées au démarrage.
 Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois par nuit, en un seul batch. Le cycle de vie complet est dans le [document métier](metier.md#4-cycle-de-vie-dun-élément).
 
 1. **Capture** — `POST /api/items` crée l'élément en `queued` et répond tout de suite (RG-01 à RG-06).
-2. **Extraction** — en arrière-plan, juste après : page web via go-readability (timeout 15 s), transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-25). Une file en mémoire traite les extractions une par une ; au démarrage, les éléments restés `queued` sont repris.
+2. **Extraction** — en arrière-plan, juste après : page web via go-readability, transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-27). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
 3. **Envoi du batch** — à 2 h (`BATCH_SCHEDULE`), les éléments `extracted` **non privés** partent dans un seul batch, 200 au maximum, après vérification du budget (RG-30 à RG-32, RG-81). Statut `submitted`.
 4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
 5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
@@ -209,6 +223,74 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 - Entrée : le contenu extrait seul, jamais le HTML, jusqu'à ~120 000 caractères ; images redimensionnées à 1 568 px sur leur plus grand côté avant envoi.
 - Sortie : plafond de 4 000 tokens, 8 000 pour la seconde tentative d'une réponse coupée (RG-36) ; la longueur réelle suit la richesse du contenu.
 - Cache de prompt sur la partie fixe, le référentiel et l'outil.
+
+### Extraction d'un élément
+
+Mise en œuvre de RG-20 à RG-27 pour les pages web, livrée par E2-05 (change `extract-web-page`, 1er novembre 2026). Les transcriptions YouTube (E2-06) et les PDF (E2-08) restent à faire.
+
+**Déroulement**
+
+- Une tâche de fond du binaire (package `internal/extraction`), sans appel à l'IA ni vérification de budget.
+- Une extraction à la fois, utilisateur par utilisateur, la plus ancienne d'abord ; chaque requête filtre par `user_id` (RG-90).
+- Réveil après chaque capture qui crée un élément, au démarrage, et toutes les 5 minutes en filet de sécurité.
+- Une note ou une image passe à `extracted` tout de suite, mode `none`, sans réseau.
+- Un lien est téléchargé une fois, lu par Readability, puis écrit en mode `full` ou `fallback`. Un lien ne finit jamais en `none`, réservé aux notes et aux images.
+- L'élément est écrit une fois, en une transaction : colonnes d'extraction seulement (jamais `user_note` ni `is_private`), `extracted_at`, `updated_at` et `change_seq` ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)). Un élément supprimé ou modifié entre-temps n'est pas écrit.
+
+**Modes d'extraction**
+
+| Mode | Quand | Ce qui est écrit |
+| --- | --- | --- |
+| `full` | Réponse 2xx en HTML, texte principal d'au moins 200 caractères | Titre : Readability, sinon `og:title`, sinon `<title>`, sinon le titre provisoire (RG-26). Site : `og:site_name`, sinon Readability, sinon l'hôte. Contenu coupé à ~120 000 caractères (RG-24). Temps de lecture à 230 mots par minute sur le texte avant coupe, 1 minute au moins (RG-25) |
+| `fallback` | Délai dépassé (téléchargement ou lecture), statut d'erreur, type autre que HTML, page trop grande ou trop lourde à lire, texte trop court, adresse refusée, échec du site (connexion refusée, TLS, boucle de redirections, domaine inexistant), lecture en échec | Sur une réponse 2xx seulement : `og:title` ou `<title>`, et `og:description` comme contenu, coupée à ~120 000 caractères et marquée tronquée au-delà, comme tout contenu (RG-24). Sinon le titre provisoire et l'hôte. Pas de temps de lecture (RG-23) |
+| `none` | Note, image | Rien |
+
+L'image d'aperçu de RG-23 n'est pas récupérée : aucune image n'est créée pour un lien.
+
+**Limites**
+
+- 15 s pour tout le téléchargement : DNS, TLS, redirections, en-têtes et corps.
+- 10 redirections au plus, `http` et `https` seulement.
+- 2 Mo de corps décompressé au plus ; au-delà, repli. La limite prévue était 5 Mo. La mesure du 1er novembre 2026 l'a abaissée : un article de 5 Mo montait à 59 Mo de tas, 23 Mo à 2 Mo, dans un conteneur de 128 Mo ([ADR-0019](adr/0019-deploiement-docker-nas.md)).
+- La page est lue dans un **processus enfant** du même binaire (`hippo extract-page`), borné à 48 Mio de mémoire et à 10 s : au-delà de la mémoire, il s'arrête et le lien passe en repli (`too_large`) ; au-delà du temps, il est tué (repli, `timeout`). La mémoire d'un arbre HTML suit le balisage et non la taille : des pages de 200 Ko construites pour cela montaient à 85-160 Mo, dans un conteneur de 128 Mo. Décidé avec Ghislain le 2 novembre 2026, à la place d'une estimation du nombre d'éléments, contournée en relecture.
+- L'enfant ne reçoit que `GOMAXPROCS=2` comme environnement, jamais celui du service (token, clé d'API) ; il ne lit pas la configuration, n'ouvre pas la base et n'écrit pas de log.
+- 20 000 éléments au plus pour Readability (`MaxElemsToParse`), qui borne son temps ; au-delà, repli.
+- Titre et nom de site gardés de la page (Readability, `og:title`, `<title>`, `og:site_name`) : 1 000 caractères au plus (`MaxTitleLength`), coupés entre deux mots, sans points de suspension ni marque. Borne technique contre une page hostile ; aucun vrai titre n'en approche.
+- Un processus enfant qui ne peut pas démarrer (binaire absent, `fork` refusé) laisse l'élément `queued` : la passe s'interrompt 5 minutes, comme pour une panne réseau.
+- Mesures du 2 novembre 2026 : un article de 2 Mo est lu avec 34,5 Mo, 13,5 Mo sous la limite ; dans un conteneur de 128 Mo, le service au repos et un enfant à sa limite culminent à 98,6 Mo. Un lancement coûte environ 8 ms.
+
+**Adresses (RG-27)**
+
+Seules les adresses publiques d'Internet sont contactées. Sont refusées : boucle locale, réseaux privés, lien local, plage Tailscale `100.64.0.0/10`, plages locales IPv6 et plages réservées. Le contrôle porte sur chaque adresse réellement appelée, redirections et changement de résolution DNS compris. Un lien vers l'adresse publique de la maison passe par la box : RG-27 ne le couvre pas (accepté avec Ghislain le 1er novembre 2026).
+
+**Éléments privés (RG-92)**
+
+Ils sont extraits comme les autres : seule l'URL capturée est demandée à son site, rien d'autre ne lui est envoyé, et rien ne part vers l'IA (RG-12). Le site voit l'adresse publique du NAS, comme pour un navigateur ; un lien à usage unique est consommé.
+
+**Requête**
+
+- User-Agent `Hippo/<version> (personal read-later)` : le NAS se présente honnêtement.
+- Pas de proxy, pas de cookie persistant (un stock de cookies éphémère par élément), identifiants retirés de l'URL.
+- Règles du client HTTP : [conventions du backend](dev/conventions-backend.md#http-sortant).
+
+**Ce qui laisse l'élément `queued`**
+
+| Cas | Effet |
+| --- | --- |
+| Arrêt du backend pendant un téléchargement | Rien n'est écrit sur l'élément ; `started_at` est remis à null ; l'élément est repris au redémarrage |
+| Panne réseau côté NAS (aucun résolveur DNS joignable, réseau ou hôte injoignable) | Rien n'est écrit sur l'élément ; la passe essaie encore 2 liens d'autres hôtes au plus, puis le worker attend 5 minutes. Un report ne compte que si un autre lien a joint son site depuis le report précédent de ce lien : une panne du NAS qui empêche la résolution, coupe le réseau ou rend les hôtes injoignables ne fait donc jamais passer un lien en repli ; au 3e report compté (un domaine en panne), le lien passe en repli. Si le DNS répond depuis un cache alors que la liaison Internet est coupée, la connexion expire : c'est un échec du site, et le lien passe en repli |
+| Lien YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) | Laissé en file jusqu'à E2-06 |
+| Lien répondu en PDF (`application/pdf` ou corps qui commence par `%PDF-`) | Marqué `deferred_pdf` dans `extraction_attempts`, laissé en file jusqu'à E2-08 |
+
+Un site qui ne répond pas, refuse la connexion ou n'existe pas (le résolveur a répondu « hôte inconnu ») est un échec du site : repli.
+
+**Marqueur de tentative**
+
+Avant de télécharger un lien, `started_at` est renseigné dans sa ligne `extraction_attempts` et validé. La ligne disparaît avec l'écriture du résultat ; un arrêt ou un report réseau remet `started_at` à null. Au démarrage, une ligne dont `started_at` est renseigné signale une tentative interrompue (crash, arrêt faute de mémoire) : le lien passe en repli sans être téléchargé de nouveau. Une page hostile ne peut donc pas faire tomber le service en boucle.
+
+**Bibliothèque**
+
+[ADR-0008](adr/0008-extraction-et-reanalyse.md) retient go-readability. Le module d'origine, `github.com/go-shiori/go-readability`, est archivé depuis le 30 décembre 2025 et renvoie vers son fork maintenu, `codeberg.org/readeck/go-readability/v2`, épinglé en v2.1.3 (accord de Ghislain le 1er novembre 2026). Le choix de l'ADR ne change pas. `golang.org/x/net/html` lit les balises `og:*` et `html/charset` décode l'encodage déclaré.
 
 ## API REST
 

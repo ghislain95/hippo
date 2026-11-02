@@ -129,3 +129,25 @@ func ItemAssetsForTest(t testing.TB, s *Store, userID, itemID string) ([]Asset, 
 	t.Helper()
 	return assetsOfItem(t.Context(), s.db, userID, itemID)
 }
+
+// AttemptCountForTest counts the extraction attempt rows of a user (tests only).
+func AttemptCountForTest(t testing.TB, s *Store, userID string) int {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM extraction_attempts WHERE user_id = ?`, userID).Scan(&count); err != nil {
+		t.Fatalf("count extraction attempts: %v", err)
+	}
+	return count
+}
+
+// AttemptUnderWayForTest tells whether the attempt of an item has its started_at set (tests
+// only).
+func AttemptUnderWayForTest(t testing.TB, s *Store, userID, itemID string) bool {
+	t.Helper()
+	var underWay bool
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT started_at IS NOT NULL FROM extraction_attempts WHERE user_id = ? AND item_id = ?`, userID, itemID).Scan(&underWay); err != nil {
+		t.Fatalf("read extraction attempt: %v", err)
+	}
+	return underWay
+}

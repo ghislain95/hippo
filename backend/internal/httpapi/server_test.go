@@ -75,7 +75,7 @@ func newFixture(t *testing.T) fixture {
 	handler := httpapi.NewServer(httpapi.Options{
 		Store:      st,
 		Auth:       twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
-		Capture:    capture.NewService(st, paris, logger),
+		Capture:    capture.NewService(st, noWake{}, paris, logger),
 		Assets:     st,
 		AssetFiles: assets,
 		Logger:     logger,
@@ -112,6 +112,12 @@ func (c *testClock) Advance(d time.Duration) {
 	defer c.mu.Unlock()
 	c.now = c.now.Add(d)
 }
+
+// noWake is the waker of a capture without extraction worker: the scenarios of the API stay
+// deterministic, and the items stay queued.
+type noWake struct{}
+
+func (noWake) Wake() {}
 
 // twoUsers authenticates the tokens of two users with the real single-user authenticator.
 type twoUsers [2]auth.SingleUser

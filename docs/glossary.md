@@ -32,6 +32,9 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | --- | --- | --- |
 | **Extraction** | `extraction` | Récupération du texte utile d'un élément de forme `link` : contenu principal d'une page web, ou transcription d'une vidéo YouTube. Faite juste après la capture, sans IA. |
 | **Contenu extrait** | `content_text` | Le texte obtenu par l'extraction, conservé tel quel pour pouvoir réanalyser plus tard sans retélécharger. |
+| **Mode d'extraction** | `extraction_mode` : `full`, `fallback`, `none` | Comment l'extraction a abouti : contenu principal lu (`full`), **repli** (`fallback`), ou rien à extraire (`none`, une note ou une image seulement ; jamais un lien). |
+| **Repli** | `fallback` | Extraction d'un lien qui n'a pas pu lire le contenu principal : on garde ce qu'on a pu obtenir (`og:title`, `og:description`) et la note de capture. L'élément part quand même en analyse (RG-23). |
+| **Tentative d'extraction** | table `extraction_attempts` | Ligne écrite avant le téléchargement d'un lien et effacée avec son résultat. Une ligne dont `started_at` est renseigné signale une tentative interrompue (crash) : le lien passe en repli sans être retéléchargé. Marqué `deferred_pdf`, il garde en file un lien répondu en PDF. |
 | **Contenu tronqué** | `content_truncated` | Le contenu extrait dépassait la limite (~120 000 caractères) et a été coupé. |
 | **Contenu pauvre** | `content_ok = false` | L'IA a jugé le contenu insuffisant pour produire une vraie fiche (paywall, page vide, reel sans légende). La fiche se limite à ce qui est connu. |
 | **Analyse** | `analysis` | Le traitement d'un élément par l'IA : choix du type, de la catégorie, des tags, et rédaction de la fiche. |

@@ -122,6 +122,8 @@ RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 
 ### E2-05 — Extraire une page web · M
 
+✅ Terminé le 2 novembre 2026 par le change `extract-web-page` ([archive](../openspec/changes/archive/2026-11-02-extract-web-page/proposal.md)). Ajoute RG-27 (adresses locales jamais chargées) et une exception à RG-92 (l'extraction demande l'URL à son site, éléments privés compris). Chaque page est lue dans un processus enfant à mémoire bornée.
+
 RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 - Après la capture d'un lien, l'extraction s'exécute en arrière-plan ; l'élément passe à `extracted`.
 - Le titre, le site et le contenu principal sont extraits avec go-readability ; le temps de lecture est calculé.
@@ -134,6 +136,7 @@ RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 RG-22
 - Pour une URL YouTube, titre, chaîne, durée et transcription (si disponible, langue d'origine) sont extraits ; le temps de lecture est la durée.
 - Sans transcription : repli sur titre et description.
+- Hérité d'E2-05 (1er novembre 2026) : reprendre les liens YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) restés `queued` ; l'extraction des pages web les laisse en file sans les télécharger ([spec](spec-v1.md#extraction-dun-élément)).
 
 ### E2-07 — Marquer un élément privé · M
 
@@ -142,6 +145,14 @@ RG-10 à RG-14 · ADR-0023
 - Un élément privé n'est jamais sélectionné pour l'analyse (vérifié dans E3-01 et E3-06).
 - Décocher Privé remet l'élément dans la file.
 - Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14).
+
+### E2-08 — Extraire un PDF · M
+
+RG-21, RG-23, RG-24, RG-25 · ADR-0008 — *ajoutée le 1er novembre 2026 à la demande de Ghislain*
+- Pour un lien vers un PDF, le texte est extrait et conservé comme celui d'une page web ; le titre vient des métadonnées du PDF, sinon du nom du fichier ; le temps de lecture est calculé.
+- PDF scanné (sans texte), protégé ou illisible : repli sans contenu (RG-23).
+- Avant d'ajouter la dépendance : comparer 2 ou 3 bibliothèques Go sans CGO sur des PDF de test (article, scanné, abîmé) et soumettre le résultat à Ghislain (dépendance nouvelle).
+- Hérité d'E2-05 (1er novembre 2026) : reprendre les liens marqués `deferred_pdf` dans `extraction_attempts`. Ils sont restés `queued` et ne sont plus téléchargés par l'extraction des pages web ([spec](spec-v1.md#extraction-dun-élément)).
 
 ---
 
@@ -226,6 +237,7 @@ RG-95, RG-96 · ADR-0024
 - `GET /api/items` accepte `q`, `type`, `category` (inclut les sous-catégories), `tag`, `status`, `read_status`, `pinned`, `unsorted` (À trier), combinables.
 - La recherche ignore casse et accents (« detartrer » trouve « détartrer ») et porte sur titre, fiche, note, annotations et tags.
 - Pagination par curseur ; tri par défaut du plus récent au plus ancien, épinglés en tête dans une catégorie.
+- Hérité d'E2-05 (1er novembre 2026) : construire `search_text` après l'extraction, qui remplace le titre provisoire par le titre de la page (RG-26). `search_text` est encore vide.
 
 ### E4-02 — Détail d'un élément · M
 

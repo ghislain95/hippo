@@ -75,18 +75,35 @@ type Store interface {
 	NewID() (string, error)
 }
 
+// Waker is the extraction, woken after a capture that created an item (RG-20). Wake never
+// blocks: the capture does not wait for the extraction.
+type Waker interface {
+	Wake()
+}
+
 // Service captures items.
 type Service struct {
 	store  Store
+	waker  Waker
 	paris  *time.Location
 	logger *slog.Logger
 }
 
-// NewService returns a capture service storing into st. paris is the time zone of the dates
-// written in a note (RG-04), from LoadParis. logger receives the failures that do not change
-// the answer (a file left after a replayed image); it never receives content.
-func NewService(st Store, paris *time.Location, logger *slog.Logger) *Service {
-	return &Service{store: st, paris: paris, logger: logger}
+// NewService returns a capture service storing into st and waking waker after each new item.
+// paris is the time zone of the dates written in a note (RG-04), from LoadParis. logger
+// receives the failures that do not change the answer (a file left after a replayed image); it
+// never receives content.
+func NewService(st Store, waker Waker, paris *time.Location, logger *slog.Logger) *Service {
+	return &Service{store: st, waker: waker, paris: paris, logger: logger}
+}
+
+// created wakes the extraction when the capture created an item: a replay or a duplicate
+// leaves an item that is already queued or extracted.
+func (s *Service) created(result Result) Result {
+	if result.Created {
+		s.waker.Wake()
+	}
+	return result
 }
 
 // Capture checks and stores a capture of userID. It returns the item an earlier capture with
@@ -94,7 +111,8 @@ func NewService(st Store, paris *time.Location, logger *slog.Logger) *Service {
 // matches, after appending the capture note and tightening the privacy (RG-04, RG-05, RG-15).
 // A note capture stores its trimmed text as the item's note and is never a duplicate (RG-04).
 // userID comes from the authenticated request, never from the body (RG-90). Nothing is stored
-// when the capture is refused, and no extraction nor analysis runs here (RG-01).
+// when the capture is refused. No extraction nor analysis runs here (RG-01): a new item only
+// wakes the extraction, which runs in the background (RG-20).
 func (s *Service) Capture(ctx context.Context, userID string, req Request) (Result, error) {
 	if err := checkClientID(req.ClientID); err != nil {
 		return Result{}, err
@@ -147,7 +165,7 @@ func (s *Service) captureNote(ctx context.Context, userID, text, source string, 
 	if err != nil {
 		return Result{}, fmt.Errorf("capture note: %w", err)
 	}
-	return Result{Item: item, Created: created}, nil
+	return s.created(Result{Item: item, Created: created}), nil
 }
 
 // captureLink checks rawURL, the trimmed url of a link capture, and stores it, or returns the
@@ -174,7 +192,7 @@ func (s *Service) captureLink(ctx context.Context, userID, rawURL string, userNo
 	if err != nil {
 		return Result{}, fmt.Errorf("capture: %w", err)
 	}
-	return Result{Item: item, Created: created}, nil
+	return s.created(Result{Item: item, Created: created}), nil
 }
 
 // noteMerge is the merge of RG-04 for a duplicate carrying userNote: the day is the one of the

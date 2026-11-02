@@ -37,6 +37,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Seul `internal/analysis` importe `anthropic-sdk-go`, derrière l'interface `Analyzer` ([ADR-0005](../adr/0005-haiku-batch.md)).
 - Ces règles sont vérifiées par `depguard` dans `backend/.golangci.yml` : une violation casse le lint.
 - `assetfs` est une feuille, importée seulement par `httpapi` et `cmd/hippo` (le domaine `capture` déclare l'interface dont il a besoin) : elle ne connaît ni HTTP, ni la base, ni aucun autre package Hippo. Deux règles `depguard` le vérifient : `assetfs-is-a-leaf` pour ce qu'elle importe, et celle du domaine `capture`, qui lui interdit d'importer `assetfs` (E2-04).
+- Seul `internal/extraction` importe Readability (`codeberg.org/readeck/go-readability/v2`) et `golang.org/x/net` (`html`, `html/charset`) : règle `depguard` `page-reading-only-in-extraction` (E2-05). `capture` ne connaît pas `extraction` : il déclare une interface `Waker` (`Wake()`), branchée par `cmd/hippo`.
 
 ## Contrat d'API
 
@@ -90,6 +91,19 @@ Les images sont sur le disque, sous `DATA_DIR/assets`, référencées par la tab
 - Droits : fichiers `0640`, dossiers `0750`.
 - Le chemin est construit à partir d'identifiants du serveur uniquement, jamais d'une valeur de la requête ; la lecture passe par `os.Root` sur `DATA_DIR/assets`.
 - Le nom et le type déclarés par le client ne sont ni stockés ni logués.
+
+## HTTP sortant
+
+Seul `internal/extraction` contacte des sites (E2-05). Le comportement est dans la [spec](../spec-v1.md#extraction-dun-élément) ; ces règles fixent le code et se vérifient en relecture.
+
+- **Un client propre.** Jamais `http.DefaultClient`, `http.Get` ni `readability.FromURL` (transport par défaut, sans contexte ni limite).
+- **Politique d'adresses (RG-27)** dans `net.Dialer.Control` : chaque adresse réellement appelée est vérifiée, redirections et changement de résolution DNS compris. La politique est une `func(netip.AddrPort) bool` passée au worker : `PublicAddress` en production ; les tests passent la leur, qui accepte aussi `127.0.0.1` pour `httptest`.
+- **Pas de proxy** : `Transport.Proxy = nil`, les variables `HTTP_PROXY` ne sont pas lues.
+- **Limites** : un seul délai de 15 s pour tout le téléchargement, par le contexte de la requête ; `TLSHandshakeTimeout` ; `MaxResponseHeaderBytes` de 64 Kio ; 10 redirections au plus, `http` et `https` seulement ; corps lu par `io.LimitReader` sur le flux décompressé (2 Mo) ; la page est lue dans un processus enfant borné en mémoire et en temps (ci-dessous). Pas d'`Accept-Encoding` manuel, pour garder la décompression gzip de Go.
+- **Pas de cookie persistant** : un stock éphémère par élément. Les identifiants de l'URL (`user:mot-de-passe@`) sont retirés avant la requête, sinon `net/http` les enverrait en Basic Auth.
+- **Jamais dans un log ni en base** : l'URL, l'hôte ou l'erreur de téléchargement (`*url.Error` affiche l'URL). Une ligne par extraction : `item_id`, mode, classe de raison (`ok`, `timeout`, `status`, `blocked`…), statut HTTP, durée ; `last_error` reste nul.
+- **Processus enfant** : la page est lue par `hippo extract-page`, lancé par `exec.CommandContext` avec un environnement explicite (`GOMAXPROCS=2` seulement, jamais celui du service, qui porte les secrets), stderr ignoré (un message de panique peut citer la page), sortie bornée à 2 Mio. Seul `internal/extraction/child.go` lance un sous-processus (exclusion `gosec` G204 ciblée dans `.golangci.yml`).
+- **Arrêt** : le worker a son propre contexte, annulé par `cmd/hippo`, qui attend sa fin avant de fermer la base. Les écritures après un téléchargement passent par `context.WithoutCancel`, bornées à 10 s.
 
 ## Configuration
 

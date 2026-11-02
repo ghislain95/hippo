@@ -129,6 +129,7 @@ type imageService struct {
 	dbPath  string
 	userID  string
 	logs    *bytes.Buffer
+	waker   *countingWaker
 }
 
 func newImageService(t *testing.T) imageService {
@@ -149,8 +150,9 @@ func newImageService(t *testing.T) imageService {
 	}
 	t.Cleanup(func() { _ = assets.Close() })
 	logs := &bytes.Buffer{}
-	service := capture.NewService(st, paris, slog.New(slog.NewJSONHandler(logs, nil)))
-	return imageService{service: service, store: st, assets: assets, dir: dir, dbPath: dbPath, userID: userID, logs: logs}
+	waker := &countingWaker{}
+	service := capture.NewService(st, waker, paris, slog.New(slog.NewJSONHandler(logs, nil)))
+	return imageService{service: service, store: st, assets: assets, dir: dir, dbPath: dbPath, userID: userID, logs: logs, waker: waker}
 }
 
 func (s imageService) upload(t *testing.T, content []byte) *assetfs.Upload {
@@ -211,6 +213,9 @@ func TestCaptureImage(t *testing.T) {
 		}
 		if got := s.files(t); len(got) != 1 || got[0] != wantPath {
 			t.Errorf("files = %v, want only %s", got, wantPath)
+		}
+		if got := s.waker.calls.Load(); got != 1 {
+			t.Errorf("wake-ups = %d, want one for the new image", got)
 		}
 	})
 
@@ -290,6 +295,9 @@ func TestCaptureImage(t *testing.T) {
 		}
 		if got := s.files(t); len(got) != 1 || got[0] != first.Item.Assets[0].Path {
 			t.Errorf("files = %v, want only %s", got, first.Item.Assets[0].Path)
+		}
+		if got := s.waker.calls.Load(); got != 1 {
+			t.Errorf("wake-ups = %d, want one for the first capture only", got)
 		}
 	})
 

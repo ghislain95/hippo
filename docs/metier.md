@@ -136,6 +136,7 @@ stateDiagram-v2
 - **RG-24** — Le **contenu extrait** est conservé jusqu'à environ 120 000 caractères. Au-delà, il est coupé et l'élément est marqué **contenu tronqué** ; la fiche l'indique.
 - **RG-25** — Le **temps de lecture** de l'original est calculé à l'extraction (environ 230 mots par minute pour un texte, la durée pour une vidéo), pas par l'IA.
 - **RG-26** — **Titre provisoire.** Tant que l'extraction n'a pas eu lieu, le titre d'un lien est le nom d'hôte de son URL (`example.com`). L'extraction le remplace par le titre de la page. Tant que l'analyse n'a pas eu lieu, le titre d'une note est sa première ligne non vide, coupée à 80 caractères et suivie de « … » quand elle est plus longue ; le titre d'une image est la première ligne de sa note de capture, coupée de la même façon, ou à défaut « Image du 27 octobre 2026 » (jour de la capture à l'heure de Paris). *(Ajoutée le 27 octobre 2026, étendue aux notes et aux images le même jour.)*
+- **RG-27** — Un lien dont l'adresse est locale ou privée (réseau de la maison, NAS, réseau Tailscale) n'est jamais chargé par l'extraction : il est gardé, en repli, sans contenu (RG-23). *(Ajoutée le 1er novembre 2026.)*
 
 ### Analyse
 
@@ -204,7 +205,7 @@ stateDiagram-v2
 
 - **RG-90** — Toute donnée métier appartient à un utilisateur (`user_id`). En V1, il n'y en a qu'un, mais aucune requête ne doit lire ou écrire sans filtrer par utilisateur.
 - **RG-91** — L'**export** produit un fichier Markdown par élément, rangé par catégorie, avec en en-tête (front matter) le titre, l'URL, le type, la catégorie, les tags et les dates ; puis la fiche, puis les annotations. Les images sont incluses. Le Markdown est généré à la demande, jamais stocké.
-- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée.
+- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. *(Exception ajoutée le 1er novembre 2026.)*
 
 ### Recherche
 
