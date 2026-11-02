@@ -137,6 +137,7 @@ stateDiagram-v2
 - **RG-25** — Le **temps de lecture** de l'original est calculé à l'extraction (environ 230 mots par minute pour un texte, la durée pour une vidéo), pas par l'IA.
 - **RG-26** — **Titre provisoire.** Tant que l'extraction n'a pas eu lieu, le titre d'un lien est le nom d'hôte de son URL (`example.com`). L'extraction le remplace par le titre de la page. Tant que l'analyse n'a pas eu lieu, le titre d'une note est sa première ligne non vide, coupée à 80 caractères et suivie de « … » quand elle est plus longue ; le titre d'une image est la première ligne de sa note de capture, coupée de la même façon, ou à défaut « Image du 27 octobre 2026 » (jour de la capture à l'heure de Paris). *(Ajoutée le 27 octobre 2026, étendue aux notes et aux images le même jour.)*
 - **RG-27** — Un lien dont l'adresse est locale ou privée (réseau de la maison, NAS, réseau Tailscale) n'est jamais chargé par l'extraction : il est gardé, en repli, sans contenu (RG-23). *(Ajoutée le 1er novembre 2026.)*
+- **RG-28** — Pour un lien vers un **PDF**, on extrait son texte, conservé comme le contenu d'une page web (RG-24), et son temps de lecture est compté sur tout le document (RG-25). Son titre est celui de ses métadonnées, sauf un titre parasite (« Microsoft Word - … », un nom de fichier, « Untitled ») ; à défaut, le nom du fichier de l'URL, décodé et sans `.pdf` (`rapport-annuel-2025`) ; à défaut, le titre provisoire. Un PDF scanné (sans texte), protégé par un mot de passe, abîmé ou trop gros passe en repli (RG-23). *(Ajoutée le 2 novembre 2026.)*
 
 ### Analyse
 

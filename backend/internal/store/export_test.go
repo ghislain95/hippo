@@ -151,3 +151,13 @@ func AttemptUnderWayForTest(t testing.TB, s *Store, userID, itemID string) bool 
 	}
 	return underWay
 }
+
+// InsertDeferredPDFAttemptForTest writes the attempt row that E2-05 left for a link answered as
+// a PDF (tests only: no function of the store writes it any more).
+func InsertDeferredPDFAttemptForTest(t testing.TB, s *Store, userID, itemID string) {
+	t.Helper()
+	if _, err := s.db.ExecContext(t.Context(),
+		`INSERT INTO extraction_attempts (item_id, user_id, outcome) VALUES (?, ?, 'deferred_pdf')`, itemID, userID); err != nil {
+		t.Fatalf("insert deferred attempt: %v", err)
+	}
+}

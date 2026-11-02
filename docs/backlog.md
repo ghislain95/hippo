@@ -148,7 +148,9 @@ RG-10 à RG-14 · ADR-0023
 
 ### E2-08 — Extraire un PDF · M
 
-RG-21, RG-23, RG-24, RG-25 · ADR-0008 — *ajoutée le 1er novembre 2026 à la demande de Ghislain*
+✅ Terminé le 2 novembre 2026 par le change `extract-pdf` ([archive](../openspec/changes/archive/2026-11-02-extract-pdf/proposal.md)). Ajoute RG-28 (texte, titre et repli d'un PDF). Bibliothèque `github.com/ledongthuc/pdf` avec une mise en page maison ; PDF jusqu'à 50 Mio par un fichier temporaire sans nom ; les liens `deferred_pdf` d'E2-05 sont repris.
+
+RG-21, RG-23, RG-24, RG-25, RG-28 · ADR-0008 — *ajoutée le 1er novembre 2026 à la demande de Ghislain*
 - Pour un lien vers un PDF, le texte est extrait et conservé comme celui d'une page web ; le titre vient des métadonnées du PDF, sinon du nom du fichier ; le temps de lecture est calculé.
 - PDF scanné (sans texte), protégé ou illisible : repli sans contenu (RG-23).
 - Avant d'ajouter la dépendance : comparer 2 ou 3 bibliothèques Go sans CGO sur des PDF de test (article, scanné, abîmé) et soumettre le résultat à Ghislain (dépendance nouvelle).
@@ -328,6 +330,7 @@ RG-01 à RG-06, RG-10 · ADR-0014, ADR-0036
   - conventions du code Swift (format, lint, tests) ;
   - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02).
 - Hérité d'E2-04 (27 octobre 2026) : vérifier la taille de l'image (20 Mo, RG-02) avant l'envoi. Un `413` reçu en plein envoi peut arriver comme une erreur réseau, et l'extension afficherait à tort « serveur injoignable ».
+- Hérité d'E2-08 (2 novembre 2026) : partager un fichier PDF (et non un lien) depuis Fichiers ou une autre appli n'est pas une forme de capture ; à cadrer avec Ghislain si le besoin se confirme.
 
 ### E5-03 — Bibliothèque · M
 

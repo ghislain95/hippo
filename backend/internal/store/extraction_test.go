@@ -46,12 +46,10 @@ func TestUserIDs(t *testing.T) {
 func TestQueuedItems(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("lists the queued items of the user, oldest first, without deferred PDFs", func(t *testing.T) {
+	t.Run("lists the queued items of the user, oldest first", func(t *testing.T) {
 		st, clock := openWithClock(t)
 		owner, other := newUser(t, st, "owner"), newUser(t, st, "other")
 		first, _ := capture(t, st, owner, link("https://example.com/first"), keepNote)
-		clock.Advance(time.Second)
-		pdf, _ := capture(t, st, owner, link("https://example.com/doc.pdf"), keepNote)
 		clock.Advance(time.Second)
 		started, _ := capture(t, st, owner, link("https://example.com/started"), keepNote)
 		clock.Advance(time.Second)
@@ -60,12 +58,6 @@ func TestQueuedItems(t *testing.T) {
 		done, _ := capture(t, st, owner, link("https://example.com/done"), keepNote)
 		capture(t, st, other, link("https://example.com/other"), keepNote)
 
-		if err := st.StartExtractionAttempt(ctx, owner, pdf.ID); err != nil {
-			t.Fatalf("StartExtractionAttempt: %v", err)
-		}
-		if err := st.DeferExtraction(ctx, owner, pdf.ID); err != nil {
-			t.Fatalf("DeferExtraction: %v", err)
-		}
 		if err := st.StartExtractionAttempt(ctx, owner, started.ID); err != nil {
 			t.Fatalf("StartExtractionAttempt: %v", err)
 		}
@@ -92,6 +84,36 @@ func TestQueuedItems(t *testing.T) {
 		}
 		if got[2].Kind != "note" || got[2].URL != nil {
 			t.Errorf("third item = %+v, want the note without url", got[2])
+		}
+	})
+
+	t.Run("a link left deferred as a PDF is listed, not started, for its own user only", func(t *testing.T) {
+		st, _ := openWithClock(t)
+		owner, other := newUser(t, st, "owner"), newUser(t, st, "other")
+		pdf, _ := capture(t, st, owner, link("https://example.com/doc.pdf"), keepNote)
+		theirs, _ := capture(t, st, other, link("https://example.com/theirs.pdf"), keepNote)
+		// E2-05 wrote this row; no function of the store writes it any more.
+		store.InsertDeferredPDFAttemptForTest(t, st, owner, pdf.ID)
+
+		got, err := st.QueuedItems(ctx, owner, "", 10)
+		if err != nil {
+			t.Fatalf("QueuedItems: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != pdf.ID || got[0].AttemptStarted || got[0].NetworkRetries != 0 {
+			t.Errorf("QueuedItems = %+v, want the deferred link, not started", got)
+		}
+		others, err := st.QueuedItems(ctx, other, "", 10)
+		if err != nil {
+			t.Fatalf("QueuedItems: %v", err)
+		}
+		if len(others) != 1 || others[0].ID != theirs.ID {
+			t.Errorf("QueuedItems of the other user = %+v, want their link only", others)
+		}
+		if written, err := st.WriteExtraction(ctx, owner, pdf.ID, store.Extraction{Mode: "full"}); err != nil || !written {
+			t.Fatalf("WriteExtraction = %v, %v", written, err)
+		}
+		if n := store.AttemptCountForTest(t, st, owner); n != 0 {
+			t.Errorf("%d attempt rows left, want the deferred row deleted with the result", n)
 		}
 	})
 
@@ -186,30 +208,12 @@ func TestExtractionAttempts(t *testing.T) {
 		}
 	})
 
-	t.Run("a deferred PDF is no longer under way", func(t *testing.T) {
-		st, _ := openWithClock(t)
-		owner := newUser(t, st, "owner")
-		item, _ := capture(t, st, owner, link("https://example.com/doc.pdf"), keepNote)
-		if err := st.StartExtractionAttempt(ctx, owner, item.ID); err != nil {
-			t.Fatalf("StartExtractionAttempt: %v", err)
-		}
-		if err := st.DeferExtraction(ctx, owner, item.ID); err != nil {
-			t.Fatalf("DeferExtraction: %v", err)
-		}
-		if store.AttemptUnderWayForTest(t, st, owner, item.ID) {
-			t.Error("started_at is still set on a deferred PDF")
-		}
-	})
-
-	t.Run("another user cannot defer, release or postpone an attempt", func(t *testing.T) {
+	t.Run("another user cannot release or postpone an attempt", func(t *testing.T) {
 		st, _ := openWithClock(t)
 		owner, other := newUser(t, st, "owner"), newUser(t, st, "other")
 		item, _ := capture(t, st, owner, link("https://example.com/a"), keepNote)
 		if err := st.StartExtractionAttempt(ctx, owner, item.ID); err != nil {
 			t.Fatalf("StartExtractionAttempt: %v", err)
-		}
-		if err := st.DeferExtraction(ctx, other, item.ID); err != nil {
-			t.Fatalf("DeferExtraction: %v", err)
 		}
 		if err := st.ReleaseExtractionAttempt(ctx, other, item.ID); err != nil {
 			t.Fatalf("ReleaseExtractionAttempt: %v", err)

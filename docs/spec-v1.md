@@ -62,7 +62,7 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 | --- | --- | --- |
 | Backend | Go, librairie standard `net/http`, `log/slog` | [0003](adr/0003-backend-go.md) |
 | Base de données | SQLite (WAL) + FTS5, driver `modernc.org/sqlite`, images sur disque | [0004](adr/0004-sqlite.md) |
-| Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; transcriptions YouTube | [0008](adr/0008-extraction-et-reanalyse.md) |
+| Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; PDF par `github.com/ledongthuc/pdf` et une couche de mise en page maison ; transcriptions YouTube | [0008](adr/0008-extraction-et-reanalyse.md) |
 | IA | Claude Haiku 4.5, API Message Batches, SDK `anthropic-sdk-go`, derrière une interface `Analyzer` | [0005](adr/0005-haiku-batch.md) |
 | Sortie de l'IA | Outil `classify_item` forcé, validé par JSON Schema | [0006](adr/0006-sortie-structuree.md) |
 | Contrat d'API | OpenAPI 3.1, `oapi-codegen` côté Go, client TypeScript généré | [0017](adr/0017-contrat-openapi.md) |
@@ -164,7 +164,7 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 | user_id | TEXT | Propriétaire, le même que celui de l'élément |
 | started_at | TEXT, nullable | Début du téléchargement en cours (ISO 8601 UTC) ; null quand aucun téléchargement n'est en cours (après un arrêt ou un report réseau) |
 | network_retries | INTEGER | Nombre de reports comptés pour panne réseau (un report compte seulement si un autre lien a joint son site entre-temps) ; au 3e report compté, le lien passe en repli |
-| outcome | TEXT, nullable | Null : tentative en cours ou interrompue ; `deferred_pdf` (`CHECK`) : lien répondu en PDF, laissé en file pour E2-08 |
+| outcome | TEXT, nullable | Plus écrit ni lu depuis E2-08 (2 novembre 2026). E2-05 y écrivait `deferred_pdf` (`CHECK`) pour un lien répondu en PDF ; ces lignes ont `started_at` à null et sont reprises comme tout lien en file. Colonne à supprimer avec la prochaine migration de la table |
 
 - Clé étrangère `(item_id, user_id)` vers `items (id, user_id)` : une tentative n'appartient qu'à un élément du même utilisateur (RG-90). Table `STRICT`.
 - `started_at` est renseigné et validé avant le téléchargement. Au démarrage, une ligne dont `started_at` est renseigné signale un téléchargement interrompu par un crash : le lien passe en repli sans être retéléchargé. Un arrêt ou un report réseau remet `started_at` à null et garde la ligne, avec son compteur. La ligne est supprimée dans la transaction qui écrit l'élément en `extracted`.
@@ -209,7 +209,7 @@ Les migrations sont versionnées et appliquées au démarrage.
 Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois par nuit, en un seul batch. Le cycle de vie complet est dans le [document métier](metier.md#4-cycle-de-vie-dun-élément).
 
 1. **Capture** — `POST /api/items` crée l'élément en `queued` et répond tout de suite (RG-01 à RG-06).
-2. **Extraction** — en arrière-plan, juste après : page web via go-readability, transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-27). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
+2. **Extraction** — en arrière-plan, juste après : page web via go-readability, texte d'un PDF, transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` (ou le titre du PDF) en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-28). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
 3. **Envoi du batch** — à 2 h (`BATCH_SCHEDULE`), les éléments `extracted` **non privés** partent dans un seul batch, 200 au maximum, après vérification du budget (RG-30 à RG-32, RG-81). Statut `submitted`.
 4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
 5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
@@ -226,7 +226,7 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 
 ### Extraction d'un élément
 
-Mise en œuvre de RG-20 à RG-27 pour les pages web, livrée par E2-05 (change `extract-web-page`, 1er novembre 2026). Les transcriptions YouTube (E2-06) et les PDF (E2-08) restent à faire.
+Mise en œuvre de RG-20 à RG-28 : les pages web, livrées par E2-05 (change `extract-web-page`, 1er novembre 2026), et les PDF, livrés par E2-08 (change `extract-pdf`, 2 novembre 2026). Les transcriptions YouTube (E2-06) restent à faire.
 
 **Déroulement**
 
@@ -234,7 +234,7 @@ Mise en œuvre de RG-20 à RG-27 pour les pages web, livrée par E2-05 (change `
 - Une extraction à la fois, utilisateur par utilisateur, la plus ancienne d'abord ; chaque requête filtre par `user_id` (RG-90).
 - Réveil après chaque capture qui crée un élément, au démarrage, et toutes les 5 minutes en filet de sécurité.
 - Une note ou une image passe à `extracted` tout de suite, mode `none`, sans réseau.
-- Un lien est téléchargé une fois, lu par Readability, puis écrit en mode `full` ou `fallback`. Un lien ne finit jamais en `none`, réservé aux notes et aux images.
+- Un lien est téléchargé une fois, lu par Readability (page HTML) ou par le lecteur de PDF (réponse PDF, voir « PDF » ci-dessous), puis écrit en mode `full` ou `fallback`. Un lien ne finit jamais en `none`, réservé aux notes et aux images.
 - L'élément est écrit une fois, en une transaction : colonnes d'extraction seulement (jamais `user_note` ni `is_private`), `extracted_at`, `updated_at` et `change_seq` ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)). Un élément supprimé ou modifié entre-temps n'est pas écrit.
 
 **Modes d'extraction**
@@ -242,7 +242,9 @@ Mise en œuvre de RG-20 à RG-27 pour les pages web, livrée par E2-05 (change `
 | Mode | Quand | Ce qui est écrit |
 | --- | --- | --- |
 | `full` | Réponse 2xx en HTML, texte principal d'au moins 200 caractères | Titre : Readability, sinon `og:title`, sinon `<title>`, sinon le titre provisoire (RG-26). Site : `og:site_name`, sinon Readability, sinon l'hôte. Contenu coupé à ~120 000 caractères (RG-24). Temps de lecture à 230 mots par minute sur le texte avant coupe, 1 minute au moins (RG-25) |
-| `fallback` | Délai dépassé (téléchargement ou lecture), statut d'erreur, type autre que HTML, page trop grande ou trop lourde à lire, texte trop court, adresse refusée, échec du site (connexion refusée, TLS, boucle de redirections, domaine inexistant), lecture en échec | Sur une réponse 2xx seulement : `og:title` ou `<title>`, et `og:description` comme contenu, coupée à ~120 000 caractères et marquée tronquée au-delà, comme tout contenu (RG-24). Sinon le titre provisoire et l'hôte. Pas de temps de lecture (RG-23) |
+| `fallback` | Délai dépassé (téléchargement ou lecture), statut d'erreur, type autre que HTML ou PDF, page trop grande ou trop lourde à lire, texte trop court, adresse refusée, échec du site (connexion refusée, TLS, boucle de redirections, domaine inexistant), lecture en échec | Sur une réponse 2xx seulement : `og:title` ou `<title>`, et `og:description` comme contenu, coupée à ~120 000 caractères et marquée tronquée au-delà, comme tout contenu (RG-24). Sinon le titre provisoire et l'hôte. Pas de temps de lecture (RG-23) |
+| `full` (PDF) | Réponse 2xx en PDF d'au plus 50 Mio, texte d'au moins 200 caractères | Titre dans l'ordre de RG-28 (ci-dessous). Site : l'hôte. Contenu coupé à ~120 000 caractères (RG-24). Temps de lecture à 230 mots par minute sur **tout le document**, 1 minute au moins (RG-25, RG-28) ; une lecture arrêtée par son délai est marquée tronquée et estime les pages non lues au prorata des pages lues |
+| `fallback` (PDF) | PDF scanné (moins de 200 caractères de texte), protégé par un mot de passe, chiffré en AES-256, abîmé (tronqué, table de références cassée, pas un PDF malgré son type, arbre de pages hors bornes), plus de 50 Mio, délai de 15 s dépassé, lecture trop lourde ou trop longue | Titre dans l'ordre de RG-28 avec ce qui a pu être obtenu (le titre des métadonnées seulement si le document s'est ouvert). Site : l'hôte. Ni contenu ni temps de lecture (RG-23) |
 | `none` | Note, image | Rien |
 
 L'image d'aperçu de RG-23 n'est pas récupérée : aucune image n'est créée pour un lien.
@@ -251,13 +253,27 @@ L'image d'aperçu de RG-23 n'est pas récupérée : aucune image n'est créée p
 
 - 15 s pour tout le téléchargement : DNS, TLS, redirections, en-têtes et corps.
 - 10 redirections au plus, `http` et `https` seulement.
-- 2 Mo de corps décompressé au plus ; au-delà, repli. La limite prévue était 5 Mo. La mesure du 1er novembre 2026 l'a abaissée : un article de 5 Mo montait à 59 Mo de tas, 23 Mo à 2 Mo, dans un conteneur de 128 Mo ([ADR-0019](adr/0019-deploiement-docker-nas.md)).
+- 2 Mo de corps décompressé au plus pour une page HTML (50 Mio pour un PDF, voir « PDF » ci-dessous) ; au-delà, repli. La limite prévue était 5 Mo. La mesure du 1er novembre 2026 l'a abaissée : un article de 5 Mo montait à 59 Mo de tas, 23 Mo à 2 Mo, dans un conteneur de 128 Mo ([ADR-0019](adr/0019-deploiement-docker-nas.md)).
 - La page est lue dans un **processus enfant** du même binaire (`hippo extract-page`), borné à 48 Mio de mémoire et à 10 s : au-delà de la mémoire, il s'arrête et le lien passe en repli (`too_large`) ; au-delà du temps, il est tué (repli, `timeout`). La mémoire d'un arbre HTML suit le balisage et non la taille : des pages de 200 Ko construites pour cela montaient à 85-160 Mo, dans un conteneur de 128 Mo. Décidé avec Ghislain le 2 novembre 2026, à la place d'une estimation du nombre d'éléments, contournée en relecture.
 - L'enfant ne reçoit que `GOMAXPROCS=2` comme environnement, jamais celui du service (token, clé d'API) ; il ne lit pas la configuration, n'ouvre pas la base et n'écrit pas de log.
 - 20 000 éléments au plus pour Readability (`MaxElemsToParse`), qui borne son temps ; au-delà, repli.
 - Titre et nom de site gardés de la page (Readability, `og:title`, `<title>`, `og:site_name`) : 1 000 caractères au plus (`MaxTitleLength`), coupés entre deux mots, sans points de suspension ni marque. Borne technique contre une page hostile ; aucun vrai titre n'en approche.
 - Un processus enfant qui ne peut pas démarrer (binaire absent, `fork` refusé) laisse l'élément `queued` : la passe s'interrompt 5 minutes, comme pour une panne réseau.
 - Mesures du 2 novembre 2026 : un article de 2 Mo est lu avec 34,5 Mo, 13,5 Mo sous la limite ; dans un conteneur de 128 Mo, le service au repos et un enfant à sa limite culminent à 98,6 Mo. Un lancement coûte environ 8 ms.
+
+**PDF**
+
+Un lien répondu en PDF (`application/pdf`, ou un corps qui commence par `%PDF-` quel que soit son type déclaré) est lu par l'enfant comme une page, avec ses limites de mémoire et de temps (E2-08, RG-28).
+
+- **Taille** : 50 Mio au plus (52 428 800 octets ; les « 50 Mo » de la décision, comme les 2 Mo des pages sont 2 Mio), sur le flux décompressé. Un PDF annoncé plus gros par son `Content-Length` n'est pas lu du tout ; un corps plus long est arrêté à la limite. Repli `too_large`. Les pages HTML gardent 2 Mio (décidé avec Ghislain le 2 novembre 2026).
+- **Délai** : les 15 s de téléchargement de RG-23 couvrent aussi le PDF ; 50 Mio en 15 s demandent environ 28 Mbit/s du site au NAS, un PDF plus lent passe en repli (`timeout`) avec le nom de son fichier pour titre. La lecture a ses propres 10 s ; l'enfant répond à 8 s (80 %) avec ce qu'il a lu, avant que le parent ne le tue.
+- **Dossier temporaire** : le PDF est copié, sans passer par la mémoire du service, dans un fichier de `DATA_DIR/tmp` **dont le nom est supprimé avant le téléchargement**. Le service écrit par un descripteur, l'enfant lit par un second, en lecture seule, reçu comme descripteur 3. Les données disparaissent avec le dernier descripteur, crash compris ; un fichier laissé par un crash entre la création et la suppression du nom est supprimé au démarrage. Rien d'un PDF ne reste sur le NAS ni dans les sauvegardes. Règles : [conventions du backend](dev/conventions-backend.md#dossier-temporaire-de-lextraction).
+- **Lecture** : `github.com/ledongthuc/pdf` lit la structure, les filtres, le chiffrement et les polices ; une couche de mise en page maison place les glyphes : largeurs des glyphes, espaces déduits des positions, retours à la ligne aux changements de ligne de base, `\n\n` entre les pages, ligatures (U+FB00 à U+FB06) développées, traits d'union conditionnels (U+00AD) retirés, mot coupé par un trait d'union en fin de ligne recollé avec son trait d'union (aucune lettre perdue), caractères de contrôle et glyphes indéchiffrables retirés. Le texte est gardé jusqu'à 120 000 caractères, même au milieu d'une page ; au-delà, la lecture compte encore les mots sans garder le texte.
+- **Bornes** : arbre de pages parcouru par notre code, 32 niveaux et 40 000 nœuds au plus, chaque nœud une seule fois (au-delà, ou un nœud rencontré deux fois : PDF abîmé), 20 000 pages lues au plus (les suivantes ne sont ni lues ni comptées dans le temps de lecture) ; objets de formulaire suivis sur 4 niveaux ; une page illisible est sautée ; l'ouverture, le titre et chaque page sont lus sous `recover`. Un en-tête de version 2.0 est présenté à la librairie comme 1.7 (non vérifié sur de vrais PDF 2.0 ; l'AES-256 de 2.0 passe en repli).
+- **Titre (RG-28)** : le titre des métadonnées (`/Info /Title`), sans caractères de contrôle (le bourrage AES compris) ni caractères invisibles de mise en forme (espace sans chasse, marque d'ordre des octets), espaces resserrés ; sauf un titre parasite : vide, commençant par `Microsoft Word - `, `Microsoft PowerPoint - ` ou `Microsoft Excel - `, égal à `Untitled`, `Sans titre`, `Document1` ou `PowerPoint Presentation` sans tenir compte de la casse, ou un nom de fichier (dernier segment après `/` ou `\` finissant, juste après un caractère qui n'est pas une espace, par une extension de document : `doc`, `docx`, `odt`, `rtf`, `txt`, `pdf`, `ps`, `tex`, `dvi`, `htm`, `html`, `xhtml`, `md`, `ppt`, `pptx`, `odp`, `key`, `xls`, `xlsx`, `ods`, `numbers`, `pages`, `indd`, `tif`, `tiff`, `jpg`, `jpeg`, `png`). À défaut, le dernier segment non vide du chemin de l'URL servie (après redirections) s'il finit par `.pdf` sans tenir compte de la casse, décodé (`%20`…) ou gardé tel quel s'il ne se décode pas en UTF-8 (`%E9t%E9`), sans `.pdf`. À défaut, le titre provisoire. Puis la borne de 1 000 caractères. Le nom du site reste l'hôte de l'URL capturée.
+- **Liens laissés en file par E2-05** : les lignes `deferred_pdf` sont reprises comme tout lien en file, téléchargées une fois de plus, puis effacées avec leur résultat.
+- Mesures de l'enfant du 2 novembre 2026 (darwin/arm64, mémoire tenue par le runtime) : article de 10 pages 6,4 Mio et 13 ms ; 400 pages 10,1 Mio et 57 ms ; PDF de 45 Mo 10,2 Mio et 25 ms ; page qui se décompresse en plus de 100 Mo de mots 10,6 Mio et 5,1 s (lue entière) ; chaîne de 100 Mo : arrêt à la limite de mémoire en 61 ms ; arbre de pages qui se contient : repli `damaged` en 8 ms ; boucle de sections de références : repli `timeout` au délai de 8 s.
+- Mesure en conteneur du 2 novembre 2026 (image `linux/arm64`, `--memory 128m`, serveur en marche, PDF servi sur un réseau Docker de documentation `203.0.113.0/24` et capturé par l'API) : au repos, pic de 61,6 Mo ; un PDF de 44,7 Mo est lu en entier en 0,5 s avec un pic de 114,2 Mo ; un PDF de 51,7 Mo (juste sous 50 Mio), pic de 129,2 Mo (123 Mio sur 128), dont 52 Mo de cache de pages du fichier, récupérable, et 68,5 Mo de mémoire anonyme. Aucun processus tué (`oom_kill` 0), le contrôle de santé a toujours répondu, le dossier temporaire est vide après chaque PDF. Détail : `design.md` du change `extract-pdf`.
 
 **Adresses (RG-27)**
 
@@ -280,7 +296,7 @@ Ils sont extraits comme les autres : seule l'URL capturée est demandée à son 
 | Arrêt du backend pendant un téléchargement | Rien n'est écrit sur l'élément ; `started_at` est remis à null ; l'élément est repris au redémarrage |
 | Panne réseau côté NAS (aucun résolveur DNS joignable, réseau ou hôte injoignable) | Rien n'est écrit sur l'élément ; la passe essaie encore 2 liens d'autres hôtes au plus, puis le worker attend 5 minutes. Un report ne compte que si un autre lien a joint son site depuis le report précédent de ce lien : une panne du NAS qui empêche la résolution, coupe le réseau ou rend les hôtes injoignables ne fait donc jamais passer un lien en repli ; au 3e report compté (un domaine en panne), le lien passe en repli. Si le DNS répond depuis un cache alors que la liaison Internet est coupée, la connexion expire : c'est un échec du site, et le lien passe en repli |
 | Lien YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) | Laissé en file jusqu'à E2-06 |
-| Lien répondu en PDF (`application/pdf` ou corps qui commence par `%PDF-`) | Marqué `deferred_pdf` dans `extraction_attempts`, laissé en file jusqu'à E2-08 |
+| Le NAS ne peut pas écrire le fichier temporaire d'un PDF (moins de place libre que la taille du PDF, ou 50 Mio si elle est inconnue, plus 64 Mio de marge ; volume en lecture seule ; erreur d'entrée-sortie) | Rien n'est écrit sur l'élément ; `started_at` est remis à null ; une erreur est loguée (`storage_unavailable`) ; la passe continue avec les éléments qui n'ont pas besoin de fichier (notes, images, pages web), puis le worker attend 5 minutes |
 
 Un site qui ne répond pas, refuse la connexion ou n'existe pas (le résolveur a répondu « hôte inconnu ») est un échec du site : repli.
 
@@ -291,6 +307,8 @@ Avant de télécharger un lien, `started_at` est renseigné dans sa ligne `extra
 **Bibliothèque**
 
 [ADR-0008](adr/0008-extraction-et-reanalyse.md) retient go-readability. Le module d'origine, `github.com/go-shiori/go-readability`, est archivé depuis le 30 décembre 2025 et renvoie vers son fork maintenu, `codeberg.org/readeck/go-readability/v2`, épinglé en v2.1.3 (accord de Ghislain le 1er novembre 2026). Le choix de l'ADR ne change pas. `golang.org/x/net/html` lit les balises `og:*` et `html/charset` décode l'encodage déclaré.
+
+Les PDF sont lus par `github.com/ledongthuc/pdf` (BSD-3, sans dépendance transitive, environ +0,6 Mo de binaire), épinglé à la pseudo-version `v0.0.0-20261020125853-5e46805f718e` faute d'étiquette (accord de Ghislain le 2 novembre 2026), avec notre couche de mise en page plutôt que son `GetPlainText`, qui garde tout le texte d'une page en mémoire (231 Mio sur une page piégée) et perd les espaces que seules les positions donnent. Quatre librairies ont été comparées le 2 novembre 2026 sur des PDF fictifs : `github.com/digitorus/pdf` ne décode pas les polices Type0, cas courant sur le web ; `github.com/pdfcpu/pdfcpu` n'extrait pas le texte ; `github.com/klippa-app/go-pdfium` en WebAssembly lit le mieux mais tient 36 Mio pour un petit PDF et 264 Mio au premier démarrage, au-delà de l'enfant et du conteneur. Seul `internal/extraction` importe la librairie (règle `depguard`) ; elle n'ouvre aucun fichier ni connexion d'elle-même.
 
 ## API REST
 

@@ -72,6 +72,15 @@ linters:
               desc: only internal/extraction reads web pages
             - pkg: golang.org/x/net
               desc: only internal/extraction parses HTML and decodes charsets
+            - pkg: github.com/ledongthuc/pdf
+              desc: only internal/extraction reads PDFs, in the child process that bounds them (E2-08)
+        pdf-generator-only-in-tests:
+          files:
+            - "$all"
+            - "!$test"
+          deny:
+            - pkg: github.com/ghislain95/hippo/backend/internal/extraction/pdftest
+              desc: pdftest builds fictional and hostile PDFs for tests; no production code imports it (E2-08)
         generated-api-only-in-httpapi:
           files:
             - "$all"
@@ -99,6 +108,14 @@ linters:
         linters:
           - gosec
         text: G204
+      # The generator of test PDFs writes the standard security handler of PDF, built on MD5 and
+      # RC4 (G401, G405, G501, G503), pseudo-random image bytes (G404) and bytes of codes and
+      # offsets it bounds itself (G115); it is imported by tests only (depguard rule
+      # pdf-generator-only-in-tests, E2-08).
+      - path: internal/extraction/pdftest/
+        linters:
+          - gosec
+        text: "G115|G401|G404|G405|G501|G503"
       - path: _test\.go
         linters:
           - bodyclose # bodies are closed in t.Cleanup by the test helpers

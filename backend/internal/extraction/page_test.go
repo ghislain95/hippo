@@ -11,6 +11,7 @@ import (
 
 	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/extraction/pagestest"
+	"github.com/ghislain95/hippo/backend/internal/extraction/pdftest"
 )
 
 // fixture reads a recorded fictional page of backend/testdata/pages.
@@ -47,7 +48,7 @@ func TestReadResponse(t *testing.T) {
 		contentType string
 		body        []byte
 		tooLarge    bool
-		wantMode    string // "" when deferred
+		wantMode    string
 		wantReason  string
 		wantTitle   any // the title written, the provisional one when the page gives none
 		wantSite    string
@@ -123,16 +124,24 @@ func TestReadResponse(t *testing.T) {
 			wantMode: "fallback", wantReason: "too_large", wantTitle: provisional, wantSite: provisional,
 		},
 		{
-			name: "a PDF type is deferred", status: 200, contentType: "application/pdf", body: nil,
-			wantReason: "deferred_pdf",
+			name: "a PDF type is read as a PDF", status: 200, contentType: "application/pdf", body: articlePDF(),
+			wantMode: "full", wantReason: "ok", wantTitle: "Tuning SQLite", wantSite: provisional,
 		},
 		{
-			name: "a PDF body is deferred", status: 200, contentType: "application/octet-stream", body: []byte("%PDF-1.7\n"),
-			wantReason: "deferred_pdf",
+			name: "a PDF body is read whatever its type", status: 200, contentType: "application/octet-stream", body: articlePDF(),
+			wantMode: "full", wantReason: "ok", wantTitle: "Tuning SQLite", wantSite: provisional,
 		},
 		{
-			name: "a PDF served as HTML is deferred", status: 200, contentType: "text/html", body: []byte("%PDF-1.4\n"),
-			wantReason: "deferred_pdf",
+			name: "a PDF served as HTML is read as a PDF", status: 200, contentType: "text/html", body: articlePDF(),
+			wantMode: "full", wantReason: "ok", wantTitle: "Tuning SQLite", wantSite: provisional,
+		},
+		{
+			name: "an HTML page served as a PDF is damaged", status: 200, contentType: "application/pdf", body: fixture(t, "article.html"),
+			wantMode: "fallback", wantReason: "damaged", wantTitle: provisional, wantSite: provisional,
+		},
+		{
+			name: "an oversized PDF falls back", status: 200, contentType: "application/pdf", tooLarge: true,
+			wantMode: "fallback", wantReason: "too_large", wantTitle: provisional, wantSite: provisional,
 		},
 	}
 	for _, tc := range cases {
@@ -144,14 +153,8 @@ func TestReadResponse(t *testing.T) {
 			if got.Reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q", got.Reason, tc.wantReason)
 			}
-			if tc.wantMode == "" {
-				if !got.Deferred {
-					t.Errorf("deferred = false, want true")
-				}
-				return
-			}
-			if got.Deferred || got.Extraction.Mode != tc.wantMode {
-				t.Fatalf("deferred %v mode %q, want %q", got.Deferred, got.Extraction.Mode, tc.wantMode)
+			if got.Extraction.Mode != tc.wantMode {
+				t.Fatalf("mode %q, want %q", got.Extraction.Mode, tc.wantMode)
 			}
 			if title := deref(got.Extraction.Title); title != tc.wantTitle {
 				t.Errorf("title = %v, want %v", title, tc.wantTitle)
@@ -329,4 +332,10 @@ func TestReadingMinutes(t *testing.T) {
 			t.Errorf("%d words: %d minutes, want %d", tc.words, got, tc.want)
 		}
 	}
+}
+
+// articlePDF is a generated PDF article titled Tuning SQLite.
+func articlePDF() []byte {
+	doc, _ := pdftest.Article("Tuning SQLite", 2, 400)
+	return doc.Bytes()
 }

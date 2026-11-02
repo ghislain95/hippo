@@ -51,6 +51,9 @@ func TestRun(t *testing.T) {
 		if strings.Contains(logs.String(), env["API_TOKEN"]) {
 			t.Error("logs contain the API token")
 		}
+		if entries, err := os.ReadDir(filepath.Join(env["DATA_DIR"], "tmp")); err != nil || len(entries) != 0 {
+			t.Errorf("temporary directory: %v (%v), want created empty", entries, err)
+		}
 	})
 
 	t.Run("returns an error when the port is taken, without waiting for a signal", func(t *testing.T) {
@@ -130,6 +133,40 @@ func TestOpenAssets(t *testing.T) {
 		}
 		if _, err := openAssets(filepath.Join(file, "assets"), slog.New(slog.NewJSONHandler(io.Discard, nil))); err == nil {
 			t.Error("openAssets under a file: want an error")
+		}
+	})
+}
+
+func TestOpenTempDir(t *testing.T) {
+	t.Run("creates the temporary directory empty, logging the leftovers removed", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "tmp")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".pdf-leftover"), []byte("%PDF-1.7"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		logs := &bytes.Buffer{}
+		tmp, err := openTempDir(dir, slog.New(slog.NewJSONHandler(logs, nil)))
+		if err != nil {
+			t.Fatalf("openTempDir: %v", err)
+		}
+		t.Cleanup(func() { _ = tmp.Close() })
+		if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+			t.Errorf("directory holds %v (%v), want nothing", entries, err)
+		}
+		if !strings.Contains(logs.String(), `"count":1`) || strings.Contains(logs.String(), dir) {
+			t.Errorf("logs = %s, want the count of files removed and no path", logs)
+		}
+	})
+
+	t.Run("fails when the data directory cannot hold it", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := openTempDir(filepath.Join(file, "tmp"), slog.New(slog.NewJSONHandler(io.Discard, nil))); err == nil {
+			t.Error("openTempDir under a file: want an error")
 		}
 	})
 }

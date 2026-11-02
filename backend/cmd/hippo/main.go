@@ -5,7 +5,8 @@
 //
 //	hippo               start the server (configuration from environment variables)
 //	hippo healthcheck   probe the local /healthz, for the Docker healthcheck
-//	hippo extract-page  read one page from stdin, as the child of the extraction (internal use)
+//	hippo extract-page  read one page from stdin, or one PDF from descriptor 3, as the child of
+//	                    the extraction (internal use)
 package main
 
 import (
@@ -38,6 +39,7 @@ var version = "dev"
 const (
 	databaseFile    = "hippo.db"
 	assetsDirectory = "assets" // image files, under DATA_DIR (ADR-0004, ADR-0019)
+	tempDirectory   = "tmp"    // PDFs being downloaded, without name, under DATA_DIR (E2-08)
 	shutdownTimeout = 10 * time.Second
 )
 
@@ -105,6 +107,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		}
 	}()
 
+	// Closed after the worker has stopped: the deferred functions run in reverse order.
+	tmp, err := openTempDir(filepath.Join(cfg.DataDir, tempDirectory), logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := tmp.Close(); err != nil {
+			logger.Error("close temporary directory", slog.String("error", err.Error()))
+		}
+	}()
+
 	tokenHash := auth.HashToken(cfg.APIToken)
 	userID, err := st.EnsureSingleUser(ctx, tokenHash)
 	if err != nil {
@@ -114,8 +127,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	// The extraction runs in the background, one item at a time; it never reaches a local or
 	// private address (RG-27). The deferred functions run in reverse order: Run has returned,
 	// so nothing writes any more, before the store is closed.
-	// Each page is read by a child process of this binary (`hippo extract-page`), so that a
-	// page whose tree is too heavy kills the child, not the service.
+	// Each page or PDF is read by a child process of this binary (`hippo extract-page`), so that
+	// a page whose tree is too heavy, or a hostile PDF, kills the child, not the service.
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate the binary for the page reader: %w", err)
@@ -126,6 +139,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		Logger:        logger,
 		Version:       version,
 		ReaderCommand: []string{executable, extraction.ChildCommand},
+		TempDir:       tmp,
 	})
 	// The worker has its own context: a server that fails without any signal (port taken) stops
 	// it too, instead of waiting for a signal that never comes.
@@ -179,6 +193,19 @@ func openAssets(path string, logger *slog.Logger) (*assetfs.Dir, error) {
 		logger.Info("removed leftover temporary uploads", slog.Int("count", removed))
 	}
 	return assets, nil
+}
+
+// openTempDir creates the temporary directory of the PDFs if needed, removes the files a crash
+// left in it, and fails at once when the service cannot write there.
+func openTempDir(path string, logger *slog.Logger) (*extraction.TempDir, error) {
+	tmp, removed, err := extraction.OpenTempDir(path)
+	if err != nil {
+		return nil, err
+	}
+	if removed > 0 {
+		logger.Info("removed leftover temporary files", slog.Int("count", removed))
+	}
+	return tmp, nil
 }
 
 // serve runs the server until ctx is cancelled (SIGINT, SIGTERM), then drains it.
