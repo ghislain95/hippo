@@ -32,7 +32,6 @@ const (
 	reasonBlocked         = "blocked"
 	reasonShort           = "short"
 	reasonCrashedBefore   = "crashed_before"
-	reasonDeferredPDF     = "deferred_pdf"
 	reasonDeferredYouTube = "deferred_youtube"
 	reasonNetwork         = "network"
 	// reasonUnreachable: the site failed before answering (refused connection, TLS error, host
@@ -44,6 +43,9 @@ const (
 	// reasonReaderUnavailable: the process that reads pages could not start; the item stays
 	// queued.
 	reasonReaderUnavailable = "reader_unavailable"
+	// reasonStorageUnavailable: the NAS cannot store a PDF in its temporary file; the item
+	// stays queued.
+	reasonStorageUnavailable = "storage_unavailable"
 )
 
 // MaxElements is the largest document Readability reads, in elements of its tree: it bounds
@@ -54,20 +56,29 @@ const MaxElements = 20_000
 type response struct {
 	Status      int
 	ContentType string
-	Body        []byte // nil when TooLarge, or the first bytes only of a type that is not HTML
+	Format      string // formatHTML, formatPDF or formatOther; "" before the headers
+	Body        []byte // nil when TooLarge or a PDF, the first bytes only of formatOther
+	PDF         *tempFile
 	TooLarge    bool
 	URL         *url.URL // the final URL, after redirects
 }
 
-// outcome is what an extraction decided for a link: either the item is written with
-// Extraction, or it is Deferred and stays queued (a PDF, E2-08).
+// Formats of an answer, as the fetcher recognises it before reading its body.
+const (
+	formatHTML  = "html"  // HTML, or no declared type: read in memory, up to MaxBodySize
+	formatPDF   = "pdf"   // a PDF: streamed to a temporary file, up to MaxPDFSize
+	formatOther = "other" // anything else: not read beyond its first bytes
+)
+
+// outcome is what an extraction decided for a link: the item is written with Extraction.
 type outcome struct {
 	Reason     string
-	Status     int // the HTTP status, 0 when there was no answer
-	Deferred   bool
+	Status     int    // the HTTP status, 0 when there was no answer
+	Format     string // formatPDF for a PDF, logged; "" otherwise
 	Extraction store.Extraction
 
 	needsPage bool // the answer is an HTML page: readPage decides, in the reading process
+	needsPDF  bool // the answer is a PDF: the reading process reads its file
 }
 
 // link is what an extraction keeps of a link whose page gives nothing better: its current
@@ -86,30 +97,44 @@ func fallback(reason string, l link) outcome {
 }
 
 // readBody decides what the answer of a site is for the link l, from what is cheap to read:
-// the status, the media type, the first bytes, the size. An HTML page comes back with
-// needsPage, for readPage. The metadata of the page is read only on a success status: the
+// the status, the format, the size. An HTML page comes back with needsPage, for readPage; a
+// PDF with needsPDF, for the reading process. The metadata of the page is read only on a success status: the
 // og:title of a 404 page would be "Page not found".
 func readBody(resp response, l link) outcome {
 	if resp.Status < 200 || resp.Status > 299 {
 		return fallback(reasonStatus, l)
 	}
-	mediaType := mediaTypeOf(resp.ContentType)
-	if mediaType == "application/pdf" || bytes.HasPrefix(resp.Body, []byte("%PDF-")) {
-		return outcome{Reason: reasonDeferredPDF, Deferred: true}
+	switch resp.Format {
+	case formatPDF:
+		if resp.TooLarge {
+			return pdfFallback(reasonTooLarge, resp.URL, l)
+		}
+		return outcome{Format: formatPDF, needsPDF: true}
+	case formatOther:
+		return fallback(reasonNotHTML, l)
 	}
 	if resp.TooLarge {
 		return fallback(reasonTooLarge, l)
 	}
-	switch mediaType {
-	case "text/html", "application/xhtml+xml":
-	case "":
-		if !strings.HasPrefix(http.DetectContentType(resp.Body), "text/html") {
-			return fallback(reasonNotHTML, l)
-		}
-	default:
+	if mediaTypeOf(resp.ContentType) == "" && !strings.HasPrefix(http.DetectContentType(resp.Body), "text/html") {
 		return fallback(reasonNotHTML, l)
 	}
 	return outcome{needsPage: true}
+}
+
+// sniffFormat tells the format of an answer from its Content-Type and its first bytes: a PDF
+// whatever its declared type when it starts as one (RG-28), HTML when declared so or not
+// declared, else another format.
+func sniffFormat(contentType string, head []byte) string {
+	mediaType := mediaTypeOf(contentType)
+	switch {
+	case mediaType == "application/pdf" || bytes.HasPrefix(head, []byte("%PDF-")):
+		return formatPDF
+	case mediaType == "" || mediaType == "text/html" || mediaType == "application/xhtml+xml":
+		return formatHTML
+	default:
+		return formatOther
+	}
 }
 
 // mediaTypeOf is the media type of a Content-Type header, in lower case, "" when absent.

@@ -1,9 +1,11 @@
 // Package extraction is the domain of the extraction: what happens to a captured item between
-// queued and extracted, in the background and without any AI call (RG-20 to RG-27). A link's
-// page is downloaded once, through a client of its own that never reaches a local or private
-// address, and read locally with Readability; a note or an image has nothing to extract. It is
-// the only domain that imports net/http, and the only package that imports Readability and
-// golang.org/x/net/html (docs/dev/conventions-backend.md).
+// queued and extracted, in the background and without any AI call (RG-20 to RG-28). A link is
+// downloaded once, through a client of its own that never reaches a local or private address;
+// its page is read locally with Readability, or its PDF, streamed to a temporary file without
+// name, with github.com/ledongthuc/pdf and a layout layer of its own; both are read in a child
+// process bounded in memory and time. A note or an image has nothing to extract. It is the only
+// domain that imports net/http, and the only package that imports Readability,
+// golang.org/x/net/html and the PDF reader (docs/dev/conventions-backend.md).
 //
 // Private items are extracted like the others: the extraction asks the captured URL from its
 // own site and sends nothing else (RG-92 exception); nothing here talks to the AI (RG-12).
@@ -66,6 +68,8 @@ type Options struct {
 	ReaderCommand []string
 	// ReadTimeout bounds the reading of a page in the child; 0 means ReadTimeout.
 	ReadTimeout time.Duration
+	// TempDir is where PDFs are downloaded, DATA_DIR/tmp in production. Required.
+	TempDir *TempDir
 	// After is time.After when nil; tests control the safety net and the outage pause with it.
 	After func(time.Duration) <-chan time.Time
 	// Now is time.Now when nil; it measures the durations logged.
@@ -119,7 +123,7 @@ func NewWorker(opts Options) *Worker {
 	}
 	return &Worker{
 		store:       opts.Store,
-		fetcher:     newFetcher(opts.Policy, resolver, opts.RootCAs, opts.Version, timeout),
+		fetcher:     newFetcher(opts.Policy, resolver, opts.RootCAs, opts.Version, timeout, opts.TempDir),
 		reader:      &pageReader{argv: opts.ReaderCommand, timeout: readTimeout},
 		logger:      opts.Logger,
 		after:       after,
@@ -164,10 +168,11 @@ func (w *Worker) Run(ctx context.Context) {
 type step int
 
 const (
-	stepNext   step = iota // go on with the next item
-	stepOutage             // the link met a network outage of the NAS: pause after the pass
-	stepStop               // the worker is stopping
-	stepPause              // the NAS cannot read pages: end the pass and pause
+	stepNext    step = iota // go on with the next item
+	stepOutage              // the link met a network outage of the NAS: pause after the pass
+	stepStop                // the worker is stopping
+	stepPause               // the NAS cannot read pages: end the pass and pause
+	stepStorage             // the NAS cannot store a PDF: go on with the items that need no file, pause after the pass
 )
 
 // pass extracts the queued items of every user, each user's on their own (RG-90). A network
@@ -176,6 +181,10 @@ const (
 // the links of the hosts that failed; then it returns stepOutage, so that the worker pauses.
 func (w *Worker) pass(ctx context.Context) (result step) {
 	outage := false
+	// storageFull: a PDF could not be stored. The pass goes on, notes, images and pages need no
+	// file, and a later PDF is refused by the free space check after its headers; the worker
+	// pauses after the pass.
+	storageFull := false
 	failedHosts := map[string]bool{}
 	probes := 0
 	defer w.afterPass()
@@ -221,6 +230,8 @@ func (w *Worker) pass(ctx context.Context) (result step) {
 					return stepStop
 				case stepPause:
 					return stepOutage
+				case stepStorage:
+					storageFull = true
 				case stepOutage:
 					outage = true
 					failedHosts[host] = true
@@ -229,7 +240,7 @@ func (w *Worker) pass(ctx context.Context) (result step) {
 			}
 		}
 	}
-	if outage {
+	if outage || storageFull {
 		return stepOutage
 	}
 	return stepNext
@@ -276,23 +287,45 @@ func (w *Worker) extract(ctx context.Context, userID string, item store.QueuedIt
 		return stepNext
 	}
 	resp, err := w.fetcher.fetch(ctx, target)
+	if resp.PDF != nil {
+		// Both descriptors of the file are closed on every path; its data goes with them.
+		defer func() { _ = resp.PDF.Close() }() // no name, nothing to flush: a failure loses nothing
+	}
 	if err != nil {
 		switch reason := classify(ctx, err); reason {
 		case reasonStopped:
 			w.releaseAttempt(ctx, userID, item.ID)
 			return stepStop
+		case reasonStorageUnavailable:
+			// The NAS cannot store the PDF (no room, read-only volume): the item waits, the pass
+			// goes on with the others, then pauses. The error names no file nor URL.
+			w.releaseAttempt(ctx, userID, item.ID)
+			w.logger.ErrorContext(ctx, "temporary file unavailable", slog.String("item_id", item.ID),
+				slog.String("reason", reason), slog.String("format", formatPDF), slog.String("error", err.Error()),
+				w.duration(start))
+			return stepStorage
 		case reasonNetwork:
 			return w.networkOutage(ctx, userID, item, l, start)
 		default:
+			out := fallback(reason, l)
+			if resp.Format == formatPDF {
+				// The body of a PDF failed after its headers: its file name is its title (RG-28).
+				out = pdfFallback(reason, resp.URL, l)
+			}
 			// A refusal of the address policy never reached the site.
-			w.write(ctx, userID, item.ID, fallback(reason, l), start, reason != reasonBlocked)
+			w.write(ctx, userID, item.ID, out, start, reason != reasonBlocked)
 			return stepNext
 		}
 	}
 
 	out := readBody(resp, l)
-	if out.needsPage {
-		out, err = w.reader.read(ctx, resp, l)
+	if out.needsPage || out.needsPDF {
+		if out.needsPDF {
+			out, err = w.reader.readPDF(ctx, resp.PDF.r, resp.URL, l)
+			_ = resp.PDF.Close() // read: the disk space is released before the write
+		} else {
+			out, err = w.reader.read(ctx, resp, l)
+		}
 		switch {
 		case errors.Is(err, errReaderStopped):
 			w.releaseAttempt(ctx, userID, item.ID)
@@ -308,20 +341,6 @@ func (w *Worker) extract(ctx context.Context, userID string, item store.QueuedIt
 		}
 	}
 	out.Status = resp.Status
-	if out.Deferred {
-		// E2-08 extracts PDFs from the attempt row; the item waits, and is not downloaded again.
-		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
-		defer cancel()
-		if err := w.store.DeferExtraction(writeCtx, userID, item.ID); err != nil {
-			w.logStoreError(ctx, "defer extraction", item.ID, err)
-			return stepNext
-		}
-		w.siteAnswers++ // the site answered
-		delete(w.postponedAt, item.ID)
-		w.logger.InfoContext(ctx, "item extraction deferred", slog.String("item_id", item.ID),
-			slog.String("reason", out.Reason), slog.Int("http_status", out.Status), w.duration(start))
-		return stepNext
-	}
 	w.write(ctx, userID, item.ID, out, start, true)
 	return stepNext
 }
@@ -375,6 +394,9 @@ func (w *Worker) write(ctx context.Context, userID, itemID string, out outcome, 
 	}
 	attrs := []slog.Attr{
 		slog.String("item_id", itemID), slog.String("mode", out.Extraction.Mode), slog.String("reason", out.Reason),
+	}
+	if out.Format != "" {
+		attrs = append(attrs, slog.String("format", out.Format))
 	}
 	if out.Status != 0 {
 		attrs = append(attrs, slog.Int("http_status", out.Status))

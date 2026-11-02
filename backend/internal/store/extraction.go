@@ -54,15 +54,15 @@ func (s *Store) UserIDs(ctx context.Context) ([]string, error) {
 }
 
 // QueuedItems returns at most limit queued items of userID whose id is above afterID ("" for
-// the first page), oldest first. Links whose extraction was deferred as a PDF are left out:
-// their own story picks them up (E2-08).
+// the first page), oldest first. A link that E2-05 left deferred as a PDF (outcome
+// deferred_pdf, started_at null) is listed as any queued link: E2-08 reads PDFs. The column
+// outcome is no longer written nor read.
 func (s *Store) QueuedItems(ctx context.Context, userID, afterID string, limit int) ([]QueuedItem, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT i.id, i.kind, i.url, i.title, a.started_at IS NOT NULL, COALESCE(a.network_retries, 0)
 		 FROM items i
 		 LEFT JOIN extraction_attempts a ON a.user_id = ? AND a.item_id = i.id
 		 WHERE i.user_id = ? AND i.status = 'queued' AND i.deleted_at IS NULL AND i.id > ?
-		   AND a.outcome IS NULL
 		 ORDER BY i.id
 		 LIMIT ?`, userID, userID, afterID, limit)
 	if err != nil {
@@ -108,17 +108,6 @@ func (s *Store) StartExtractionAttempt(ctx context.Context, userID, itemID strin
 		return fmt.Errorf("start extraction attempt: %w", err)
 	} else if n == 0 {
 		return fmt.Errorf("start extraction attempt: %w", errOtherUsersAttempt)
-	}
-	return nil
-}
-
-// DeferExtraction marks the attempt of the item itemID of userID as a PDF: the item stays
-// queued, and QueuedItems leaves it out until its own extraction (E2-08).
-func (s *Store) DeferExtraction(ctx context.Context, userID, itemID string) error {
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE extraction_attempts SET outcome = 'deferred_pdf', started_at = NULL WHERE user_id = ? AND item_id = ?`,
-		userID, itemID); err != nil {
-		return fmt.Errorf("defer extraction: %w", err)
 	}
 	return nil
 }

@@ -1,6 +1,8 @@
 package extraction
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -27,8 +29,14 @@ const (
 	MaxBodySize = 2 << 20
 	// maxRedirects is the number of redirects followed before the link falls back.
 	maxRedirects = 10
-	// sniffLength is what is read of a body whose type is not HTML: enough to recognise a PDF.
+	// sniffLength is what is read of a body before its format is decided: enough to recognise
+	// a PDF.
 	sniffLength = 512
+	// sniffBuffer is the buffer the first bytes are peeked through.
+	sniffBuffer = 4 << 10
+	// acceptHeader asks for HTML first, and accepts a PDF: a site that negotiates the type
+	// answers a PDF link instead of 406.
+	acceptHeader = "text/html,application/xhtml+xml,application/pdf;q=0.9"
 )
 
 var (
@@ -70,9 +78,10 @@ type fetcher struct {
 	userAgent string
 	timeout   time.Duration
 	limit     int64
+	temp      *TempDir // where PDFs are written
 }
 
-func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x509.CertPool, version string, timeout time.Duration) *fetcher {
+func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x509.CertPool, version string, timeout time.Duration, temp *TempDir) *fetcher {
 	f := &fetcher{
 		resolver: resolver,
 		dialer: &net.Dialer{
@@ -90,6 +99,7 @@ func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x5
 		userAgent: "Hippo/" + version + " (personal read-later)", // ASCII only: some servers refuse other bytes
 		timeout:   timeout,
 		limit:     MaxBodySize,
+		temp:      temp,
 	}
 	f.transport = &http.Transport{
 		Proxy:                  nil,
@@ -136,8 +146,11 @@ func (f *fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 	return nil, errors.Join(errs...)
 }
 
-// fetch downloads target within f.timeout of ctx. The error it returns names the URL: it is
-// classified, never logged nor stored.
+// fetch downloads target within f.timeout of ctx. An HTML page is read in memory, up to
+// MaxBodySize; a PDF is streamed to a temporary file without name, up to MaxPDFSize, which the
+// caller closes (response.PDF). The response keeps its format and final URL along with an error
+// of the body, so that a PDF that fails falls back with its file name. The error names the
+// URL: it is classified, never logged nor stored.
 func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) {
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
@@ -150,7 +163,7 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 		return response{}, fmt.Errorf("fetch: %w", err)
 	}
 	req.Header.Set("User-Agent", f.userAgent)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("Accept", acceptHeader)
 	req.Header.Set("Accept-Language", "fr,en")
 	// No Accept-Encoding: the transport asks for gzip itself and decompresses transparently.
 
@@ -171,29 +184,72 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 	if out.Status < 200 || out.Status > 299 {
 		return out, nil
 	}
-	switch mediaTypeOf(out.ContentType) {
-	case "application/pdf":
+	if mediaTypeOf(out.ContentType) == "application/pdf" && resp.ContentLength > MaxPDFSize {
+		// Announced too large: not a byte of the body is read.
+		out.Format, out.TooLarge = formatPDF, true
 		return out, nil
-	case "", "text/html", "application/xhtml+xml":
+	}
+	body := bufio.NewReaderSize(resp.Body, sniffBuffer)
+	head, err := body.Peek(sniffLength)
+	// The format is known from the type and the bytes received even when the body stalls, so
+	// that a PDF that does not download in time keeps the title order of a PDF.
+	out.Format = sniffFormat(out.ContentType, head)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return out, fmt.Errorf("fetch: read body: %w", err)
+	}
+	switch out.Format {
+	case formatPDF:
+		return f.downloadPDF(body, resp.ContentLength, out)
+	case formatHTML:
 		// The limit applies to the decompressed stream: a gzip bomb or a lying Content-Length
 		// stops at the limit.
-		body, err := io.ReadAll(io.LimitReader(resp.Body, f.limit+1))
+		page, err := io.ReadAll(io.LimitReader(body, f.limit+1))
 		if err != nil {
-			return response{}, fmt.Errorf("fetch: read body: %w", err)
+			return out, fmt.Errorf("fetch: read body: %w", err)
 		}
-		if int64(len(body)) > f.limit {
+		if int64(len(page)) > f.limit {
 			out.TooLarge = true
 			return out, nil
 		}
-		out.Body = body
+		out.Body = page
 	default:
-		head := make([]byte, sniffLength)
-		n, err := io.ReadFull(resp.Body, head)
-		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return response{}, fmt.Errorf("fetch: read body: %w", err)
-		}
-		out.Body = head[:n]
+		out.Body = bytes.Clone(head)
 	}
+	return out, nil
+}
+
+// downloadPDF copies the body of a PDF to a temporary file without name, up to MaxPDFSize of
+// the decompressed stream: the memory of the service does not grow with the PDF. A volume
+// without room for it, or a failure to create or write the file, wraps errStorage; a failure
+// to read the body is the site's.
+func (f *fetcher) downloadPDF(body io.Reader, length int64, out response) (response, error) {
+	if length > MaxPDFSize {
+		out.TooLarge = true
+		return out, nil
+	}
+	// A gzip body that the transport decompresses comes with no length (-1): its size is
+	// unknown until read, MaxPDFSize at most.
+	need := uint64(MaxPDFSize)
+	if length >= 0 {
+		need = uint64(length)
+	}
+	if err := f.temp.checkRoom(need); err != nil {
+		return out, fmt.Errorf("fetch: %w", err)
+	}
+	file, err := f.temp.create()
+	if err != nil {
+		return out, fmt.Errorf("fetch: %w", err)
+	}
+	n, err := io.Copy(file, io.LimitReader(body, MaxPDFSize+1))
+	if err == nil && n <= MaxPDFSize {
+		out.PDF = file
+		return out, nil
+	}
+	_ = file.Close() // no name: closing frees the data, there is nothing to flush
+	if err != nil {
+		return out, fmt.Errorf("fetch: read body: %w", err)
+	}
+	out.TooLarge = true
 	return out, nil
 }
 
@@ -216,6 +272,9 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 func classify(ctx context.Context, err error) string {
 	if ctx.Err() != nil {
 		return reasonStopped
+	}
+	if errors.Is(err, errStorage) {
+		return reasonStorageUnavailable
 	}
 	if errors.Is(err, errBlocked) {
 		return reasonBlocked

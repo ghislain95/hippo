@@ -22,8 +22,9 @@ import (
 
 // The reading of a page runs in a child process of the same binary, `hippo extract-page`: the
 // memory of an HTML tree follows the markup, not the size of the page, and a hostile page of a
-// few hundred kilobytes can build a tree of a hundred megabytes. The child is bounded in
-// memory and in time; whatever happens to it, the service keeps running (design.md).
+// few hundred kilobytes can build a tree of a hundred megabytes. A PDF is read there too, from
+// its temporary file, handed to the child as descriptor 3. The child is bounded in memory and
+// in time; whatever happens to it, the service keeps running (design.md).
 const (
 	// ChildCommand is the subcommand of the binary that reads one page (RunChild).
 	ChildCommand = "extract-page"
@@ -48,6 +49,12 @@ const (
 	childWaitDelay = time.Second
 	// watchInterval is how often the child samples its memory.
 	watchInterval = time.Millisecond
+	// childPDFDescriptor is the descriptor on which the child reads a PDF: the first of
+	// exec.Cmd.ExtraFiles.
+	childPDFDescriptor = 3
+	// deadlineShare is the share of ReadTimeout after which the child answers with what it
+	// read of a PDF, before the parent kills it.
+	deadlineShare = 0.8
 )
 
 // childEnv is the whole environment of the child: never the service's, which holds the API
@@ -57,12 +64,17 @@ func childEnv() []string {
 	return []string{"GOMAXPROCS=2"}
 }
 
-// childRequest is the first line the child reads; the body of the page follows, to the end.
+// childRequest is the first line the child reads; the body of a page follows, to the end. A
+// PDF is not on stdin: it is the file of descriptor 3.
 type childRequest struct {
 	ContentType string `json:"content_type"`
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	Host        string `json:"host"`
+	// Format is formatPDF for a PDF; "" for a page.
+	Format string `json:"format,omitempty"`
+	// DeadlineMS is when the child answers with what it read of a PDF, in milliseconds.
+	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 }
 
 // childResult is what the child writes: the outcome of readPage, and the peak of memory its
@@ -79,10 +91,21 @@ type childResult struct {
 }
 
 // RunChild is the child process: it reads one request from stdin, reads the page with
-// readPage, writes the outcome as JSON to stdout and returns the exit code. It loads no
-// configuration, opens no database and logs nothing. Above ChildMemoryLimit it exits at once
-// with childExitMemory.
+// readPage or the PDF of descriptor 3 with readPDFWithin, writes the outcome as JSON to stdout
+// and returns the exit code. It loads no configuration, opens no database and logs nothing.
+// Above ChildMemoryLimit it exits at once with childExitMemory.
 func RunChild(stdin io.Reader, stdout io.Writer) int {
+	return runChild(stdin, stdout, childOptions{})
+}
+
+// childOptions are the test modes of the child.
+type childOptions struct {
+	// stopAfterPages, when set, is a clock that passes the deadline of a PDF reading once that
+	// many pages are committed, instead of the time.
+	stopAfterPages int
+}
+
+func runChild(stdin io.Reader, stdout io.Writer, opts childOptions) int {
 	debug.SetMemoryLimit(childSoftLimit)
 	if runtime.GOMAXPROCS(0) < 2 {
 		runtime.GOMAXPROCS(2)
@@ -99,16 +122,24 @@ func RunChild(stdin io.Reader, stdout io.Writer) int {
 	if err := json.Unmarshal(line, &req); err != nil {
 		return childExitInput
 	}
-	body, err := io.ReadAll(input)
-	if err != nil {
-		return childExitInput
-	}
 	pageURL, err := url.Parse(req.URL)
 	if err != nil {
 		return childExitInput
 	}
+	l := link{title: req.Title, host: req.Host}
 
-	out := readPage(body, req.ContentType, pageURL, link{title: req.Title, host: req.Host})
+	var out outcome
+	if req.Format == formatPDF {
+		if out, err = readPDFChild(pageURL, l, time.Duration(req.DeadlineMS)*time.Millisecond, opts); err != nil {
+			return childExitInput
+		}
+	} else {
+		body, err := io.ReadAll(input)
+		if err != nil {
+			return childExitInput
+		}
+		out = readPage(body, req.ContentType, pageURL, l)
+	}
 	e := out.Extraction
 	result := childResult{
 		Reason: out.Reason, Mode: e.Mode, Title: e.Title, SiteName: e.SiteName, ContentText: e.ContentText,
@@ -120,6 +151,43 @@ func RunChild(stdin io.Reader, stdout io.Writer) int {
 		return childExitInput
 	}
 	return 0
+}
+
+// errNoPDF: the child was asked for a PDF without a file on descriptor 3.
+var errNoPDF = errors.New("no PDF file on descriptor 3")
+
+// readPDFChild reads the PDF of descriptor 3 for the link l served from pageURL, and answers
+// with what it read at deadline (RG-23, RG-28). The library never sees an error message of
+// its own reach stdout: readPDF maps them to reasons.
+func readPDFChild(pageURL *url.URL, l link, deadline time.Duration, opts childOptions) (outcome, error) {
+	file := os.NewFile(childPDFDescriptor, "pdf")
+	if file == nil {
+		return outcome{}, errNoPDF
+	}
+	defer func() { _ = file.Close() }() // read only
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return outcome{}, errNoPDF
+	}
+	if deadline <= 0 {
+		deadline = time.Duration(float64(ReadTimeout) * deadlineShare)
+	}
+	stop := make(chan struct{})
+	progress := &pdfProgress{}
+	if opts.stopAfterPages > 0 {
+		var once sync.Once
+		progress.afterCommit = func(r pdfReading) {
+			if r.pagesStarted >= opts.stopAfterPages {
+				once.Do(func() { close(stop) })
+				select {} // the reading never goes further: the deadline took what it committed
+			}
+		}
+	} else {
+		timer := time.AfterFunc(deadline, func() { close(stop) })
+		defer timer.Stop()
+	}
+	reading, finished := readPDFWithin(file, info.Size(), stop, progress)
+	return pdfOutcome(reading, finished, pageURL, l), nil
 }
 
 // memoryWatch samples the memory the runtime holds and calls exit above a limit.
@@ -185,15 +253,24 @@ var (
 	errReaderUnavailable = errors.New("page reader unavailable")
 )
 
-// childReasons are the reasons readPage gives, by mode: an answer with another one is not the
-// child's.
-var childReasons = map[string]map[string]bool{
-	ModeFull:     {reasonOK: true},
-	ModeFallback: {reasonShort: true, reasonTooLarge: true, reasonNotHTML: true, reasonReadingFailed: true},
+// childReasons are the reasons the child gives, by format and mode: an answer with another one
+// is not the child's.
+var childReasons = map[string]map[string]map[string]bool{
+	formatHTML: {
+		ModeFull:     {reasonOK: true},
+		ModeFallback: {reasonShort: true, reasonTooLarge: true, reasonNotHTML: true, reasonReadingFailed: true},
+	},
+	formatPDF: {
+		ModeFull: {reasonOK: true},
+		ModeFallback: {
+			reasonShort: true, reasonEncrypted: true, reasonDamaged: true, reasonTimeout: true, reasonReadingFailed: true,
+		},
+	},
 }
 
-// command builds the child for one page; its environment is childEnv only.
-func (r *pageReader) command(ctx context.Context, req childRequest, body []byte, stdout io.Writer) (*exec.Cmd, error) {
+// command builds the child for one page, or for one PDF given as descriptor 3; its
+// environment is childEnv only.
+func (r *pageReader) command(ctx context.Context, req childRequest, body []byte, pdf *os.File, stdout io.Writer) (*exec.Cmd, error) {
 	header, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("read page: %w", err)
@@ -201,6 +278,11 @@ func (r *pageReader) command(ctx context.Context, req childRequest, body []byte,
 	cmd := exec.CommandContext(ctx, r.argv[0], r.argv[1:]...)
 	cmd.Env = childEnv()
 	cmd.Stdin = io.MultiReader(bytes.NewReader(append(header, '\n')), bytes.NewReader(body))
+	if pdf != nil {
+		// Read-only, and the only descriptor the child inherits: Go opens every other one
+		// close-on-exec.
+		cmd.ExtraFiles = []*os.File{pdf}
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = nil // discarded: a panic message may quote the page
 	cmd.WaitDelay = childWaitDelay
@@ -212,36 +294,60 @@ func (r *pageReader) command(ctx context.Context, req childRequest, body []byte,
 // errReaderStopped when ctx, the worker's, is done, and errReaderUnavailable when the child
 // could not start.
 func (r *pageReader) read(ctx context.Context, resp response, l link) (outcome, error) {
+	req := childRequest{ContentType: resp.ContentType, URL: resp.URL.String(), Title: l.title, Host: l.host}
+	return r.run(ctx, req, resp.Body, nil, func(reason string) outcome { return fallback(reason, l) })
+}
+
+// readPDF reads the PDF of file, served from final, for the link l in a child process, which
+// answers before the parent's limit with what it read (deadlineShare). Its errors are those of
+// read.
+func (r *pageReader) readPDF(ctx context.Context, file *os.File, final *url.URL, l link) (outcome, error) {
+	req := childRequest{
+		URL: final.String(), Title: l.title, Host: l.host, Format: formatPDF,
+		DeadlineMS: max(1, int64(float64(r.timeout)*deadlineShare)/int64(time.Millisecond)),
+	}
+	return r.run(ctx, req, nil, file, func(reason string) outcome { return pdfFallback(reason, final, l) })
+}
+
+// run runs the child for req and turns its answer into an outcome; fallbackFor builds the
+// fallback of a child that did not answer.
+func (r *pageReader) run(ctx context.Context, req childRequest, body []byte, pdf *os.File, fallbackFor func(string) outcome) (outcome, error) {
 	readCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	output := &cappedBuffer{limit: maxChildOutput}
-	cmd, err := r.command(readCtx, childRequest{
-		ContentType: resp.ContentType, URL: resp.URL.String(), Title: l.title, Host: l.host,
-	}, resp.Body, output)
+	cmd, err := r.command(readCtx, req, body, pdf, output)
 	if err != nil {
-		return fallback(reasonReadingFailed, l), nil
+		return fallbackFor(reasonReadingFailed), nil
 	}
 	runErr := cmd.Run()
 	switch {
 	case ctx.Err() != nil:
 		return outcome{}, errReaderStopped
 	case errors.Is(readCtx.Err(), context.DeadlineExceeded):
-		return fallback(reasonTimeout, l), nil
+		return fallbackFor(reasonTimeout), nil
 	case cmd.ProcessState == nil:
 		return outcome{}, fmt.Errorf("%w: %w", errReaderUnavailable, runErr)
 	case cmd.ProcessState.ExitCode() == childExitMemory:
-		return fallback(reasonTooLarge, l), nil
+		return fallbackFor(reasonTooLarge), nil
 	case runErr != nil || output.overflow:
-		return fallback(reasonReadingFailed, l), nil
+		return fallbackFor(reasonReadingFailed), nil
+	}
+	format := req.Format
+	if format == "" {
+		format = formatHTML
 	}
 	var result childResult
-	if err := json.Unmarshal(output.Bytes(), &result); err != nil || !childReasons[result.Mode][result.Reason] {
-		return fallback(reasonReadingFailed, l), nil
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil || !childReasons[format][result.Mode][result.Reason] {
+		return fallbackFor(reasonReadingFailed), nil
 	}
-	return outcome{Reason: result.Reason, Extraction: store.Extraction{
+	out := outcome{Reason: result.Reason, Extraction: store.Extraction{
 		Mode: result.Mode, Title: result.Title, SiteName: result.SiteName, ContentText: result.ContentText,
 		ContentTruncated: result.ContentTruncated, ReadingMinutes: result.ReadingMinutes,
-	}}, nil
+	}}
+	if format == formatPDF {
+		out.Format = formatPDF
+	}
+	return out, nil
 }
 
 // cappedBuffer keeps the first limit bytes written and drops the rest, so that a child that

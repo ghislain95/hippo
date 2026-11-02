@@ -12,10 +12,12 @@ import (
 
 // Modes of the test binary when a test runs it as the child that reads a page.
 const (
-	hangChild    = "hang-child"    // says it started on the FIFO given, then never answers
-	crashChild   = "crash-child"   // exits with an unexpected code
-	garbageChild = "garbage-child" // answers something that is not an outcome
-	unknownChild = "unknown-child" // answers an outcome whose reason the parent does not know
+	hangChild      = "hang-child"       // says it started on the FIFO given, then never answers
+	crashChild     = "crash-child"      // exits with an unexpected code
+	garbageChild   = "garbage-child"    // answers something that is not an outcome
+	unknownChild   = "unknown-child"    // answers an outcome whose reason the parent does not know
+	pdfReasonChild = "pdf-reason-child" // answers a PDF's reason, whatever it was asked
+	stoppedChild   = "stopped-child"    // reads a PDF with a clock that passes its deadline after 50 pages
 )
 
 // TestMain makes the test binary the child of the tests: run with extraction.ChildCommand, it
@@ -46,6 +48,11 @@ func TestMain(m *testing.M) {
 		case unknownChild:
 			fmt.Println(`{"mode":"full","reason":"x"}`)
 			syscall.Exit(0)
+		case pdfReasonChild:
+			fmt.Println(`{"mode":"fallback","reason":"encrypted"}`)
+			syscall.Exit(0)
+		case stoppedChild:
+			syscall.Exit(extraction.RunChildStoppedAfterPages(os.Stdin, os.Stdout, 50))
 		}
 	}
 	os.Exit(m.Run())

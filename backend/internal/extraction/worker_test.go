@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -20,10 +21,14 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 	_ "time/tzdata" // the Paris zone of the capture without the machine's time zone database
@@ -32,6 +37,7 @@ import (
 	"github.com/ghislain95/hippo/backend/internal/capture/imagetest"
 	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/extraction/pagestest"
+	"github.com/ghislain95/hippo/backend/internal/extraction/pdftest"
 	"github.com/ghislain95/hippo/backend/internal/store"
 	"github.com/ghislain95/hippo/backend/internal/store/storetest"
 )
@@ -263,6 +269,9 @@ type harness struct {
 	timeout  time.Duration
 	reader   []string      // the child that reads pages: the test binary as extract-page
 	readFor  time.Duration // the time limit of a reading
+	dbPath   string
+	tmp      *extraction.TempDir
+	tmpPath  string // the temporary directory of the PDFs
 	logs     *syncBuffer
 	relay    *relay
 	passes   chan struct{}
@@ -271,7 +280,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	st := storetest.Open(t)
+	st, dbPath := storetest.OpenWithPath(t)
 	ctx := context.Background()
 	owner, err := st.CreateUser(ctx, "owner", "hash-owner")
 	if err != nil {
@@ -286,16 +295,17 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("LoadParis: %v", err)
 	}
 	h := &harness{
-		t: t, store: st, owner: owner, other: other, web: newWeb(t),
+		t: t, store: st, dbPath: dbPath, owner: owner, other: other, web: newWeb(t),
 		policy: &policyRecorder{policy: testPolicy}, logs: &syncBuffer{}, relay: &relay{},
 		passes: make(chan struct{}, 1), pause: make(chan time.Time),
 	}
 	h.resolver = h.web
 	h.reader = childArgv(extraction.ChildCommand)
+	h.tmp, h.tmpPath = tempDir(t)
 	h.capture = capture.NewService(st, h.relay, paris, slog.New(slog.NewJSONHandler(h.logs, nil)))
 	t.Cleanup(func() {
 		// Whatever the test, the logs never name a site or an address (RG-90, ADR-0027).
-		for _, secret := range []string{"example.com", "youtube.com", "youtu.be", "127.0.0.1", "localhost", "192.168.", "10.0.0.5", "Tuning SQLite"} {
+		for _, secret := range []string{"example.com", "youtube.com", "youtu.be", "127.0.0.1", "localhost", "192.168.", "10.0.0.5", "Tuning SQLite", h.tmpPath, ".pdf"} {
 			if strings.Contains(h.logs.String(), secret) {
 				t.Errorf("logs contain %q:\n%s", secret, h.logs.String())
 			}
@@ -311,7 +321,7 @@ func (h *harness) start() (stop func()) {
 	opts := extraction.Options{
 		Store: h.store, Policy: h.policy.allow, Resolver: h.resolver, RootCAs: h.web.roots,
 		Logger:  slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		Version: "test", Timeout: h.timeout, ReaderCommand: h.reader, ReadTimeout: h.readFor,
+		Version: "test", Timeout: h.timeout, ReaderCommand: h.reader, ReadTimeout: h.readFor, TempDir: h.tmp,
 		// The safety net never fires; the outage pause ends when the test says so.
 		After: func(d time.Duration) <-chan time.Time {
 			if d == extraction.OutagePause {
@@ -491,7 +501,7 @@ func TestExtractionWorker(t *testing.T) {
 		if ua := headers.Get("User-Agent"); ua != "Hippo/test (personal read-later)" {
 			t.Errorf("User-Agent = %q", ua)
 		}
-		if headers.Get("Accept") != "text/html,application/xhtml+xml" || headers.Get("Accept-Language") != "fr,en" {
+		if headers.Get("Accept") != "text/html,application/xhtml+xml,application/pdf;q=0.9" || headers.Get("Accept-Language") != "fr,en" {
 			t.Errorf("headers = %v", headers)
 		}
 	})
@@ -1227,7 +1237,7 @@ func TestExtractionWorker(t *testing.T) {
 		}
 	})
 
-	// Requirement: YouTube and PDF links wait for their own extraction.
+	// Requirement: YouTube links wait for their own extraction.
 
 	t.Run("YouTube link", func(t *testing.T) {
 		h := newHarness(t)
@@ -1244,27 +1254,6 @@ func TestExtractionWorker(t *testing.T) {
 		}
 		if asked, lookups := len(h.policy.addresses()), h.web.lookups.Load(); asked+int(lookups) != 0 {
 			t.Errorf("dials %d, lookups %d: want no request", asked, lookups)
-		}
-	})
-
-	t.Run("PDF link", func(t *testing.T) {
-		h := newHarness(t)
-		const link = "https://docs.example.com/paper.pdf"
-		h.web.page(link, "application/pdf", []byte("%PDF-1.7\nfictional\n"))
-		stop := h.start()
-		captured := h.captureLink(link, false)
-		h.waitPass()
-		stop()
-		h.start() // the backend restarts
-		item := h.item(h.owner, captured.ID)
-		if item.Status != "queued" || item.ExtractionMode != nil || h.content(item.ID) != nil {
-			t.Errorf("status %q mode %q, want queued without content", item.Status, mode(item))
-		}
-		if got := h.web.requestsTo(link); got != 1 {
-			t.Errorf("URL requested %d times, want once", got)
-		}
-		if len(h.queued(h.owner)) != 0 {
-			t.Error("the deferred PDF is still listed for extraction")
 		}
 	})
 
@@ -1287,6 +1276,695 @@ func TestExtractionWorker(t *testing.T) {
 		}
 		if !strings.Contains(logs, item.ID) || !strings.Contains(logs, `"mode":"full"`) || !strings.Contains(logs, `"duration_ms"`) {
 			t.Errorf("logs lack the item id, mode or duration:\n%s", logs)
+		}
+	})
+}
+
+// Generated PDFs that take seconds to build are built once.
+var (
+	enormousPagePDF = sync.OnceValue(func() []byte {
+		return pdftest.Doc{Compress: true, Pages: []pdftest.Page{pdftest.EnormousPage(100 << 20)}}.Bytes()
+	})
+	hugeStringPDF = sync.OnceValue(func() []byte {
+		return pdftest.Doc{Compress: true, Pages: []pdftest.Page{pdftest.HugeString(100 << 20)}}.Bytes()
+	})
+)
+
+// tuningPDF is the fictional article of the scenarios: 10 pages, 1 951 words, titled Tuning
+// SQLite in its metadata.
+func tuningPDF() ([]byte, []string) {
+	doc, sentences := pdftest.Article("Tuning SQLite", 10, 1951)
+	return doc.Bytes(), sentences
+}
+
+// textPDF is a document whose first page starts with lines, followed by enough text to be read
+// in full.
+func textPDF(doc pdftest.Doc, lines ...string) []byte {
+	doc.Pages = append([]pdftest.Page{withFiller(lines...)}, doc.Pages...)
+	return doc.Bytes()
+}
+
+// extractPDF serves pdf at rawURL as application/pdf and extracts it with a running worker.
+func (h *harness) extractPDF(rawURL string, pdf []byte) store.Item {
+	h.t.Helper()
+	h.web.page(rawURL, "application/pdf", pdf)
+	return h.extractLink(rawURL)
+}
+
+func (h *harness) contentOf(item store.Item) string {
+	h.t.Helper()
+	content := h.content(item.ID)
+	if content == nil {
+		h.t.Fatalf("item %s has no content", item.ID)
+	}
+	return *content
+}
+
+// assertPDFFallback checks a PDF that fell back: its title, the host as site name, nothing else.
+func assertPDFFallback(t *testing.T, h *harness, item store.Item, wantTitle, wantSite string) {
+	t.Helper()
+	assertFallback(t, h, item, wantTitle)
+	if item.SiteName == nil || *item.SiteName != wantSite {
+		t.Errorf("site_name = %v, want %s", item.SiteName, wantSite)
+	}
+	if h.content(item.ID) != nil {
+		t.Error("a PDF that falls back keeps a content")
+	}
+}
+
+// assertNoTempFile checks that the temporary directory is empty and that the test process, the
+// service, holds no descriptor on a file without name.
+func assertNoTempFile(t *testing.T, h *harness) {
+	t.Helper()
+	if names := entries(t, h.tmpPath); len(names) != 0 {
+		t.Errorf("temporary directory holds %v", names)
+	}
+	if n := unlinkedFiles(t); n != 0 {
+		t.Errorf("%d descriptors open on a file without name", n)
+	}
+}
+
+// unlinkedFiles counts the descriptors of the process open on a regular file without name.
+func unlinkedFiles(t *testing.T) int {
+	t.Helper()
+	dir := "/dev/fd"
+	if runtime.GOOS == "linux" {
+		dir = "/proc/self/fd"
+	}
+	list, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("list descriptors: %v", err)
+	}
+	n := 0
+	for _, e := range list {
+		fd, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		var st syscall.Stat_t
+		if syscall.Fstat(fd, &st) == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG && st.Nlink == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// insertDeferredPDF writes, through its own connection, the attempt row E2-05 left for a link
+// answered as a PDF: no function of the store writes it any more.
+func insertDeferredPDF(t *testing.T, dbPath, userID, itemID string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO extraction_attempts (item_id, user_id, outcome) VALUES (?, ?, 'deferred_pdf')`, itemID, userID); err != nil {
+		t.Fatalf("insert deferred attempt: %v", err)
+	}
+}
+
+func TestPDFExtractionWorker(t *testing.T) {
+	// Requirement: Every captured item reaches extracted without blocking.
+
+	t.Run("No room on the NAS for a PDF leaves the item queued", func(t *testing.T) {
+		h := newHarness(t)
+		const link = "https://docs.example.com/papers/nas.pdf"
+		pdf, _ := tuningPDF()
+		h.web.page(link, "application/pdf", pdf)
+		readOnly(t, h.tmpPath)
+		h.start()
+		captured := h.captureLink(link, false)
+		h.waitPass()
+		if item := h.item(h.owner, captured.ID); item.Status != "queued" || item.ExtractionMode != nil {
+			t.Fatalf("status %q mode %q, want queued without fallback", item.Status, mode(item))
+		}
+		if queued := h.queued(h.owner); len(queued) != 1 || queued[0].AttemptStarted {
+			t.Fatalf("queued = %+v, want the item without an unfinished attempt", queued)
+		}
+		if logs := h.logs.String(); !strings.Contains(logs, `"level":"ERROR"`) || !strings.Contains(logs, `"reason":"storage_unavailable"`) {
+			t.Errorf("logs do not tell the storage failure as an error:\n%s", logs)
+		}
+		if err := os.Chmod(h.tmpPath, 0o700); err != nil { // the NAS can write again
+			t.Fatal(err)
+		}
+		h.endPause()
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, captured.ID), "full")
+	})
+
+	t.Run("a NAS without room for a PDF does not hold back the items behind it", func(t *testing.T) {
+		h := newHarness(t)
+		const pdfLink, pageLink = "https://docs.example.com/papers/full-disk.pdf", "https://blog.example.com/after-the-pdf"
+		pdf, _ := tuningPDF()
+		h.web.page(pdfLink, "application/pdf", pdf)
+		h.web.page(pageLink, "text/html", fixture(t, "article.html"))
+		var room atomic.Bool
+		extraction.SetFreeSpace(h.tmp, func() (uint64, bool, error) {
+			if room.Load() {
+				return 1 << 40, true, nil
+			}
+			return 0, true, nil
+		})
+		h.start()
+		h.relay.mute(true)
+		pdfItem := h.captureLink(pdfLink, false)
+		text := "a note captured after the PDF"
+		noteResult, err := h.capture.Capture(context.Background(), h.owner, capture.Request{Note: &text})
+		if err != nil {
+			t.Fatalf("Capture note: %v", err)
+		}
+		pageItem := h.captureLink(pageLink, false)
+		h.relay.wakeNow()
+		h.waitPass()
+		if item := h.item(h.owner, pdfItem.ID); item.Status != "queued" {
+			t.Errorf("PDF: status %q, want queued", item.Status)
+		}
+		assertExtracted(t, h.item(h.owner, noteResult.Item.ID), "none")
+		assertExtracted(t, h.item(h.owner, pageItem.ID), "full")
+		room.Store(true)
+		h.endPause() // the worker pauses after the pass, as for an outage
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, pdfItem.ID), "full")
+	})
+
+	// Requirement: Extraction keeps content out of the logs.
+
+	t.Run("PDF extraction logs no content", func(t *testing.T) {
+		h := newHarness(t)
+		const titled, broken = "https://secret.example.com/private-report.pdf", "https://secret.example.com/broken-plan.pdf"
+		h.web.page(titled, "application/pdf", textPDF(pdftest.Doc{Title: []byte("Private thought")}, "A private sentence"))
+		h.web.page(broken, "application/pdf", pdftest.Truncated(textPDF(pdftest.Doc{}, "Another private sentence")))
+		h.start()
+		first := h.captureLink(titled, false)
+		h.waitPass()
+		second := h.captureLink(broken, false)
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, first.ID), "full")
+		assertExtracted(t, h.item(h.owner, second.ID), "fallback")
+		logs := h.logs.String()
+		for _, secret := range []string{"secret.example.com", "private-report", "broken-plan", "Private thought", "private sentence", h.tmpPath} {
+			if strings.Contains(logs, secret) {
+				t.Errorf("logs contain %q", secret)
+			}
+		}
+		if !strings.Contains(logs, `"format":"pdf"`) || !strings.Contains(logs, `"reason":"damaged"`) {
+			t.Errorf("logs lack the format or the reason:\n%s", logs)
+		}
+	})
+
+	// Requirement: A PDF is read with its text.
+
+	t.Run("PDF article", func(t *testing.T) {
+		h := newHarness(t)
+		pdf, sentences := tuningPDF()
+		item := h.extractPDF("https://docs.example.com/papers/tuning.pdf", pdf)
+		assertExtracted(t, item, "full")
+		if item.Title != "Tuning SQLite" || item.SiteName == nil || *item.SiteName != "docs.example.com" {
+			t.Errorf("title %q site %v, want Tuning SQLite and docs.example.com", item.Title, item.SiteName)
+		}
+		if item.ReadingMinutes == nil || *item.ReadingMinutes != 9 || item.ContentTruncated {
+			t.Errorf("reading %v truncated %v, want 9 and false", item.ReadingMinutes, item.ContentTruncated)
+		}
+		flat := strings.Join(strings.Fields(h.contentOf(item)), " ")
+		if !strings.HasPrefix(flat, sentences[0]) || !strings.HasSuffix(flat, sentences[len(sentences)-1]) {
+			t.Error("content does not hold the first and the last sentence")
+		}
+	})
+
+	t.Run("PDF served under another type", func(t *testing.T) {
+		pdf, _ := tuningPDF()
+		for _, contentType := range []string{"application/octet-stream", "text/html"} {
+			h := newHarness(t)
+			const link = "https://docs.example.com/papers/typed"
+			h.web.page(link, contentType, pdf)
+			item := h.extractLink(link)
+			assertExtracted(t, item, "full")
+			if item.Title != "Tuning SQLite" {
+				t.Errorf("%s: title %q, want Tuning SQLite", contentType, item.Title)
+			}
+		}
+	})
+
+	t.Run("Words placed without spaces", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/glyphs.pdf",
+			textPDF(pdftest.Doc{Font: pdftest.TwoByte, Placement: pdftest.Glyphs}, "Le moteur lit chaque page"))
+		assertExtracted(t, item, "full")
+		if !strings.Contains(h.contentOf(item), "Le moteur lit chaque page") {
+			t.Errorf("content = %q", h.contentOf(item)[:60])
+		}
+	})
+
+	t.Run("Text in a two-byte font", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/cuisine.pdf",
+			textPDF(pdftest.Doc{Font: pdftest.TwoByte, Placement: pdftest.Glyphs}, "Crème brûlée à l'œuf"))
+		assertExtracted(t, item, "full")
+		if !strings.Contains(h.contentOf(item), "Crème brûlée à l'œuf") {
+			t.Errorf("content = %q", h.contentOf(item)[:60])
+		}
+	})
+
+	t.Run("Ligatures and hyphenated line ends", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/ligatures.pdf",
+			textPDF(pdftest.Doc{Font: pdftest.TwoByte}, "Une \ufb01ne réfle-", "xion sur le porte\u00ad", "monnaie"))
+		assertExtracted(t, item, "full")
+		if !strings.Contains(h.contentOf(item), "Une fine réfle-xion sur le portemonnaie") {
+			t.Errorf("content = %q", h.contentOf(item)[:60])
+		}
+	})
+
+	t.Run("Encrypted PDF that opens without a password", func(t *testing.T) {
+		h := newHarness(t)
+		article, _ := pdftest.Article("Copie fictive", 2, 300)
+		article.Encryption = pdftest.AES128
+		item := h.extractPDF("https://docs.example.com/copie.pdf", article.Bytes())
+		assertExtracted(t, item, "full")
+		if item.Title != "Copie fictive" {
+			t.Errorf("title = %q, want Copie fictive without trailing control character", item.Title)
+		}
+		if got := len(strings.Fields(h.contentOf(item))); got != 300 {
+			t.Errorf("content holds %d words, want the 300 of the document", got)
+		}
+	})
+
+	t.Run("PDF of version 2.0", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/v2.pdf", textPDF(pdftest.Doc{Version: "2.0"}, "Un document de version deux"))
+		assertExtracted(t, item, "full")
+		if !strings.HasPrefix(h.contentOf(item), "Un document de version deux") {
+			t.Errorf("content = %q", h.contentOf(item)[:60])
+		}
+	})
+
+	t.Run("A page that cannot be read is skipped", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/skipped.pdf", pdftest.Doc{Pages: []pdftest.Page{
+			withFiller("Texte de la page un."), {Broken: true}, withFiller("Texte de la page trois."),
+		}}.Bytes())
+		assertExtracted(t, item, "full")
+		content := h.contentOf(item)
+		if !strings.HasPrefix(content, "Texte de la page un.") || !strings.Contains(content, "Texte de la page trois.") {
+			t.Errorf("content = %q", content)
+		}
+	})
+
+	t.Run("Private PDF links are read too", func(t *testing.T) {
+		h := newHarness(t)
+		const link = "https://private.example.com/notes.pdf"
+		pdf, _ := tuningPDF()
+		h.web.page(link, "application/pdf", pdf)
+		h.start()
+		captured := h.captureLink(link, true)
+		h.waitPass()
+		item := h.item(h.owner, captured.ID)
+		assertExtracted(t, item, "full")
+		if !item.IsPrivate {
+			t.Error("the item is no longer private")
+		}
+	})
+
+	// Requirement: The title of a PDF follows its metadata, then its file name.
+
+	t.Run("Junk metadata title", func(t *testing.T) {
+		for _, junk := range [][]byte{[]byte("Microsoft Word - rapport.docx"), []byte("page.html"), []byte("Untitled"), []byte("\t\t\t")} {
+			h := newHarness(t)
+			item := h.extractPDF("https://example.com/docs/rapport-annuel-2025.pdf", textPDF(pdftest.Doc{Title: junk}, "Rapport fictif"))
+			assertExtracted(t, item, "full")
+			if item.Title != "rapport-annuel-2025" {
+				t.Errorf("metadata title %q: title %q, want rapport-annuel-2025", junk, item.Title)
+			}
+		}
+	})
+
+	t.Run("Metadata title kept when it only looks like a file name", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://example.com/docs/node.pdf", textPDF(pdftest.Doc{Title: []byte("Node.js en production")}, "Un guide fictif"))
+		if item.Title != "Node.js en production" {
+			t.Errorf("title = %q, want Node.js en production", item.Title)
+		}
+	})
+
+	t.Run("File name of the URL is decoded", func(t *testing.T) {
+		h := newHarness(t)
+		const link = "https://example.com/files/Rapport%20d%27activit%C3%A9.PDF" //nolint:misspell // percent-encoded "activité"
+		item := h.extractPDF(link, textPDF(pdftest.Doc{}, "Un bilan fictif"))
+		assertExtracted(t, item, "full")
+		if item.Title != "Rapport d'activité" {
+			t.Errorf("title = %q, want Rapport d'activité", item.Title)
+		}
+	})
+
+	t.Run("File name after a redirect", func(t *testing.T) {
+		h := newHarness(t)
+		const link, landing = "https://example.com/download?id=7", "https://cdn.example.com/files/guide-installation.pdf"
+		h.web.handle(link, func(rw http.ResponseWriter, r *http.Request) { http.Redirect(rw, r, landing, http.StatusFound) })
+		h.web.page(landing, "application/pdf", textPDF(pdftest.Doc{}, "Un guide fictif"))
+		item := h.extractLink(link)
+		assertExtracted(t, item, "full")
+		if item.Title != "guide-installation" || item.SiteName == nil || *item.SiteName != "example.com" {
+			t.Errorf("title %q site %v, want guide-installation and example.com", item.Title, item.SiteName)
+		}
+	})
+
+	t.Run("PDF without title nor file name", func(t *testing.T) {
+		h := newHarness(t)
+		h.web.page("https://example.com/download", "application/pdf", textPDF(pdftest.Doc{}, "Un document fictif"))
+		item := h.extractLink("https://example.com/download?id=7")
+		assertExtracted(t, item, "full")
+		if item.Title != "example.com" {
+			t.Errorf("title = %q, want example.com", item.Title)
+		}
+	})
+
+	t.Run("Broken metadata does not lose the text", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://example.com/docs/notice.pdf", textPDF(pdftest.Doc{Title: []byte("Notice"), BrokenInfo: true}, "Une notice fictive"))
+		assertExtracted(t, item, "full")
+		if item.Title != "notice" || !strings.HasPrefix(h.contentOf(item), "Une notice fictive") {
+			t.Errorf("title %q, want notice and the document's text", item.Title)
+		}
+	})
+
+	// Requirement: Long PDF text is cut and its reading time counts the whole document.
+
+	t.Run("Very long PDF", func(t *testing.T) {
+		h := newHarness(t)
+		doc, _ := pdftest.Article("Long", 400, 78_000)
+		item := h.extractPDF("https://docs.example.com/long.pdf", doc.Bytes())
+		assertExtracted(t, item, "full")
+		content := h.contentOf(item)
+		fields := strings.Fields(content)
+		if n := len([]rune(content)); !item.ContentTruncated || n > extraction.MaxContentLength || !pdftest.IsWord(fields[len(fields)-1]) {
+			t.Errorf("truncated %v, content of %d code points ending with %q", item.ContentTruncated, n, fields[len(fields)-1])
+		}
+		if item.ReadingMinutes == nil || *item.ReadingMinutes != 340 {
+			t.Errorf("reading minutes = %v, want 340", item.ReadingMinutes)
+		}
+	})
+
+	t.Run("Page with an enormous text", func(t *testing.T) {
+		h := newHarness(t)
+		h.readFor = 4 * time.Second // under the race detector, the reading may reach its deadline: it answers then
+		const enormous, next = "https://docs.example.com/enormous.pdf", "https://blog.example.com/after"
+		h.web.page(next, "text/html", fixture(t, "article.html"))
+		item := h.extractPDF(enormous, enormousPagePDF())
+		assertExtracted(t, item, "full")
+		if n := len([]rune(h.contentOf(item))); !item.ContentTruncated || n > extraction.MaxContentLength || item.ReadingMinutes == nil {
+			t.Errorf("truncated %v, content of %d code points, reading %v", item.ContentTruncated, n, item.ReadingMinutes)
+		}
+		after := h.captureLink(next, false)
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, after.ID), "full")
+	})
+
+	t.Run("PDF whose reading reaches the time limit", func(t *testing.T) {
+		h := newHarness(t)
+		h.reader = childArgv(stoppedChild)
+		doc, _ := pdftest.Article("Lecture fictive", 400, 80_000)
+		item := h.extractPDF("https://docs.example.com/interrupted.pdf", doc.Bytes())
+		assertExtracted(t, item, "full")
+		content := h.contentOf(item)
+		// The pages hold 200 words each: 10 000 words are the first 50 pages, and only them.
+		lastRead := doc.Pages[49].Lines
+		if !strings.HasSuffix(content, lastRead[len(lastRead)-1]) || len(strings.Fields(content)) != 10_000 {
+			t.Errorf("content of %d words ending with %q, want page 50 last", len(strings.Fields(content)), content[len(content)-40:])
+		}
+		if !item.ContentTruncated || item.ReadingMinutes == nil || *item.ReadingMinutes != 348 {
+			t.Errorf("truncated %v reading %v, want true and 348", item.ContentTruncated, item.ReadingMinutes)
+		}
+	})
+
+	// Requirement: A PDF that cannot be read falls back.
+
+	t.Run("Scanned PDF", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://docs.example.com/scan.pdf",
+			pdftest.Doc{Title: []byte("Facture fictive"), Pages: []pdftest.Page{{Image: true}, {Image: true}, {Image: true}}}.Bytes())
+		assertPDFFallback(t, h, item, "Facture fictive", "docs.example.com")
+	})
+
+	article, _ := pdftest.Article("", 2, 300)
+
+	t.Run("Password-protected PDF", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://example.com/docs/plan-fictif.pdf",
+			pdftest.Doc{Title: []byte("Plan"), Encryption: pdftest.AES128, UserPassword: "ouvrir", Pages: article.Pages}.Bytes())
+		assertPDFFallback(t, h, item, "plan-fictif", "example.com")
+		if !strings.Contains(h.logs.String(), `"reason":"encrypted"`) {
+			t.Errorf("logs do not tell the encryption:\n%s", h.logs.String())
+		}
+	})
+
+	t.Run("PDF encrypted with AES-256", func(t *testing.T) {
+		h := newHarness(t)
+		item := h.extractPDF("https://example.com/docs/notice-fictive.pdf",
+			pdftest.Doc{Encryption: pdftest.AES256, Pages: article.Pages}.Bytes())
+		assertPDFFallback(t, h, item, "notice-fictive", "example.com")
+	})
+
+	t.Run("Damaged PDF", func(t *testing.T) {
+		for name, body := range map[string][]byte{
+			"truncated":       pdftest.Truncated(article.Bytes()),
+			"wrong startxref": pdftest.WrongStartxref(article.Bytes()),
+			"HTML page":       fixture(t, "article.html"),
+		} {
+			h := newHarness(t)
+			item := h.extractPDF("https://example.com/docs/rapport-fictif.pdf", body)
+			assertPDFFallback(t, h, item, "rapport-fictif", "example.com")
+			if !strings.Contains(h.logs.String(), `"reason":"damaged"`) {
+				t.Errorf("%s: logs do not tell the damage:\n%s", name, h.logs.String())
+			}
+		}
+	})
+
+	t.Run("Oversized PDF", func(t *testing.T) {
+		for _, variant := range []string{"exact", "chunked", "gzip", "announced"} {
+			h := newHarness(t)
+			link := "https://example.com/docs/big-" + variant + ".pdf"
+			var served atomic.Int64
+			h.web.handle(link, func(rw http.ResponseWriter, r *http.Request) {
+				rw.Header().Set("Content-Type", "application/pdf")
+				var out io.Writer = rw
+				switch variant {
+				case "exact":
+					rw.Header().Set("Content-Length", strconv.Itoa(extraction.MaxPDFSize+1))
+				case "gzip":
+					rw.Header().Set("Content-Encoding", "gzip")
+					gz := gzip.NewWriter(rw)
+					defer func() { _ = gz.Close() }()
+					out = gz
+				case "announced":
+					rw.Header().Set("Content-Length", strconv.Itoa(60<<20))
+					rw.WriteHeader(http.StatusOK)
+					rw.(http.Flusher).Flush()
+					<-r.Context().Done() // reading the body would wait for the time limit
+					return
+				}
+				_ = pdftest.Filler(writerFunc(func(p []byte) (int, error) {
+					n, err := out.Write(p)
+					served.Add(int64(n))
+					return n, err
+				}), extraction.MaxPDFSize+1)
+			})
+			item := h.extractLink(link)
+			assertPDFFallback(t, h, item, "big-"+variant, "example.com")
+			if logs := h.logs.String(); !strings.Contains(logs, `"reason":"too_large"`) {
+				t.Errorf("%s: logs do not tell the size:\n%s", variant, logs)
+			}
+			if served.Load() > extraction.MaxPDFSize+1 {
+				t.Errorf("%s: %d bytes served, want at most the limit and one byte", variant, served.Load())
+			}
+		}
+	})
+
+	t.Run("PDF that does not download in time", func(t *testing.T) {
+		pdf, _ := tuningPDF()
+		// The body stalls before any byte, before the 512 bytes that tell a PDF, and after them.
+		for _, sent := range []int{0, 100, 2000} {
+			h := newHarness(t)
+			h.timeout = 300 * time.Millisecond // the 15 s of production, shortened
+			const link = "https://example.com/docs/lent.pdf"
+			h.web.handle(link, func(rw http.ResponseWriter, r *http.Request) {
+				rw.Header().Set("Content-Type", "application/pdf")
+				rw.WriteHeader(http.StatusOK)
+				_, _ = rw.Write(pdf[:sent])
+				rw.(http.Flusher).Flush()
+				<-r.Context().Done()
+			})
+			begin := time.Now()
+			item := h.extractLink(link)
+			assertPDFFallback(t, h, item, "lent", "example.com")
+			if elapsed := time.Since(begin); elapsed > 10*time.Second {
+				t.Errorf("%d bytes sent: fallback after %v, want about the timeout", sent, elapsed)
+			}
+			if !strings.Contains(h.logs.String(), `"reason":"timeout","format":"pdf"`) {
+				t.Errorf("%d bytes sent: logs do not tell a PDF timeout:\n%s", sent, h.logs.String())
+			}
+		}
+	})
+
+	t.Run("PDF too heavy to read", func(t *testing.T) {
+		h := newHarness(t)
+		const heavy, next = "https://example.com/docs/lourd.pdf", "https://blog.example.com/after"
+		h.web.page(next, "text/html", fixture(t, "article.html"))
+		item := h.extractPDF(heavy, hugeStringPDF())
+		assertPDFFallback(t, h, item, "lourd", "example.com")
+		if !strings.Contains(h.logs.String(), `"reason":"too_large"`) {
+			t.Errorf("logs do not tell the memory limit:\n%s", h.logs.String())
+		}
+		after := h.captureLink(next, false)
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, after.ID), "full")
+	})
+
+	t.Run("PDF whose structure loops", func(t *testing.T) {
+		for name, doc := range map[string]pdftest.Doc{
+			"page tree":            {TreeCycle: true, Pages: article.Pages},
+			"cross-reference loop": {PrevLoop: true, Pages: article.Pages},
+		} {
+			h := newHarness(t)
+			h.readFor = 2 * time.Second
+			const looping, next = "https://example.com/docs/boucle.pdf", "https://blog.example.com/after"
+			h.web.page(next, "text/html", fixture(t, "article.html"))
+			begin := time.Now()
+			item := h.extractPDF(looping, doc.Bytes())
+			assertPDFFallback(t, h, item, "boucle", "example.com")
+			if elapsed := time.Since(begin); elapsed > 2*time.Second+time.Second {
+				t.Errorf("%s: fallback after %v, want within the reading time limit", name, elapsed)
+			}
+			after := h.captureLink(next, false)
+			h.waitPass()
+			assertExtracted(t, h.item(h.owner, after.ID), "full")
+		}
+	})
+
+	// Requirement: A PDF leaves no copy on the NAS.
+
+	t.Run("No file is left after a PDF", func(t *testing.T) {
+		h := newHarness(t)
+		pdf, _ := tuningPDF()
+		const read, over, cut = "https://docs.example.com/read.pdf", "https://docs.example.com/over.pdf", "https://docs.example.com/cut.pdf"
+		h.web.page(read, "application/pdf", pdf)
+		during := make(chan []os.DirEntry, 1)
+		h.web.handle(over, func(rw http.ResponseWriter, _ *http.Request) {
+			rw.Header().Set("Content-Type", "application/pdf")
+			var written int64
+			_ = pdftest.Filler(writerFunc(func(p []byte) (int, error) {
+				n, err := rw.Write(p)
+				if before := written; written+int64(n) > 20<<20 && before <= 20<<20 {
+					// The client has read megabytes: its file exists, without name.
+					list, _ := os.ReadDir(h.tmpPath)
+					during <- list
+				}
+				written += int64(n)
+				return n, err
+			}), extraction.MaxPDFSize+1)
+		})
+		arrived := make(chan struct{})
+		h.web.handle(cut, func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/pdf")
+			_, _ = rw.Write(pdf[:len(pdf)/2])
+			rw.(http.Flusher).Flush()
+			close(arrived)
+			<-r.Context().Done()
+		})
+		stop := h.start()
+		readItem := h.captureLink(read, false)
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, readItem.ID), "full")
+		assertNoTempFile(t, h)
+		overItem := h.captureLink(over, false)
+		h.waitPass()
+		assertExtracted(t, h.item(h.owner, overItem.ID), "fallback")
+		assertNoTempFile(t, h)
+		select {
+		case list := <-during:
+			if len(list) != 0 {
+				t.Errorf("temporary directory during the download holds %d files, want none", len(list))
+			}
+		default:
+			t.Error("the directory was not listed during the download")
+		}
+		captured := h.captureLink(cut, false)
+		select {
+		case <-arrived:
+		case <-time.After(waitLimit):
+			t.Fatal("the PDF was never requested")
+		}
+		stop()
+		if item := h.item(h.owner, captured.ID); item.Status != "queued" {
+			t.Errorf("status %q after a stop, want queued", item.Status)
+		}
+		assertNoTempFile(t, h)
+	})
+
+	t.Run("A large PDF does not grow the memory of the service", func(t *testing.T) {
+		h := newHarness(t)
+		path := filepath.Join(t.TempDir(), "large")
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pdftest.Large(45_000_000, 90).WriteTo(file); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		const link = "https://docs.example.com/large.pdf"
+		h.web.handle(link, func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "application/pdf")
+			http.ServeFile(rw, r, path) // streamed from the disk: the test server holds no copy
+		})
+		var item store.Item
+		grown := heapPeak(func() { item = h.extractLink(link) })
+		assertExtracted(t, item, "full")
+		if grown > 8<<20 {
+			t.Errorf("the heap of the service grew by %d MiB, want less than 8", grown>>20)
+		}
+	})
+
+	// Requirement: Links left waiting as PDFs are picked up.
+
+	t.Run("Link left waiting as a PDF is extracted", func(t *testing.T) {
+		h := newHarness(t)
+		const link = "https://docs.example.com/papers/waiting.pdf"
+		pdf, _ := tuningPDF()
+		h.web.page(link, "application/pdf", pdf)
+		captured := h.captureLink(link, false) // no worker: the previous version deferred it
+		insertDeferredPDF(t, h.dbPath, h.owner, captured.ID)
+		h.start()
+		assertExtracted(t, h.item(h.owner, captured.ID), "full")
+		if got := h.web.requestsTo(link); got != 1 {
+			t.Errorf("URL requested %d times, want once", got)
+		}
+	})
+
+	t.Run("Links left waiting as PDFs of two users", func(t *testing.T) {
+		h := newHarness(t)
+		const mine, theirs = "https://docs.example.com/mine.pdf", "https://docs.example.com/theirs.pdf"
+		h.web.page(mine, "application/pdf", textPDF(pdftest.Doc{Title: []byte("Document du premier")}, "Texte du premier utilisateur"))
+		h.web.page(theirs, "application/pdf", textPDF(pdftest.Doc{Title: []byte("Document du second")}, "Texte du second utilisateur"))
+		first := h.captureFor(h.owner, mine, false)
+		second := h.captureFor(h.other, theirs, false)
+		insertDeferredPDF(t, h.dbPath, h.owner, first.ID)
+		insertDeferredPDF(t, h.dbPath, h.other, second.ID)
+		h.start()
+		ownerItem, otherItem := h.item(h.owner, first.ID), h.item(h.other, second.ID)
+		assertExtracted(t, ownerItem, "full")
+		assertExtracted(t, otherItem, "full")
+		if ownerItem.Title != "Document du premier" || !strings.HasPrefix(h.contentOf(ownerItem), "Texte du premier") {
+			t.Errorf("owner's item: title %q", ownerItem.Title)
+		}
+		otherContent, err := h.store.ItemContent(context.Background(), h.other, second.ID)
+		if otherItem.Title != "Document du second" || err != nil || otherContent == nil || !strings.HasPrefix(*otherContent, "Texte du second") {
+			t.Errorf("other user's item: title %q, content %v", otherItem.Title, err)
+		}
+		if _, err := h.store.Item(context.Background(), h.other, first.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("the owner's item is visible to the other user: %v", err)
 		}
 	})
 }

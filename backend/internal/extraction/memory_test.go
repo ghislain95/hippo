@@ -1,12 +1,15 @@
 package extraction_test
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/extraction/pagestest"
+	"github.com/ghislain95/hippo/backend/internal/extraction/pdftest"
 )
 
 // BenchmarkReadInChild measures the child that reads a page (design.md, task 3.4): for each
@@ -88,4 +91,60 @@ func heapPeak(f func()) uint64 {
 		return 0
 	}
 	return peak - base
+}
+
+// BenchmarkReadPDFInChild measures the child that reads a PDF (design.md, task 3.4), as
+// BenchmarkReadInChild does for pages. Run it with:
+//
+//	go test -run '^$' -bench ReadPDFInChild -benchtime 3x ./internal/extraction/
+func BenchmarkReadPDFInChild(b *testing.B) {
+	long, _ := pdftest.Article("Long", 400, 78_000)
+	docs := []struct {
+		name string
+		doc  pdftest.Doc
+	}{
+		{name: "article-10-pages", doc: func() pdftest.Doc { d, _ := pdftest.Article("Article", 10, 1951); return d }()},
+		{name: "400-pages", doc: long},
+		{name: "45MB", doc: pdftest.Large(45_000_000, 90)},
+		{name: "enormous-page-100MB", doc: pdftest.Doc{Compress: true, Pages: []pdftest.Page{pdftest.EnormousPage(100 << 20)}}},
+		{name: "hostile-string-100MB", doc: pdftest.Doc{Compress: true, Pages: []pdftest.Page{pdftest.HugeString(100 << 20)}}},
+		{name: "hostile-tree-cycle", doc: pdftest.Doc{TreeCycle: true, Pages: long.Pages[:2]}},
+		{name: "hostile-prev-loop", doc: pdftest.Doc{PrevLoop: true, Pages: long.Pages[:2]}},
+	}
+	for _, tc := range docs {
+		b.Run(tc.name, func(b *testing.B) {
+			path := filepath.Join(b.TempDir(), "doc")
+			out, err := os.Create(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err := tc.doc.WriteTo(out); err != nil {
+				b.Fatal(err)
+			}
+			info, _ := out.Stat()
+			_ = out.Close()
+			var worst extraction.ChildMeasure
+			begin := time.Now()
+			for b.Loop() {
+				file, err := os.Open(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				m, err := extraction.MeasurePDFChild(childArgv(extraction.ChildCommand), file)
+				_ = file.Close()
+				if err != nil {
+					b.Fatalf("MeasurePDFChild: %v", err)
+				}
+				worst.ExitCode, worst.Mode, worst.Reason = m.ExitCode, m.Mode, m.Reason
+				worst.PeakBytes = max(worst.PeakBytes, m.PeakBytes)
+				worst.MaxRSS = max(worst.MaxRSS, m.MaxRSS)
+			}
+			b.ReportMetric(float64(info.Size())/(1<<20), "file-MB")
+			b.ReportMetric(float64(time.Since(begin).Milliseconds())/float64(b.N), "read-ms")
+			b.ReportMetric(float64(worst.PeakBytes)/(1<<20), "child-held-MB")
+			b.ReportMetric(float64(worst.MaxRSS)/(1<<20), "child-rss-MB")
+			b.ReportMetric(float64(worst.ExitCode), "exit")
+			b.Logf("%s: %s %s", tc.name, worst.Mode, worst.Reason)
+		})
+	}
 }
