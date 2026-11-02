@@ -122,6 +122,8 @@ RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 
 ### E2-05 — Extraire une page web · M
 
+✅ Terminé le 2 novembre 2026 par le change `extract-web-page` ([archive](../openspec/changes/archive/2026-11-02-extract-web-page/proposal.md)). Ajoute RG-27 (adresses locales jamais chargées) et une exception à RG-92 (l'extraction demande l'URL à son site, éléments privés compris). Chaque page est lue dans un processus enfant à mémoire bornée.
+
 RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 - Après la capture d'un lien, l'extraction s'exécute en arrière-plan ; l'élément passe à `extracted`.
 - Le titre, le site et le contenu principal sont extraits avec go-readability ; le temps de lecture est calculé.
