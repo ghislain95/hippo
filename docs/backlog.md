@@ -148,6 +148,8 @@ RG-10 à RG-14 · ADR-0023
 
 ### E2-08 — Extraire un PDF · M
 
+✅ Terminé le 2 novembre 2026 par le change `extract-pdf` ([archive](../openspec/changes/archive/2026-11-02-extract-pdf/proposal.md)). Ajoute RG-28 (texte, titre et repli d'un PDF). Bibliothèque `github.com/ledongthuc/pdf` avec une mise en page maison ; PDF jusqu'à 50 Mio par un fichier temporaire sans nom ; les liens `deferred_pdf` d'E2-05 sont repris.
+
 RG-21, RG-23, RG-24, RG-25, RG-28 · ADR-0008 — *ajoutée le 1er novembre 2026 à la demande de Ghislain*
 - Pour un lien vers un PDF, le texte est extrait et conservé comme celui d'une page web ; le titre vient des métadonnées du PDF, sinon du nom du fichier ; le temps de lecture est calculé.
 - PDF scanné (sans texte), protégé ou illisible : repli sans contenu (RG-23).
