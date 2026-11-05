@@ -13,7 +13,7 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0005](0005-haiku-batch.md) | Analyse par Claude Haiku, en batch de nuit | Accepté | IA |
 | [0006](0006-sortie-structuree.md) | Sortie structurée forcée et validée | Accepté | IA |
 | [0007](0007-fiche-json-source-de-verite.md) | La fiche JSON est la source de vérité, le Markdown est généré | Accepté | Données |
-| [0008](0008-extraction-et-reanalyse.md) | Extraction locale et conservation du contenu original | Accepté | Backend, IA |
+| [0008](0008-extraction-et-reanalyse.md) | Extraction locale et conservation du contenu original | Accepté, YouTube amendé par 0037 | Backend, IA |
 | [0009](0009-ia-propose-utilisateur-dispose.md) | Classement : l'IA propose, l'utilisateur dispose | Accepté | Métier, IA |
 | [0010](0010-categorie-unique-et-tags.md) | Une seule catégorie par élément, deux niveaux, des tags | Accepté | Métier |
 | [0011](0011-types-de-contenu-et-templates.md) | Types de contenu avec une fiche et un template dédiés | Accepté | Métier, appli |
@@ -42,3 +42,4 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0034](0034-auto-merge-github.md) | Fusion différée par l'auto-merge de GitHub | Accepté | Projet |
 | [0035](0035-contrat-identifiants-et-synchronisation.md) | Contrat d'API : fiches générées, identifiants et synchronisation | Accepté | Backend, appli |
 | [0036](0036-extension-de-partage-swift.md) | Extension de partage native en Swift | Accepté | Appli |
+| [0037](0037-youtube-sans-transcription.md) | Vidéos YouTube sans transcription en V1 | Accepté | Backend |

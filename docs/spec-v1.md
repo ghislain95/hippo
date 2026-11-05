@@ -28,7 +28,7 @@ Un seul utilisateur en V1 ; le modèle de données prévoit plusieurs utilisateu
 | Captures d'écran et photos, lues par l'IA | V1 |
 | Notes texte, dictées avec le clavier iOS | V1 |
 | Option « Privé » (stocké, jamais envoyé à l'IA), décochée par défaut | V1 |
-| Extraction des pages web et des transcriptions YouTube | V1 |
+| Extraction des pages web, des PDF et des métadonnées des vidéos YouTube | V1 |
 | Analyse de nuit : type, catégorie, tags, fiche structurée | V1 |
 | 7 types de contenu, chacun avec son template, plus un template générique | V1 |
 | Catégories et types proposés par l'IA, écran Revue | V1 |
@@ -37,6 +37,7 @@ Un seul utilisateur en V1 ; le modèle de données prévoit plusieurs utilisateu
 | Lecture hors ligne, thèmes clair et sombre | V1 |
 | Export Markdown compatible Obsidian | V1 |
 | Extraction des reels Instagram (compte secondaire) | V1.5 |
+| Transcription des vidéos YouTube ([ADR-0037](adr/0037-youtube-sans-transcription.md)) | V1.5 |
 | Recherche par le sens et « Éléments liés » | V1.5 |
 | Découpage des contenus très longs | V1.5 |
 | Mémo vocal transcrit | V1.5 ou plus tard |

@@ -133,9 +133,9 @@ RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 
 ### E2-06 — Extraire une vidéo YouTube · S
 
-RG-22
-- Pour une URL YouTube, titre, chaîne, durée et transcription (si disponible, langue d'origine) sont extraits ; le temps de lecture est la durée.
-- Sans transcription : repli sur titre et description.
+RG-22, RG-23, RG-25 · ADR-0037 — *périmètre réduit le 5 novembre 2026 avec Ghislain : pas de transcription en V1*
+- Pour une URL YouTube, titre, chaîne, durée et description sont extraits, lus dans la page de la vidéo, sinon titre et chaîne par oEmbed ; le temps de lecture est la durée.
+- La description tient lieu de contenu, en repli (RG-23).
 - Hérité d'E2-05 (1er novembre 2026) : reprendre les liens YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) restés `queued` ; l'extraction des pages web les laisse en file sans les télécharger ([spec](spec-v1.md#extraction-dun-élément)).
 
 ### E2-07 — Marquer un élément privé · M
@@ -418,6 +418,7 @@ Sans détail pour l'instant ; chaque ligne deviendra un epic le moment venu.
 | V1.5 | Recherche sémantique (embeddings locaux) et recherche hybride |
 | V1.5 | Éléments liés |
 | V1.5 | Extraction des reels Instagram (ADR-0025) |
+| V1.5 | Transcription des vidéos YouTube (ADR-0037), avec l'outil des reels |
 | V1.5 | Découpage des contenus très longs |
 | V1.5 ou plus tard | Mémo vocal transcrit |
 | V2 | Sujets suivis et sources de veille |
