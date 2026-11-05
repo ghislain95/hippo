@@ -124,7 +124,7 @@ stateDiagram-v2
 - **RG-11** — Un élément privé est stocké, cherchable et lisible comme les autres.
 - **RG-12** — Un élément privé n'est **jamais** envoyé à l'IA : ni dans le batch, ni en analyse immédiate. Aucune exception, y compris en cas d'erreur de configuration.
 - **RG-13** — Un élément privé n'a pas de fiche générée. Il apparaît dans **À trier** jusqu'à ce que l'utilisateur lui donne une catégorie.
-- **RG-14** — Décocher « Privé » sur un élément existant le remet dans la file d'analyse. Cocher « Privé » sur un élément déjà analysé conserve sa fiche mais empêche toute réanalyse.
+- **RG-14** — Décocher « Privé » sur un élément existant le remet dans la file d'analyse s'il n'a pas encore de fiche. Un élément déjà analysé garde sa fiche, sans réanalyse : la réanalyse se demande à la main. Un élément en échec attend « Relancer » (RG-35). Cocher « Privé » sur un élément déjà analysé conserve sa fiche mais empêche toute réanalyse. *(Précisée le 5 novembre 2026 : un élément analysé dont on décoche « Privé » n'est pas réanalysé.)*
 - **RG-15** — Une capture en doublon (RG-04) cochée « Privé » rend privé l'élément existant, comme le ferait la fiche (RG-14). Une capture en doublon non cochée ne rend jamais public un élément privé. *(Ajoutée le 27 octobre 2026.)*
 
 ### Extraction
