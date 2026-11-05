@@ -294,7 +294,7 @@
       "patch": {
         "operationId": "updateItem",
         "summary": "Correct, pin, annotate an item",
-        "description": "Changes the content type, category, tags, pin, annotations, capture note or private\nflag. A change of content type, category or tags is recorded as a manual correction\n(RG-60) that no reanalysis overwrites (RG-61). Unchecking private queues the item for\nanalysis again (RG-14).\n",
+        "description": "Changes the content type, category, tags, pin, annotations, capture note or private\nflag. A change of content type, category or tags is recorded as a manual correction\n(RG-60) that no reanalysis overwrites (RG-61).\n\nChanging the private flag never changes the processing status (RG-14). Unchecking\nprivate puts an item without fiche back in the analysis queue: an `extracted` item that\nis no longer private is selected by the nightly batch again. An analysed item keeps its\nfiche and is not reanalysed (reanalysis is asked by hand); a `failed` item waits for\n« Relancer » (RG-35). Checking private keeps the status and the fiche, and keeps the\nitem from the AI (RG-12). Setting the flag to its current value changes nothing.\n\nUntil the corrections are implemented (E4-03), only `is_private` is applied: a body with\nany other member answers 501 `not-implemented` and applies nothing.\n",
         "tags": [
           "items"
         ],

@@ -108,8 +108,17 @@ export interface paths {
          * Correct, pin, annotate an item
          * @description Changes the content type, category, tags, pin, annotations, capture note or private
          *     flag. A change of content type, category or tags is recorded as a manual correction
-         *     (RG-60) that no reanalysis overwrites (RG-61). Unchecking private queues the item for
-         *     analysis again (RG-14).
+         *     (RG-60) that no reanalysis overwrites (RG-61).
+         *
+         *     Changing the private flag never changes the processing status (RG-14). Unchecking
+         *     private puts an item without fiche back in the analysis queue: an `extracted` item that
+         *     is no longer private is selected by the nightly batch again. An analysed item keeps its
+         *     fiche and is not reanalysed (reanalysis is asked by hand); a `failed` item waits for
+         *     « Relancer » (RG-35). Checking private keeps the status and the fiche, and keeps the
+         *     item from the AI (RG-12). Setting the flag to its current value changes nothing.
+         *
+         *     Until the corrections are implemented (E4-03), only `is_private` is applied: a body with
+         *     any other member answers 501 `not-implemented` and applies nothing.
          */
         patch: operations["updateItem"];
         trace?: never;

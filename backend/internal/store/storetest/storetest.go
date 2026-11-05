@@ -64,3 +64,33 @@ func ItemCount(t testing.TB, path, userID string) int {
 	}
 	return count
 }
+
+// SetAnalysisState writes the status, analyzed_at and attempts of the item itemID of userID in
+// the database at path, by SQL: no function of the store writes an analysis yet (E3), and the
+// scenarios of the privacy switch need analysed and failed items (item-editing spec). A nil
+// analyzedAt is stored as NULL. It fails the test unless exactly one item was written.
+func SetAnalysisState(t testing.TB, path, userID, itemID, status string, analyzedAt *time.Time, attempts int) {
+	t.Helper()
+	query := url.Values{}
+	query.Add("_pragma", "busy_timeout(5000)")
+	uri := url.URL{Scheme: "file", OmitHost: true, Path: path, RawQuery: query.Encode()}
+	db, err := sql.Open("sqlite", uri.String())
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	defer func() { _ = db.Close() }() // the write below is committed when Exec returns
+	var analyzed *string
+	if analyzedAt != nil {
+		date := analyzedAt.UTC().Format(store.TimeLayout)
+		analyzed = &date
+	}
+	result, err := db.ExecContext(context.Background(),
+		`UPDATE items SET status = ?, analyzed_at = ?, attempts = ? WHERE user_id = ? AND id = ?`,
+		status, analyzed, attempts, userID, itemID)
+	if err != nil {
+		t.Fatalf("set analysis state: %v", err)
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		t.Fatalf("set analysis state: %d rows written (%v), want 1", n, err)
+	}
+}

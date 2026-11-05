@@ -76,11 +76,6 @@ func (notImplemented) GetItem(context.Context, GetItemRequestObject) (GetItemRes
 	return nil, errNotImplemented
 }
 
-// UpdateItem is not implemented yet.
-func (notImplemented) UpdateItem(context.Context, UpdateItemRequestObject) (UpdateItemResponseObject, error) {
-	return nil, errNotImplemented
-}
-
 // AnalyzeItem is not implemented yet.
 func (notImplemented) AnalyzeItem(context.Context, AnalyzeItemRequestObject) (AnalyzeItemResponseObject, error) {
 	return nil, errNotImplemented

@@ -59,7 +59,7 @@ func (s *Store) createUser(ctx context.Context, db execer, name, tokenHash strin
 	}
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, name, api_token_hash, created_at) VALUES (?, ?, ?, ?)`,
-		id, name, tokenHash, now.Format(timeLayout)); err != nil {
+		id, name, tokenHash, now.Format(TimeLayout)); err != nil {
 		return "", fmt.Errorf("create user: %w", err)
 	}
 	return id, nil
