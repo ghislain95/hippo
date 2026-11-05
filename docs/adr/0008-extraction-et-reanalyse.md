@@ -1,6 +1,6 @@
 # ADR-0008 — Extraction locale et conservation du contenu original
 
-- **Statut** : Accepté
+- **Statut** : Accepté — vidéos YouTube sans transcription en V1, amendé par [ADR-0037](0037-youtube-sans-transcription.md)
 - **Date** : 2026-10-11
 
 ## Contexte

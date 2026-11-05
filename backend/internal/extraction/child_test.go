@@ -143,7 +143,7 @@ func TestReadInChild(t *testing.T) {
 		}
 	})
 
-	for _, mode := range []string{crashChild, garbageChild, unknownChild} {
+	for _, mode := range []string{crashChild, garbageChild, unknownChild, floodChild} {
 		t.Run("a child that fails falls back: "+mode, func(t *testing.T) {
 			got, err := extraction.ReadInChild(ctx, childArgv(mode), extraction.ReadTimeout, htmlResponse(t, fixture(t, "article.html")), provisional)
 			if err != nil || got.Extraction.Mode != "fallback" || got.Reason != "reading_failed" {

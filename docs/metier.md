@@ -55,7 +55,7 @@ Ces principes servent à trancher quand une règle ne couvre pas un cas.
 | Version | Contenu |
 | --- | --- |
 | **V1 — Capture** | Capture de liens, images et notes ; extraction ; analyse de nuit ; 7 types de contenu ; catégories et types proposés ; revue ; lecture avec position ; recherche plein texte ; hors ligne ; export Markdown. |
-| **V1.5 — Recherche** | Recherche sémantique, éléments liés, extraction des reels Instagram, découpage des contenus très longs, mémo vocal transcrit. |
+| **V1.5 — Recherche** | Recherche sémantique, éléments liés, extraction des reels Instagram, transcription des vidéos YouTube, découpage des contenus très longs, mémo vocal transcrit. |
 | **V2 — Veille** | Sujets suivis, sources, digest du matin, actualité générale, importance, regroupement, surlignage. |
 | **V3 — Boucle** | Avis de pertinence, questions de révision, badge « peut-être obsolète », serveur MCP. |
 | **Plus tard** | Questions posées à la base, suggestions de sujets, radar techno, widget iOS. |
@@ -131,7 +131,7 @@ stateDiagram-v2
 
 - **RG-20** — L'extraction a lieu juste après la capture, en arrière-plan, sans appel à l'IA.
 - **RG-21** — Pour une page web, on extrait le titre, le nom du site et le contenu principal (sans menus, publicités ni commentaires).
-- **RG-22** — Pour une vidéo YouTube, on récupère le titre, la chaîne, la durée et la transcription quand elle existe.
+- **RG-22** — Pour une vidéo YouTube, on récupère le titre, la chaîne, la durée et la description. La description tient lieu de contenu, en repli (RG-23), et la durée est le temps de lecture, même sans transcription (RG-25). La transcription n'est pas récupérée en V1 ([ADR-0037](adr/0037-youtube-sans-transcription.md)). *(Modifiée le 5 novembre 2026 avec Ghislain : auparavant, la transcription quand elle existe.)*
 - **RG-23** — **Repli.** Si l'extraction échoue (paywall, page qui exige JavaScript, Instagram, délai dépassé de 15 s), on conserve ce qu'on peut obtenir (`og:title`, `og:description`, image d'aperçu) et la note de capture. L'élément part quand même en analyse : il n'existe pas d'échec d'extraction bloquant.
 - **RG-24** — Le **contenu extrait** est conservé jusqu'à environ 120 000 caractères. Au-delà, il est coupé et l'élément est marqué **contenu tronqué** ; la fiche l'indique.
 - **RG-25** — Le **temps de lecture** de l'original est calculé à l'extraction (environ 230 mots par minute pour un texte, la durée pour une vidéo), pas par l'IA.
@@ -206,7 +206,7 @@ stateDiagram-v2
 
 - **RG-90** — Toute donnée métier appartient à un utilisateur (`user_id`). En V1, il n'y en a qu'un, mais aucune requête ne doit lire ou écrire sans filtrer par utilisateur.
 - **RG-91** — L'**export** produit un fichier Markdown par élément, rangé par catégorie, avec en en-tête (front matter) le titre, l'URL, le type, la catégorie, les tags et les dates ; puis la fiche, puis les annotations. Les images sont incluses. Le Markdown est généré à la demande, jamais stocké.
-- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. *(Exception ajoutée le 1er novembre 2026.)*
+- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. Pour une vidéo YouTube, elle demande à YouTube la page de la vidéo et son oEmbed, qui ne portent que l'identifiant de la vidéo (RG-22). *(Exception ajoutée le 1er novembre 2026, étendue aux vidéos YouTube le 5 novembre 2026 avec Ghislain.)*
 
 ### Recherche
 

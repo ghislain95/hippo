@@ -1,6 +1,9 @@
 package extraction_test
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,6 +21,9 @@ const (
 	unknownChild   = "unknown-child"    // answers an outcome whose reason the parent does not know
 	pdfReasonChild = "pdf-reason-child" // answers a PDF's reason, whatever it was asked
 	stoppedChild   = "stopped-child"    // reads a PDF with a clock that passes its deadline after 50 pages
+	fullChild      = "full-child"       // answers a full page, whatever it was asked
+	memoryChild    = "memory-child"     // exits as a child over its memory limit does
+	floodChild     = "flood-child"      // answers an outcome valid for its format, beyond what the parent reads
 )
 
 // TestMain makes the test binary the child of the tests: run with extraction.ChildCommand, it
@@ -50,6 +56,26 @@ func TestMain(m *testing.M) {
 			syscall.Exit(0)
 		case pdfReasonChild:
 			fmt.Println(`{"mode":"fallback","reason":"encrypted"}`)
+			syscall.Exit(0)
+		case fullChild:
+			fmt.Println(`{"mode":"full","reason":"ok","title":"x"}`)
+			syscall.Exit(0)
+		case memoryChild:
+			syscall.Exit(extraction.ChildExitMemory)
+		case floodChild:
+			// An answer valid for the format asked, after more than the parent reads: only the
+			// output bound refuses it (leading spaces do not stop JSON from decoding).
+			var req struct {
+				Format string `json:"format"`
+			}
+			line, _ := bufio.NewReader(os.Stdin).ReadBytes('\n')
+			_ = json.Unmarshal(line, &req)
+			answer := `{"mode":"full","reason":"ok","title":"x"}`
+			if req.Format == "youtube" {
+				answer = `{"mode":"fallback","reason":"ok","title":"x"}`
+			}
+			_, _ = os.Stdout.Write(bytes.Repeat([]byte(" "), extraction.MaxChildOutput+1))
+			fmt.Println(answer)
 			syscall.Exit(0)
 		case stoppedChild:
 			syscall.Exit(extraction.RunChildStoppedAfterPages(os.Stdin, os.Stdout, 50))
