@@ -133,6 +133,8 @@ RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 
 ### E2-06 — Extraire une vidéo YouTube · S
 
+✅ Terminé le 5 novembre 2026 par le change `extract-youtube` ([archive](../openspec/changes/archive/2026-11-05-extract-youtube/proposal.md)). Sans transcription (RG-22 modifiée, ADR-0037) : titre, chaîne, durée et description lus dans la page de la vidéo, sinon titre et chaîne par oEmbed ; RG-92 nomme ces deux requêtes. Corrige aussi la borne de sortie du processus enfant d'E2-05, qui ne s'appliquait pas.
+
 RG-22, RG-23, RG-25 · ADR-0037 — *périmètre réduit le 5 novembre 2026 avec Ghislain : pas de transcription en V1*
 - Pour une URL YouTube, titre, chaîne, durée et description sont extraits, lus dans la page de la vidéo, sinon titre et chaîne par oEmbed ; le temps de lecture est la durée.
 - La description tient lieu de contenu, en repli (RG-23).
