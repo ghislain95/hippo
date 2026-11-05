@@ -71,8 +71,10 @@ type childRequest struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	Host        string `json:"host"`
-	// Format is formatPDF for a PDF; "" for a page.
+	// Format is formatPDF for a PDF, formatYouTube for a video page; "" for a page.
 	Format string `json:"format,omitempty"`
+	// VideoID is the video whose player data a video page is read for.
+	VideoID string `json:"video_id,omitempty"`
 	// DeadlineMS is when the child answers with what it read of a PDF, in milliseconds.
 	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 }
@@ -138,7 +140,11 @@ func runChild(stdin io.Reader, stdout io.Writer, opts childOptions) int {
 		if err != nil {
 			return childExitInput
 		}
-		out = readPage(body, req.ContentType, pageURL, l)
+		if req.Format == formatYouTube {
+			out = readYouTube(body, req.VideoID, l)
+		} else {
+			out = readPage(body, req.ContentType, pageURL, l)
+		}
 	}
 	e := out.Extraction
 	result := childResult{
@@ -266,6 +272,9 @@ var childReasons = map[string]map[string]map[string]bool{
 			reasonShort: true, reasonEncrypted: true, reasonDamaged: true, reasonTimeout: true, reasonReadingFailed: true,
 		},
 	},
+	formatYouTube: {
+		ModeFallback: {reasonOK: true, reasonNoMetadata: true},
+	},
 }
 
 // command builds the child for one page, or for one PDF given as descriptor 3; its
@@ -296,6 +305,19 @@ func (r *pageReader) command(ctx context.Context, req childRequest, body []byte,
 func (r *pageReader) read(ctx context.Context, resp response, l link) (outcome, error) {
 	req := childRequest{ContentType: resp.ContentType, URL: resp.URL.String(), Title: l.title, Host: l.host}
 	return r.run(ctx, req, resp.Body, nil, func(reason string) outcome { return fallback(reason, l) })
+}
+
+// readYouTube reads the video page of resp for the player data of the video id, for the link
+// l, in a child process. Its errors are those of read; a child that fails gives the fallback of
+// l with the reason of its failure.
+func (r *pageReader) readYouTube(ctx context.Context, resp response, id string, l link) (outcome, error) {
+	req := childRequest{
+		ContentType: resp.ContentType, URL: resp.URL.String(), Title: l.title, Host: l.host,
+		Format: formatYouTube, VideoID: id,
+	}
+	out, err := r.run(ctx, req, resp.Body, nil, func(reason string) outcome { return fallback(reason, l) })
+	out.Format = formatYouTube
+	return out, err
 }
 
 // readPDF reads the PDF of file, served from final, for the link l in a child process, which
@@ -351,20 +373,25 @@ func (r *pageReader) run(ctx context.Context, req childRequest, body []byte, pdf
 }
 
 // cappedBuffer keeps the first limit bytes written and drops the rest, so that a child that
-// writes too much neither fills the memory of the service nor blocks on its pipe.
+// writes too much neither fills the memory of the service nor blocks on its pipe. The buffer is
+// a field, not embedded: an embedded bytes.Buffer would lend its ReadFrom, which io.Copy (and
+// exec.Cmd with it) prefers to Write, and the limit would never apply.
 type cappedBuffer struct {
-	bytes.Buffer
+	buf      bytes.Buffer
 	limit    int
 	overflow bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if room := b.limit - b.Len(); len(p) > room {
+	if room := b.limit - b.buf.Len(); len(p) > room {
 		b.overflow = true
 		if room > 0 {
-			b.Buffer.Write(p[:room])
+			b.buf.Write(p[:room])
 		}
 		return len(p), nil
 	}
-	return b.Buffer.Write(p)
+	return b.buf.Write(p)
 }
+
+// Bytes returns what was kept.
+func (b *cappedBuffer) Bytes() []byte { return b.buf.Bytes() }

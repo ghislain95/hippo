@@ -206,7 +206,7 @@ stateDiagram-v2
 
 - **RG-90** — Toute donnée métier appartient à un utilisateur (`user_id`). En V1, il n'y en a qu'un, mais aucune requête ne doit lire ou écrire sans filtrer par utilisateur.
 - **RG-91** — L'**export** produit un fichier Markdown par élément, rangé par catégorie, avec en en-tête (front matter) le titre, l'URL, le type, la catégorie, les tags et les dates ; puis la fiche, puis les annotations. Les images sont incluses. Le Markdown est généré à la demande, jamais stocké.
-- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. *(Exception ajoutée le 1er novembre 2026.)*
+- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. Pour une vidéo YouTube, elle demande à YouTube la page de la vidéo et son oEmbed, qui ne portent que l'identifiant de la vidéo (RG-22). *(Exception ajoutée le 1er novembre 2026, étendue aux vidéos YouTube le 5 novembre 2026 avec Ghislain.)*
 
 ### Recherche
 

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,6 +146,58 @@ func BenchmarkReadPDFInChild(b *testing.B) {
 			b.ReportMetric(float64(worst.MaxRSS)/(1<<20), "child-rss-MB")
 			b.ReportMetric(float64(worst.ExitCode), "exit")
 			b.Logf("%s: %s %s", tc.name, worst.Mode, worst.Reason)
+		})
+	}
+}
+
+// BenchmarkReadYouTubeInChild measures the child that reads the player data of a video page
+// (design.md of extract-youtube, task 5.1), as BenchmarkReadInChild does for pages, on
+// fictional pages of 1.9 MiB. Run it with:
+//
+//	go test -run '^$' -bench ReadYouTubeInChild -benchtime 3x ./internal/extraction/
+func BenchmarkReadYouTubeInChild(b *testing.B) {
+	const id, size = "aaaaaaaaaa1", 1_900 << 10
+	video := pagestest.Video{ID: id, Title: "Tuning SQLite", Author: "Example Talks", LengthSeconds: "754"}
+	withDescription := func(description string) []byte {
+		v := video
+		v.Description = description
+		return pagestest.PlayerResponse(pagestest.Details(v), 30)
+	}
+	// The description is twice in the player data (videoDetails, microformat): it fills the page
+	// at half its size.
+	empty := len(pagestest.VideoPage("Tuning SQLite", pagestest.PlayerScript(withDescription(""))))
+	room := (size - empty - 1024) / 2
+	ascii, _ := pagestest.Words(room)
+	pages := []struct {
+		name string
+		body []byte
+	}{
+		{name: "real-shape-900-chars", body: pagestest.LargeVideoPage("Tuning SQLite", withDescription(strings.Repeat("A line of chapters and links.\n", 30)), size)},
+		{name: "description-fills-page-ascii", body: pagestest.VideoPage("Tuning SQLite", pagestest.PlayerScript(withDescription(ascii)))},
+		{name: "description-fills-page-4-byte", body: pagestest.VideoPage("Tuning SQLite", pagestest.PlayerScript(withDescription(strings.Repeat("\U0001F600", room/4))))},
+	}
+	for _, page := range pages {
+		b.Run(page.name, func(b *testing.B) {
+			if len(page.body) > extraction.MaxBodySize {
+				b.Fatalf("page of %d bytes, over the limit", len(page.body))
+			}
+			var worst extraction.ChildMeasure
+			begin := time.Now()
+			for b.Loop() {
+				m, err := extraction.MeasureVideoChild(childArgv(extraction.ChildCommand), page.body, id)
+				if err != nil {
+					b.Fatalf("MeasureVideoChild: %v", err)
+				}
+				worst.ExitCode, worst.Mode, worst.Reason = m.ExitCode, m.Mode, m.Reason
+				worst.PeakBytes = max(worst.PeakBytes, m.PeakBytes)
+				worst.MaxRSS = max(worst.MaxRSS, m.MaxRSS)
+			}
+			b.ReportMetric(float64(len(page.body))/(1<<20), "page-MB")
+			b.ReportMetric(float64(time.Since(begin).Milliseconds())/float64(b.N), "read-ms")
+			b.ReportMetric(float64(worst.PeakBytes)/(1<<20), "child-held-MB")
+			b.ReportMetric(float64(worst.MaxRSS)/(1<<20), "child-rss-MB")
+			b.ReportMetric(float64(worst.ExitCode), "exit")
+			b.Logf("%s: %s %s", page.name, worst.Mode, worst.Reason)
 		})
 	}
 }

@@ -6,6 +6,8 @@ See `proposal.md`. E2-05 and E2-08 built the extraction (`backend/internal/extra
 
 Live check of 2026-11-05 (proposal, Impact): the watch page embeds `var ytInitialPlayerResponse = {…};` in a `<script>`, 1.35 MiB of HTML with the block about 770 KB in; `videoDetails` holds `videoId`, `title`, `author`, `lengthSeconds` (a string) and `shortDescription` (full description); an unknown video gives `playabilityStatus.status` `ERROR` and no `videoDetails`. oEmbed answers `{"title", "author_name", …}`, `400` for an unknown video. That check was not made with the fetcher's own headers (`User-Agent: Hippo/<version> (personal read-later)`, `Accept-Language: fr,en`, `fetch.go:99`, `fetch.go:165-167`): task 4.2 repeats it with them.
 
+Live check with the fetcher's headers (task 4.2, 2026-11-05, development machine, home network in France): one public video's canonical page requested with exactly `User-Agent: Hippo/dev (personal read-later)`, the page `Accept`, `Accept-Language: fr,en`, `Accept-Encoding: gzip`, no cookie. Answer `200` from `www.youtube.com` with no redirect (final host `www.youtube.com`), no consent page; 1 371 218 bytes of HTML once decompressed (322 740 compressed), under the 2 MiB limit. The token `ytInitialPlayerResponse` appears 3 times; the first is `= {`, about 787 KB in, a block of 37 KB with `playabilityStatus.status` `OK` and `videoDetails` holding `videoId`, `title`, `author`, `lengthSeconds` and `shortDescription`, all JSON strings. Its oEmbed, with the same headers and `Accept: application/json`, answered `200` from `www.youtube.com`, 408 bytes, with a non-empty `title` and `author_name`. No page content was kept in the repository (ADR-0027).
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -17,9 +19,9 @@ Live check of 2026-11-05 (proposal, Impact): the watch page embeds `var ytInitia
 
 ## Vocabulary
 
-- **Format** (`format` of the logs, glossary « Format de la réponse »): gains the value `youtube`, the page of a video read for its player data. It is a reader, not a media type; the glossary row says so (task 5.1).
+- **Format** (`format` of the logs, glossary « Format de la réponse »): gains the value `youtube`, the page of a video read for its player data. It is a reader, not a media type; the glossary row says so (task 6.1).
 - **Reason classes**: `oembed` and `no_metadata` added, `deferred_youtube` removed (glossary « Classe de raison »).
-- The glossary rows « Extraction » (« transcription d'une vidéo YouTube ») and « Repli » (only `og:*`) describe the old plan; task 5.1 aligns them on RG-22 as modified: a video's metadata, and a video in fallback keeps its description and its duration.
+- The glossary rows « Extraction » (« transcription d'une vidéo YouTube ») and « Repli » (only `og:*`) describe the old plan; task 6.1 aligns them on RG-22 as modified: a video's metadata, and a video in fallback keeps its description and its duration.
 - No other new term: « vidéo », « chaîne », « durée » are those of RG-22.
 
 ## Decisions
@@ -30,7 +32,7 @@ Live check of 2026-11-05 (proposal, Impact): the watch page embeds `var ytInitia
 | --- | --- |
 | `internal/extraction` | `youtube.go` (video id, canonical page and oEmbed URLs, oEmbed decoding); `fetch` takes its timeout and its reading mode per call; the child's `youtube` reader; the worker's video path; `downloadHost` returns `www.youtube.com` for a video; `isYouTube` kept for host matching; `reasonDeferredYouTube` removed |
 | `internal/extraction` tests | Fictional video pages and oEmbed answers built by code; the test certificate and resolver extended to `youtube.com`, its subdomains and `youtu.be`; handlers that see the query string |
-| `docs/glossary.md`, `docs/spec-v1.md` | Vocabulary above; the YouTube rows of the extraction section (task 5.1) |
+| `docs/glossary.md`, `docs/spec-v1.md` | Vocabulary above; the YouTube rows of the extraction section (task 6.1) |
 
 No API contract change (`Item` already has every field; `ExtractionMode` « `fallback`: metadata only » stays true). No migration. No prompt nor fiche schema change: the analysis receives the channel as `site:` and the description as `<contenu>` through the existing template (`docs/prompt/system-prompt.md`, « Message utilisateur »); the duration is not sent to the AI.
 
@@ -48,7 +50,7 @@ A trailing slash and further segments are tolerated; scheme and port are ignored
 
 The page requested is always `https://www.youtube.com/watch?v=<id>` (canonical page). The captured URL is never requested: its tracking parameters (`si`, `utm_*`, `t`) do not leave the NAS.
 
-**RG-92.** The exception lets the extraction ask « the captured URL from its own site ». The canonical page and oEmbed are asked from that same site, YouTube, and carry only the video id, a strict subset of the captured URL: nothing else leaves the NAS. Ghislain chose these two requests when framing the scope on 2026-11-05; the wording of RG-92 may be completed at the next edit of `metier.md` (report, not a blocker).
+**RG-92.** The exception lets the extraction ask « the captured URL from its own site ». The canonical page and oEmbed are asked from that same site, YouTube, and carry only the video id, a strict subset of the captured URL: nothing else leaves the NAS. Ghislain chose these two requests when framing the scope on 2026-11-05; RG-92 in `metier.md` names them explicitly since this change.
 
 `downloadHost` returns `www.youtube.com` for a video, whatever the captured form, so that the outage logic of a pass (`failedHosts`, probes of other hosts) treats every video as the one site it actually asks.
 
@@ -125,6 +127,27 @@ Fictional pages built by code (ADR-0027: no real YouTube page in the repo), serv
 ### user_id, private items and budget
 
 Every query goes through the existing store functions, filtered by `user_id` (RG-90). A private item's video is requested from YouTube like any link (RG-92 exception, see above), and a scenario proves it; the extraction never talks to the AI (RG-12), no budget is involved.
+
+### Measures
+
+Task 5.1, `BenchmarkReadYouTubeInChild` (`memory_test.go`, `go test -run '^$' -bench ReadYouTubeInChild -benchtime 5x ./internal/extraction/`, without `-race`), on an Apple M4 Max, fictional pages of 1 900 KiB, the description twice in the player data as on a real page (`videoDetails` and `microformat`):
+
+| Page | Child peak held | Child RSS | Reading (spawn included) | Outcome |
+| --- | --- | --- | --- | --- |
+| Player data of the real shape, 30 adaptive formats, 900-character description, block 40 % in, filler scripts around | 10.3 MiB | 20.1 MiB | 11 ms | `fallback`, `ok` |
+| Description filling the page, ASCII words | 18.8 MiB | 29.3 MiB | 17 ms | `fallback`, `ok` |
+| Description filling the page, 4-byte characters | 15.5 MiB | 25.7 MiB | 20 ms | `fallback`, `ok` |
+
+Every peak stays under half of `ChildMemoryLimit` (24 MiB).
+
+### Deviations found during implementation
+
+- **The output bound of the child never applied (defect of E2-05, fixed here).** `cappedBuffer` embedded `bytes.Buffer`, which lent it `ReadFrom`; `exec.Cmd` copies the child's stdout with `io.Copy`, which prefers `ReadFrom` to `Write`, so the cap of `maxChildOutput` was bypassed and a child could fill the service's memory with its answer. The buffer is now a field. A test child (`flood-child`) writes `maxChildOutput + 1` spaces then an outcome valid for the format it was asked (`full`, `ok` for a page; `fallback`, `ok` for a video), so that only the output bound refuses it: it falls back with `reading_failed` for a page and for a video, and both tests were checked to fail against the old embedded buffer (task 3.1 asked to verify the bound applies unchanged: it did not).
+- **The fetcher no longer holds a timeout.** Each call gives its own (`fetchRequest.Timeout`); the dialer keeps `DownloadTimeout` as a mere ceiling, the deadline of the call bounding the connection first.
+- **Order of the page checks** (`videoPageReason`): a non-2xx status gives `status`; a final host off YouTube gives `no_metadata` whatever its body; then `too_large`, then `not_html` (a PDF read in `modeHTML` keeps its first bytes and is `not_html`).
+- **A page reader that cannot start** leaves the video `queued` and pauses the pass without asking oEmbed, as for a page: the NAS is at fault, not the video.
+- **Time shares tested**: in « Video page that does not answer in time » and « Neither the page nor oEmbed answers in time » (timeout shortened to 900 ms), the server measures each hanging request from its arrival to its end: the page lasts between 0.4 and 0.8 of the timeout, oEmbed at most 0.5, and the extraction ends within 1.5 times the timeout. Swapping the two shares was checked to fail these tests.
+- **Extra tests beyond the scenarios**: a page redirected off YouTube; an oEmbed answer redirected off YouTube or over 64 KiB; a page over 2 MB; a network outage on oEmbed; a stop during oEmbed; an unavailable reader; every form of a video counted as the one host `www.youtube.com` after an outage.
 
 ## Risks / Trade-offs
 
