@@ -28,26 +28,70 @@ const maxJSONBody = 1 << 20
 // undeclared members and data after the value.
 func strictBody(pattern string) (any, bool) {
 	switch pattern {
-	case "POST /api/items":
+	case createItemPattern:
 		return &CaptureRequest{}, true
+	case updateItemPattern:
+		return &ItemPatch{}, true
 	default:
 		return nil, false
 	}
 }
 
-// isJSON tells whether the generated decoder reads the body as JSON (same test as api.gen.go).
+// nonNullMembers lists the members of the strict body of the operation pattern that the
+// contract does not declare nullable. encoding/json decodes null into a nil pointer, as if the
+// member were absent, so a null there is refused explicitly. The nullable members of a PATCH
+// (nullable.Nullable) tell null from absent themselves.
+func nonNullMembers(pattern string) []string {
+	switch pattern {
+	case updateItemPattern:
+		return []string{"content_type", "tags", "is_pinned", "is_private"}
+	default:
+		return nil
+	}
+}
+
+// errNullMember reports null for a member that is not nullable.
+var errNullMember = errors.New("null for a member that is not nullable")
+
+// refuseNulls fails when raw, a JSON object already decoded strictly, holds null for one of
+// members.
+func refuseNulls(raw []byte, members []string) error {
+	if len(members) == 0 {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return err
+	}
+	for _, member := range members {
+		if value, present := object[member]; present && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return errNullMember
+		}
+	}
+	return nil
+}
+
+// isJSON tells whether the Content-Type of the request is JSON (same test as api.gen.go).
 func isJSON(r *http.Request) bool {
 	return strings.HasPrefix(r.Header.Get("Content-Type"), "application/json")
 }
 
-// strictJSONBodies bounds every JSON body to maxJSONBody and, for the operations of
-// strictBody, refuses a body with an undeclared member or data after the value. It runs inside
-// the router, where r.Pattern is the matched operation; the body is then restored for the
-// generated decoder. A body over the limit answers 413, here or in the generated decoder
-// (RequestErrorHandlerFunc).
+// readsJSON tells whether the generated decoder reads the body as JSON. Only POST /api/items
+// declares two media types, and chooses by the Content-Type; every other operation declares
+// application/json alone, and its generated code decodes the body as JSON whatever the header
+// says, so the bound and the strict decoding must not depend on it either.
+func readsJSON(r *http.Request) bool {
+	return isJSON(r) || r.Pattern != createItemPattern
+}
+
+// strictJSONBodies bounds every body read as JSON (readsJSON) to maxJSONBody and, for the
+// operations of strictBody, refuses a body with an undeclared member or data after the value.
+// A member of nonNullMembers set to null is refused too. It runs inside the router, where
+// r.Pattern is the matched operation; the body is then restored for the generated decoder. A
+// body over the limit answers 413, here or in the generated decoder (RequestErrorHandlerFunc).
 func strictJSONBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isJSON(r) {
+		if !readsJSON(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -63,6 +107,10 @@ func strictJSONBodies(next http.Handler) http.Handler {
 			return
 		}
 		if err := decodeStrict(raw, target); err != nil {
+			writeBodyError(w, r, err)
+			return
+		}
+		if err := refuseNulls(raw, nonNullMembers(r.Pattern)); err != nil {
 			writeBodyError(w, r, err)
 			return
 		}
@@ -110,10 +158,12 @@ const (
 // timeouts of 60 s: a 20 MB image on a slow mobile link.
 const transferTimeout = 5 * time.Minute
 
-// Route patterns (http.Request.Pattern) of the operations that move image files.
+// Route patterns (http.Request.Pattern) of the operations that move image files or have a
+// strict JSON body.
 const (
 	createItemPattern = "POST /api/items"
 	getAssetPattern   = "GET /api/assets/{asset_id}"
+	updateItemPattern = "PATCH /api/items/{item_id}"
 )
 
 // isMultipart tells whether the generated code reads the body as multipart (same test as

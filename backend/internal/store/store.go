@@ -23,8 +23,9 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-// timeLayout is the storage format of every date: ISO 8601, UTC, millisecond precision.
-const timeLayout = "2006-01-02T15:04:05.000Z"
+// TimeLayout is the storage format of every date: ISO 8601, UTC, millisecond precision.
+// Exported for storetest, whose helpers write dates by SQL.
+const TimeLayout = "2006-01-02T15:04:05.000Z"
 
 // Store is the SQLite database of Hippo.
 type Store struct {

@@ -319,7 +319,7 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 | POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image (voir ci-dessous) ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée avec l'élément existant (RG-04, RG-07, RG-08) ; un doublon ajoute sa note datée (RG-04) et ne fait que resserrer la confidentialité : il peut rendre l'élément privé, jamais public (RG-15) |
 | GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
 | GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
-| PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |
+| PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface). Seul `is_private` est appliqué depuis E2-07 (change `mark-private`, 5 novembre 2026) : il ne change jamais le statut de traitement (RG-14) ; une requête qui porte un autre champ répond `501` en entier, sans rien appliquer, jusqu'à E4-03 |
 | PUT | /api/items/{item_id}/progress | Position et statut de lecture |
 | DELETE | /api/items/{item_id} | Supprimer |
 | POST | /api/items/{item_id}/analyze | Analyse immédiate |

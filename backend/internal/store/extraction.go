@@ -100,7 +100,7 @@ func (s *Store) StartExtractionAttempt(ctx context.Context, userID, itemID strin
 		`INSERT INTO extraction_attempts (item_id, user_id, started_at) VALUES (?, ?, ?)
 		 ON CONFLICT (item_id) DO UPDATE SET started_at = excluded.started_at
 		 WHERE extraction_attempts.user_id = excluded.user_id`,
-		itemID, userID, s.now().UTC().Format(timeLayout))
+		itemID, userID, s.now().UTC().Format(TimeLayout))
 	if err != nil {
 		return fmt.Errorf("start extraction attempt: %w", err)
 	}
@@ -162,7 +162,7 @@ func (s *Store) WriteExtraction(ctx context.Context, userID, itemID string, e Ex
 		if err != nil {
 			return false, err
 		}
-		date := s.now().UTC().Format(timeLayout)
+		date := s.now().UTC().Format(TimeLayout)
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE items SET status = 'extracted', extraction_mode = ?, title = COALESCE(?, title), site_name = ?,
 			   content_text = ?, content_truncated = ?, reading_minutes = ?, extracted_at = ?, updated_at = ?, change_seq = ?

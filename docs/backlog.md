@@ -143,8 +143,8 @@ RG-22
 RG-10 à RG-14 · ADR-0023
 - `is_private` est enregistré à la capture et modifiable ensuite.
 - Un élément privé n'est jamais sélectionné pour l'analyse (vérifié dans E3-01 et E3-06).
-- Décocher Privé remet l'élément dans la file.
-- Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14).
+- Décocher Privé remet dans la file un élément qui n'a pas encore de fiche ; un élément analysé garde sa fiche, sans réanalyse (RG-14).
+- Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14). Résolu par RG-14 précisée le 5 novembre 2026 : un élément privé s'arrête à `extracted`, la file du batch prend les éléments `extracted` non privés, aucun changement de statut n'est donc nécessaire.
 
 ### E2-08 — Extraire un PDF · M
 

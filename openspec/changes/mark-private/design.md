@@ -26,8 +26,8 @@ See `proposal.md`. What exists:
 | Package | Change |
 | --- | --- |
 | `api/openapi.yaml` | Description of `updateItem` made precise (RG-14); no schema change; `make generate` |
-| `internal/httpapi` | `UpdateItem` handler in a new file `edit.go`; `strictBody` gains `PATCH /api/items/{item_id}` → `&ItemPatch{}`; the `UpdateItem` stub is removed; a narrow interface for the store |
-| `internal/store` | Comment of `SetPrivate` updated; no new query |
+| `internal/httpapi` | `UpdateItem` handler in a new file `edit.go`; `strictBody` gains `PATCH /api/items/{item_id}` → `&ItemPatch{}`, and the strict decoding no longer depends on the `Content-Type` (below); the `UpdateItem` stub is removed; a narrow interface `ItemEditor` (`SetPrivate`) wired as `Options.Items` |
+| `internal/store` | Comment of `SetPrivate` updated; no new query. `storetest` gains `SetAnalysisState` (tests only) |
 | `cmd/hippo` (or where `httpapi.Options` is built) | The store passed to the new option |
 
 ### Handler
@@ -36,7 +36,7 @@ See `proposal.md`. What exists:
 
 1. The body is already strict (`strictBody`). A nil body answers `400`.
 2. If any member other than `is_private` is present (`ContentType != nil`, `CategoryId.IsSpecified()`, `Tags != nil`, `IsPinned != nil`, `Annotations.IsSpecified()`, `UserNote.IsSpecified()`), return `errNotImplemented`: the whole request answers `501` before any read or write, so a mixed request applies nothing.
-3. If `IsPrivate == nil`, answer `400`: this covers `{}` (`minProperties: 1`) and `{"is_private": null}` (the member is not nullable; the generated decoder leaves a nil pointer for both).
+3. If `IsPrivate == nil`, answer `400`: this covers `{}` (`minProperties: 1`); `{"is_private": null}` is refused before, by the strict body (below).
 4. `SetPrivate(ctx, userID, item_id, *IsPrivate)`; `store.ErrNotFound` → `404` problem `about:blank`; any other error → `500`.
 5. `200` with `itemFromStore(item)`.
 
@@ -46,7 +46,15 @@ Alternative rejected: apply `is_private` and ignore the other members. A client 
 
 ### Strict body and `null`
 
-`decodeStrict` uses `encoding/json` with `DisallowUnknownFields`: `{"is_private": "yes"}` fails the decode (`400`), an undeclared member too. `null` for `is_private` decodes to a nil pointer and is caught by step 3. `null` for `annotations`, `category_id` or `user_note` is legal (`nullable.Nullable` reports it specified) and answers `501` by step 2.
+`decodeStrict` uses `encoding/json` with `DisallowUnknownFields`: `{"is_private": "yes"}` fails the decode (`400`), an undeclared member too.
+
+`encoding/json` decodes `null` into a nil pointer, exactly as an absent member: `{"is_private": true, "is_pinned": null}` would apply `is_private` and ignore the pin. The members the contract does not declare nullable (`content_type`, `tags`, `is_pinned`, `is_private`) therefore answer `400` when they are `null`, in the strict-body middleware (`nonNullMembers`, for `PATCH /api/items/{item_id}` only), before the handler runs: nothing is applied. `null` for `annotations`, `category_id` or `user_note` is legal (`nullable.Nullable` reports it specified) and answers `501` by step 2 of the handler. Step 3 of the handler is then reached only by `{}` (`minProperties: 1`).
+
+### Strict body whatever the Content-Type
+
+Found while implementing: the generated code of every operation that declares `application/json` alone (all but `POST /api/items`) decodes the body as JSON **whatever its `Content-Type`**, while `strictJSONBodies` only looked at bodies sent as `application/json`. A `PATCH` sent as `text/plain` or without the header would have skipped the strict decoding (`{"is_private": true, "favorite": true}` applied) and the 1 MiB bound. The middleware now applies both to every body the generated code reads as JSON (`readsJSON`: a JSON `Content-Type`, or any operation but `POST /api/items`, which chooses by the header and answers `415` otherwise). No contract change: the operation still answers `400` for a body that breaks the contract. A test covers the `PATCH` without the header and with `text/plain`.
+
+The `api-conventions` test « oversized JSON body of another operation » used `PATCH /api/items/{item_id}` as an operation without strict body; it now uses `PATCH /api/categories/{category_id}`.
 
 ### Sync and idempotence
 
@@ -54,7 +62,7 @@ Alternative rejected: apply `is_private` and ignore the other members. A client 
 
 ### Statuses
 
-No status change, by RG-14 as made precise with Ghislain on 2026-11-05: `extracted` made public is in the batch's selection again; `analyzed` keeps its fiche without reanalysis; `failed` waits for « Relancer »; `queued` goes on to its extraction. `submitted` is E3-01's business (backlog). The tests set `analyzed` and `failed` by SQL on the temporary database, since no code writes them yet (no mock of SQLite).
+No status change, by RG-14 as made precise with Ghislain on 2026-11-05: `extracted` made public is in the batch's selection again; `analyzed` keeps its fiche without reanalysis; `failed` waits for « Relancer »; `queued` goes on to its extraction. `submitted` is E3-01's business (backlog). The tests set `analyzed` and `failed` by SQL on the temporary database, since no code writes them yet (no mock of SQLite): the helper `storetest.SetAnalysisState` holds that SQL, so that no test copies it; `extracted` is written by the store's `WriteExtraction`.
 
 ### user_id, private items and budget
 
