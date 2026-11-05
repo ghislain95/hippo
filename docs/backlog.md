@@ -140,6 +140,8 @@ RG-22
 
 ### E2-07 — Marquer un élément privé · M
 
+✅ Terminé le 5 novembre 2026 par le change `mark-private` ([archive](../openspec/changes/archive/2026-11-05-mark-private/proposal.md)). Précise RG-14 (un élément analysé dont on décoche « Privé » garde sa fiche, sans réanalyse ; le statut de traitement ne change jamais). `PATCH /api/items/{item_id}` applique `is_private` seul ; les autres champs répondent `501` jusqu'à E4-03.
+
 RG-10 à RG-14 · ADR-0023
 - `is_private` est enregistré à la capture et modifiable ensuite.
 - Un élément privé n'est jamais sélectionné pour l'analyse (vérifié dans E3-01 et E3-06).
