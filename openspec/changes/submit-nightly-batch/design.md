@@ -47,8 +47,8 @@ Terms this change introduces or makes precise; `doc-keeper` adds them to `docs/g
 
 | Where | Change |
 | --- | --- |
-| `internal/store` | migration `00006_analysis.sql`; `users.go` (seeding); new `categories.go`, `content_types.go`, `batches.go`; `items.go` (selection, submission) |
-| `internal/store/storetest` | helpers for states no store function writes yet: batch cost and status, deleted category, proposed category |
+| `internal/store` | migration `00006_analysis.sql`; `users.go` (seeding); new `categories.go`, `content_types.go`, `batches.go`, `analysis.go` (selection, submission) |
+| `internal/store/storetest` | helpers for states no store function writes yet: a batch inserted in any status with its cost (`InsertBatch`), a batch's status and cost (`SetBatchState`), a deleted item, a deleted category, a proposed category (`AddCategory`), `incomplete_retried` (`SetIncompleteRetried`, for the doubled cap of RG-36) |
 | `internal/childproc` (new) | the child-process machinery taken out of `internal/extraction/child.go` |
 | `internal/extraction` | uses `childproc`; `TempDir` gains one exported method to create an unnamed file pair |
 | `internal/imagecopy` (new) | decoding, orientation, scaling, JPEG encoding, run in the child `hippo copy-image` |
@@ -60,7 +60,7 @@ Terms this change introduces or makes precise; `doc-keeper` adds them to `docs/g
 | `internal/capture` | `provisionalTitle` exported for the item message (RG-26), no behaviour change |
 | `cmd/hippo` | `copy-image` subcommand; reconciliation at start-up; scheduler started and stopped with the worker |
 | `cmd/schemabundle` | also extracts the fixed part and the prompt version from `system-prompt.md` |
-| `backend/.golangci.yml` | depguard: SDK only in `internal/analysis/anthropic`; image decoders only in `internal/imagecopy`; G204 exclusion moved to `internal/childproc` |
+| `backend/.golangci.yml` | depguard: SDK only in `internal/analysis/anthropic`; image decoders only in `internal/imagecopy`; G204 exclusion moved to `internal/childproc`; `misspell` ignores `conteneurs` and `plantes` (French names of the starting categories) |
 | `Makefile` | `GENERATED` gains `backend/internal/analysis/prompt/prompt.gen.json` |
 | `infra/` | `mem_limit: 384m` in `docker-compose.yml` and `docker-compose.local.yml`; `.env.example` comment on `TZ` |
 | app | none |
@@ -86,7 +86,7 @@ Terms this change introduces or makes precise; `doc-keeper` adds them to `docs/g
 ### D2. Selection
 
 - Users come from `store.UserIDs`; everything below is per user, every query filtered by `user_id` (RG-90).
-- `store.AnalysisQueue(ctx, userID, limit)` returns at most 200 items with `status = 'extracted' AND is_private = 0 AND deleted_at IS NULL`, `ORDER BY id` (ULIDs from the store clock: creation order, and the order E3-02 retries keep). It returns what the message needs except the content (kind, url, site, title, extraction mode, truncation, note, `incomplete_retried`, `is_private`, assets); the content is read per item with the existing `ItemContent` while the request is written, so only one content is in memory at a time. New index `items_user_status ON items (user_id, status, id)`.
+- `store.AnalysisQueue(ctx, userID, limit)` returns (as `[]store.AnalysisQueueItem`) at most 200 items with `status = 'extracted' AND is_private = 0 AND deleted_at IS NULL`, `ORDER BY id` (ULIDs from the store clock: creation order, and the order E3-02 retries keep). It returns what the message needs except the content (kind, url, site, title, extraction mode, truncation, note, `incomplete_retried`, `is_private`, assets); the content is read per item with the existing `ItemContent` while the request is written, so only one content is in memory at a time. New index `items_user_status ON items (user_id, status, id)`.
 - 200 MiB body cap (209 715 200 bytes; the API's 256 MB limit, unverified at the SDK version, under either reading of « MB »): each request is appended to the segment file (D6); when the file would pass the cap, it is truncated back to the previous request and the selection stops there. The item left out stays `extracted`, as does every later one. The cap is a field of the pass options so a test can lower it (spec scenario « Beyond the body limit »).
 
 ### D3. Guards, in this order, before any read of item content
@@ -133,7 +133,7 @@ tech_article | Article technique
 ```
 
 - Types: non-deleted, `ORDER BY id` (ids 1–7 seeded in the §7 order); a proposed type gets ` | proposed`.
-- Categories: non-deleted rows of the user; roots `ORDER BY id`, each followed by its children `ORDER BY id`; path `parent › child`; status `active` or `proposed`; description empty when NULL, the line then ending with `|` (no trailing space). A child whose parent is deleted is not listed (cannot happen before E4; stated so the order stays total).
+- Categories: non-deleted rows of the user (`store.Categories` returns them `ORDER BY id`; the builder makes the tree); roots `ORDER BY id`, each followed by its children `ORDER BY id`; path `parent › child`; status `active` or `proposed`; description empty when NULL, the line then ending with `|` (no trailing space). A child whose parent is deleted is not listed (cannot happen before E4; stated so the order stays total).
 - Tags: empty block until E3-04. Newlines inside a name or description are replaced by a space so that one category stays one line.
 
 ### D5. The item message

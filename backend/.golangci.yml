@@ -21,6 +21,12 @@ linters:
     - unconvert
     - usestdlibvars
   settings:
+    misspell:
+      # French words of the domain (docs/metier.md section 6, the starting categories), not
+      # English misspellings.
+      ignore-rules:
+        - conteneurs
+        - plantes
     depguard:
       # Architecture rules (docs/dev/conventions-backend.md, "Dépendances entre couches").
       rules:
