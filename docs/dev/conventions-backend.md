@@ -17,7 +17,14 @@ backend/
 │   │   └── migrations/     NNNNN_<nom>.sql (goose), embarquées dans le binaire
 │   ├── assetfs/            fichiers des images sous DATA_DIR/assets ; feuille, sans HTTP ni base
 │   ├── extraction/         téléchargement et lecture des liens (pages, PDF), dossier DATA_DIR/tmp
-│   ├── analysis/schema/    schéma classify_item assemblé (généré), embarqué
+│   ├── childproc/          lancement et bornes des processus enfants (seul à lancer un sous-processus)
+│   ├── imagecopy/          copie d'une image pour l'IA, dans l'enfant `hippo copy-image`
+│   ├── schedule/           horaire quotidien à l'heure de Paris (BATCH_SCHEDULE)
+│   ├── analysis/           passe d'analyse : gardes, sélection, requêtes, soumission, réconciliation
+│   │   ├── anthropic/      client de l'API Anthropic derrière analysis.Analyzer (seul importeur du SDK)
+│   │   ├── analysistest/   fausse Analyzer des tests
+│   │   ├── prompt/         partie fixe du prompt (prompt.gen.json, généré), embarquée
+│   │   └── schema/         schéma classify_item assemblé (généré), embarqué
 │   └── <domaine>/          un package par domaine métier, créé par le change qui l'introduit
 └── testdata/               fixtures (pages enregistrées, réponses de l'IA, jeu de test)
 ```
@@ -29,13 +36,14 @@ Les packages de domaine suivent le glossaire et naissent avec leurs stories : `c
 ```
 cmd/hippo ──► httpapi ──► <domaine> ──► store
                  │             │
-                 └──► config   └──► analysis (Analyzer) ──► SDK Anthropic
+                 └──► config   └──► analysis (Analyzer) ◄── analysis/anthropic ──► SDK Anthropic
 ```
 
 - `httpapi` décode, appelle un domaine, encode. **Aucune règle métier dans un handler.**
 - Un domaine ne connaît pas HTTP (pas d'import de `net/http`, sauf `extraction` qui télécharge des pages) ni le code généré.
 - `store` ne connaît ni HTTP ni les domaines au-dessus de lui.
-- Seul `internal/analysis` importe `anthropic-sdk-go`, derrière l'interface `Analyzer` ([ADR-0005](../adr/0005-haiku-batch.md)).
+- Seul `internal/analysis/anthropic` importe `anthropic-sdk-go` ; il implémente l'interface `analysis.Analyzer`, branchée par `cmd/hippo` ([ADR-0005](../adr/0005-haiku-batch.md)). Règle `depguard` `anthropic-only-in-analysis`.
+- Seul `internal/imagecopy` importe les décodeurs d'images `golang.org/x/image` et `github.com/gen2brain` (HEIC), exécutés dans le processus enfant qui les borne : règle `depguard` `image-decoding-only-in-imagecopy` (E3-01).
 - Ces règles sont vérifiées par `depguard` dans `backend/.golangci.yml` : une violation casse le lint.
 - `assetfs` est une feuille, importée seulement par `httpapi` et `cmd/hippo` (le domaine `capture` déclare l'interface dont il a besoin) : elle ne connaît ni HTTP, ni la base, ni aucun autre package Hippo. Deux règles `depguard` le vérifient : `assetfs-is-a-leaf` pour ce qu'elle importe, et celle du domaine `capture`, qui lui interdit d'importer `assetfs` (E2-04).
 - Seul `internal/extraction` importe Readability (`codeberg.org/readeck/go-readability/v2`), `golang.org/x/net` (`html`, `html/charset`) et le lecteur de PDF `github.com/ledongthuc/pdf` : règle `depguard` `page-reading-only-in-extraction` (E2-05, étendue par E2-08). Dans le package, le lecteur de PDF n'est appelé que par `pdf.go` et `pdflayout.go`, exécutés dans le processus enfant. Le générateur de PDF de test `internal/extraction/pdftest` n'est importé que par des tests : règle `pdf-generator-only-in-tests`. `capture` ne connaît pas `extraction` : il déclare une interface `Waker` (`Wake()`), branchée par `cmd/hippo`.
@@ -73,7 +81,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Requêtes paramétrées (`?`) uniquement ; aucune concaténation de valeur.
 - `defer rows.Close()` et vérification de `rows.Err()`.
 - Les tables synchronisées (éléments, catégories, types de contenu, tags) portent `updated_at` et la séquence de modification `change_seq`, incrémentée à chaque écriture, qui ordonne la synchronisation ; les suppressions laissent une marque `deleted_at`, sans contenu, pendant 30 jours ([ADR-0018](../adr/0018-lecture-hors-ligne.md), [ADR-0035](../adr/0035-contrat-identifiants-et-synchronisation.md)).
-- **La séquence n'avance que par la fonction dédiée du store** (`internal/store/sequence.go`), appelée dans la transaction de l'écriture : elle incrémente l'unique ligne de `sync_sequence` et renvoie la nouvelle valeur. Toute écriture d'une ligne synchronisée passe par elle ; pas de trigger, pas de `MAX(change_seq) + 1`. Une table non synchronisée (par exemple `capture_ids`) n'a pas de `change_seq` : ses écritures n'avancent pas la séquence.
+- **La séquence n'avance que par la fonction dédiée du store** (`internal/store/sequence.go`), appelée dans la transaction de l'écriture : elle incrémente l'unique ligne de `sync_sequence` et renvoie la nouvelle valeur. Toute écriture d'une ligne synchronisée passe par elle ; pas de trigger, pas de `MAX(change_seq) + 1`. Seule exception : une migration, qui n'est que du SQL ([ADR-0032](../adr/0032-migrations-goose.md)). `00006_analysis.sql` avance `sync_sequence` en SQL d'une valeur par type de contenu qu'elle insère, et son en-tête le dit. Les helpers de test de `storetest`, qui écrivent par SQL des états qu'aucune fonction du store n'écrit encore, font de même. Une table non synchronisée (par exemple `capture_ids`) n'a pas de `change_seq` : ses écritures n'avancent pas la séquence.
 - `change_seq` est `NOT NULL` **sans défaut** : une insertion qui oublie la séquence échoue au lieu d'écrire une valeur fausse.
 
 ### Migrations
@@ -105,24 +113,38 @@ Seul `internal/extraction` contacte des sites (E2-05). Le comportement est dans 
 - **En-tête `Accept`** : `text/html,application/xhtml+xml,application/pdf;q=0.9`, pour qu'un site qui négocie le type serve un lien PDF au lieu de `406`, tout en préférant le HTML quand il a les deux.
 - **Pas de cookie persistant** : un stock éphémère par élément. Les identifiants de l'URL (`user:mot-de-passe@`) sont retirés avant la requête, sinon `net/http` les enverrait en Basic Auth.
 - **Jamais dans un log ni en base** : l'URL, l'hôte ou l'erreur de téléchargement (`*url.Error` affiche l'URL). Une ligne par extraction : `item_id`, mode, classe de raison (`ok`, `timeout`, `status`, `blocked`… ; liste dans le [glossaire](../glossary.md)), `format` (`pdf`) pour un PDF, statut HTTP, durée ; `last_error` reste nul. Pour un PDF, jamais non plus le nom de son fichier, le chemin du fichier temporaire ni une erreur de la librairie PDF.
-- **Processus enfant** : la page est lue par `hippo extract-page`, lancé par `exec.CommandContext` avec un environnement explicite (`GOMAXPROCS=2` seulement, jamais celui du service, qui porte les secrets), stderr ignoré (un message de panique peut citer la page), sortie bornée à 2 Mio. Seul `internal/extraction/child.go` lance un sous-processus (exclusion `gosec` G204 ciblée dans `.golangci.yml`).
+- **Processus enfant** : la page est lue par `hippo extract-page`, lancé par `childproc` ([Processus enfants](#processus-enfants)), sortie bornée à 2 Mio.
 - **PDF dans l'enfant** : la requête porte `format: pdf` et `deadline_ms` ; le PDF n'est pas sur l'entrée standard mais sur le **descripteur 3** (`exec.Cmd.ExtraFiles`), ouvert en lecture seule, le seul que l'enfant hérite (Go ouvre les autres en close-on-exec). Aucun chemin ne traverse la frontière du processus. L'enfant lit le PDF dans une goroutine et répond à `deadline_ms` (80 % de `ReadTimeout`) avec ce qu'il a lu ; il ne recopie jamais un message d'erreur de la librairie PDF (il cite des octets du fichier) : il le traduit en raison (`encrypted`, `damaged`…). Le parent n'accepte ces raisons que pour `format: pdf`.
 - **Arrêt** : le worker a son propre contexte, annulé par `cmd/hippo`, qui attend sa fin avant de fermer la base. Les écritures après un téléchargement passent par `context.WithoutCancel`, bornées à 10 s.
 
-## Dossier temporaire de l'extraction
+**Client Anthropic** (`internal/analysis/anthropic`, E3-01) : seul autre client HTTP sortant. Transport propre (jamais `http.DefaultClient`), pas de proxy, aucune redirection suivie, `x-api-key` posé par le client, aucune variable d'environnement lue par le SDK (`option.WithoutEnvironmentDefaults`). Une création de batch n'est jamais retentée. Ni l'erreur du SDK ni celle du transport (elles affichent l'URL ou la réponse) n'atteignent un log : seuls le statut HTTP et le type d'erreur de l'API. Comportement : [spec](../spec-v1.md#envoi-du-batch-de-la-nuit).
 
-Un PDF est téléchargé dans `DATA_DIR/tmp`, propre à `internal/extraction` (`tempfile.go`), jamais dans `os.TempDir()` : `/tmp` du conteneur est la couche de l'image ou un tmpfs compté dans sa mémoire de 128 Mo ([ADR-0019](../adr/0019-deploiement-docker-nas.md)).
+## Processus enfants
+
+Le travail qui peut exploser en mémoire tourne dans un processus enfant du même binaire : `hippo extract-page` (une page ou un PDF, `internal/extraction`) et `hippo copy-image` (la copie d'une image pour l'IA, `internal/imagecopy`). `cmd/hippo` aiguille ces deux sous-commandes avant de lire la configuration.
+
+- **Seul `internal/childproc` lance un sous-processus** (exclusion `gosec` G204 ciblée sur `childproc.go` dans `.golangci.yml`). Côté parent, `childproc.Run` : environnement explicite (`childproc.Env()`, `GOMAXPROCS=2` seulement, jamais celui du service, qui porte les secrets), stderr ignoré (un message de panique peut citer le contenu), sortie bornée (`CappedBuffer`), délai, `Pdeathsig` sous Linux (l'enfant meurt avec le parent), descripteurs passés par `ExtraFiles`. Chaque issue enveloppe une seule erreur sentinelle : `ErrStopped` (contexte du parent fini), `ErrTimeout`, `ErrUnavailable` (lancement impossible), `ErrMemory` (sortie 86), `ErrFailed` (tout le reste). Les appelants les traduisent par `errors.Is`.
+- Côté enfant, `childproc.Guard(hard, soft)` pose la limite souple (`debug.SetMemoryLimit`) et surveille la mémoire chaque milliseconde ; `childproc.GuardEvery(hard, soft, interval)` fixe un autre intervalle : 10 ms pour `copy-image` ([spec V1, « Copie de l'image »](../spec-v1.md#copie-de-limage)) ; au-delà de `hard`, sortie 86 (`ExitMemory`).
+- L'enfant ne lit pas la configuration, n'ouvre pas la base et n'écrit pas de log. Aucun chemin ne traverse la frontière : les fichiers passent comme descripteurs (3, et 4 pour la copie de l'image).
+- Bornes de mémoire, de temps et de sortie de chaque enfant : dans la spec, [extraction](../spec-v1.md#extraction-dun-élément) (« Limites ») et [copie de l'image](../spec-v1.md#copie-de-limage).
+
+## Dossier temporaire
+
+Les fichiers de passage sont dans `DATA_DIR/tmp`, géré par `internal/extraction` (`tempfile.go`), jamais dans `os.TempDir()` : `/tmp` du conteneur est la couche de l'image ou un tmpfs compté dans sa mémoire de 384 Mo ([ADR-0019](../adr/0019-deploiement-docker-nas.md), [ADR-0038](../adr/0038-limite-memoire-384-mo.md)). Il reçoit le PDF téléchargé (extraction) et, pendant la passe d'analyse, le fichier des segments, le corps du batch et la copie d'une image : tous **sans nom**.
 
 - `cmd/hippo` l'ouvre au démarrage par `extraction.OpenTempDir` : créé en `0700`, accès par `os.Root`, **tout fichier régulier qui y reste est supprimé** (nombre logué), puis une sonde vérifie qu'on peut y écrire : le service échoue au démarrage plutôt qu'au premier PDF.
 - Avant chaque PDF, l'espace libre du volume est lu (`syscall.Statfs`, un fichier `freespace_*.go` par système : Linux et macOS ; ailleurs il est inconnu et seule l'écriture échoue) : il faut la taille annoncée du PDF, ou 50 Mio quand elle est inconnue, plus une marge de 64 Mio (`freeSpaceMargin`) laissée à la base, à son WAL et aux images ; sinon rien n'est écrit et l'élément reste en file (`storage_unavailable`).
-- Par PDF : fichier `.pdf-<aléatoire>` créé en `0600` (`O_EXCL`), rouvert en lecture seule, puis **son nom est supprimé avant le téléchargement**. Les données vivent tant qu'un descripteur est ouvert (le service écrit, l'enfant lit) et disparaissent avec le dernier, crash compris. Seul l'instant entre la création et la suppression du nom peut laisser un fichier : le balayage du démarrage le supprime.
-- Le worker ferme les deux descripteurs sur tous les chemins (lu, repli, laissé en file, arrêt). Les sauvegardes ([ADR-0020](../adr/0020-sauvegardes.md)) ne voient jamais un fichier sans nom.
+- `(*TempDir).NewFile()` rend la paire de descripteurs : l'un en lecture-écriture, l'autre en lecture seule. Le fichier `.pdf-<aléatoire>` (préfixe gardé pour tous, le nom ne vit qu'un instant) est créé en `0600` (`O_EXCL`), rouvert en lecture seule, puis **son nom est supprimé avant le retour**, donc avant toute donnée. `analysis` le consomme par une interface d'une méthode.
+- Par PDF : le fichier est créé ainsi avant le téléchargement. Les données vivent tant qu'un descripteur est ouvert (le service écrit, l'enfant lit) et disparaissent avec le dernier, crash compris. Seul l'instant entre la création et la suppression du nom peut laisser un fichier : le balayage du démarrage le supprime.
+- Le worker ferme les deux descripteurs sur tous les chemins (lu, repli, laissé en file, arrêt) ; la passe d'analyse ferme les siens quand l'envoi revient. Un disque plein pendant la passe arrête la passe de l'utilisateur sans rien soumettre (`storage_unavailable`) ; l'espace libre n'est vérifié d'avance que pour un PDF. Les sauvegardes ([ADR-0020](../adr/0020-sauvegardes.md)) ne voient jamais un fichier sans nom.
 - Les erreurs du dossier ne nomment aucun fichier (comme `assetfs`) ; ni le chemin ni le nom n'atteignent un log.
 
 ## Configuration
 
 - Uniquement par variables d'environnement, lues une fois dans `config.Load`, qui reçoit une fonction `getenv` (testable) et renvoie une erreur claire pour toute valeur manquante ou invalide. Le binaire refuse de démarrer sur une configuration invalide.
 - La liste des variables et leur rôle est dans `infra/.env.example` ; toute nouvelle variable y est documentée dans le même commit.
+- `BATCH_SCHEDULE` est lu par `schedule.ParseDaily` dans `config.Load` (`Config.BatchSchedule` est un `schedule.Daily`) : seule la forme quotidienne `M H * * *` passe, toute autre arrête le démarrage avec une erreur qui nomme la variable. `BACKUP_SCHEDULE` n'est pas encore validé (E6). `ANTHROPIC_API_KEY` reste facultative : sans elle, la passe n'envoie rien.
+- Aucune heure du domaine ne suit `time.Local` : on passe `capture.LoadParis()` (fuseau embarqué). `TZ` ne règle que l'horodatage des logs.
 
 ## Style Go
 
@@ -139,6 +161,7 @@ Un PDF est téléchargé dans `DATA_DIR/tmp`, propre à `internal/extraction` (`
 | Fichier | Source | Commande |
 | --- | --- | --- |
 | `internal/analysis/schema/classify-item.bundled.json` | `docs/prompt/schemas/` | `make generate` (schemabundle) |
+| `internal/analysis/prompt/prompt.gen.json` (partie fixe et `prompt_version`, embarqués par `analysis/prompt`) | `docs/prompt/system-prompt.md` | `make generate` (schemabundle `-prompt`) |
 | `api/fiches.gen.json` (composants OpenAPI des fiches) | `docs/prompt/schemas/fiches/` | `make generate` (schemabundle) |
 | `api/openapi.bundled.gen.json` (contrat autonome) | `api/openapi.yaml` + `api/fiches.gen.json` | `make generate` (redocly bundle) |
 | `internal/httpapi/api.gen.go` | `api/openapi.bundled.gen.json` | `make generate` (oapi-codegen) |

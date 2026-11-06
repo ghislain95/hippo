@@ -31,12 +31,20 @@ messages:
 
 ## Assemblage du schéma de l'outil
 
-Les fichiers de schéma utilisent des `$ref` entre fichiers pour rester lisibles. Le backend les **assemble au build** en un seul schéma autonome (sans `$ref` externe), utilisé à la fois comme `input_schema` de l'outil et pour la validation des réponses. La CI vérifie que l'assemblage est à jour.
+Les fichiers de schéma utilisent des `$ref` entre fichiers pour rester lisibles. Le backend les **assemble au build** en un seul schéma autonome (sans `$ref` externe), qui sert à la validation des réponses et, allégé, d'`input_schema` à l'outil. La CI vérifie que l'assemblage est à jour.
 
 - Outil : `backend/cmd/schemabundle` ([ADR-0031](../adr/0031-generation-depuis-les-contrats.md)). Chaque fichier référencé devient une définition de `$defs` au nom stable : `fiche_<type>` pour une fiche, `common_<nom>` pour une définition de `_common.schema.json`.
 - Sortie : `backend/internal/analysis/schema/classify-item.bundled.json`, embarqué dans le binaire. Fichier généré : on ne l'édite jamais, on lance `make generate`.
 - **Exemples** : [`schemas/examples/`](schemas/examples/) contient une réponse `classify_item` complète et fictive par type de fiche. L'outil les valide contre le schéma assemblé et échoue s'il manque l'exemple d'un type. Ils servent aussi de fixtures aux tests de rendu des templates et de l'export Markdown.
+- **`input_schema` de l'outil** : le schéma assemblé sans son mot-clé `$schema` ni aucun mot-clé `x-*` (`x-schema-version` à la racine et dans chaque fiche de `$defs`), retirés à tous les niveaux par `prompt.ToolSchema` : l'API ne promet qu'« un objet JSON Schema ». Seuls des mots-clés sont retirés : une propriété ou une définition nommée `x-…` et les données de `enum`, `const`, `default`, `examples` restent. Le reste (`$defs`, `$ref`, `title`, `description`, contraintes) garde son sens. La `description` de l'outil est celle de la racine du schéma ; la version de l'enveloppe est lue dans le schéma assemblé embarqué, au démarrage (décidé le 6 novembre 2026, change `submit-nightly-batch`).
 - Vérifier : `make check-schemas` (exemples valides, assemblage à jour).
+
+## Copie générée de la partie fixe
+
+`go:embed` n'atteint pas `docs/` : le même outil (`schemabundle -prompt`) écrit `backend/internal/analysis/prompt/prompt.gen.json`, la version (`prompt_version`) et la partie fixe de [`system-prompt.md`](system-prompt.md) : le texte de l'unique bloc ```` ```text ```` de la section « Partie fixe », à l'octet près. L'outil échoue si la version manque ou est en double, ou si la section n'a pas exactement un bloc `text`. Le package `internal/analysis/prompt` l'embarque.
+
+- Fichier généré : on ne l'édite jamais (le hook `protect-files.sh` le refuse), on lance `make generate`.
+- `make check-generated` échoue quand la copie n'est plus à jour : modifier la partie fixe sans régénérer casse la CI.
 
 ## Validation d'une réponse
 
