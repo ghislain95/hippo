@@ -171,7 +171,7 @@ func (s *Service) captureNote(ctx context.Context, userID, text, source string, 
 // captureLink checks rawURL, the trimmed url of a link capture, and stores it, or returns the
 // item of a replayed client id or of the same normalised URL (RG-04, RG-05, RG-08).
 func (s *Service) captureLink(ctx context.Context, userID, rawURL string, userNote *string, source string, req Request) (Result, error) {
-	title, ok := provisionalTitle(rawURL)
+	title, ok := ProvisionalTitle(rawURL)
 	if !ok {
 		return Result{}, ErrInvalidURL
 	}
@@ -241,10 +241,12 @@ func trim(value *string) *string {
 	return &trimmed
 }
 
-// provisionalTitle checks that rawURL is an absolute http or https URL with a host (RG-02) and
+// ProvisionalTitle checks that rawURL is an absolute http or https URL with a host (RG-02) and
 // returns its host name, in lower case and without port: the title of a link until extraction
-// (RG-26). The error of url.Parse is dropped on purpose: it prints the URL.
-func provisionalTitle(rawURL string) (string, bool) {
+// (RG-26). The analysis compares a link's title with it, so that a title that is still the
+// host is not sent as the original title. The error of url.Parse is dropped on purpose: it
+// prints the URL.
+func ProvisionalTitle(rawURL string) (string, bool) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "", false
