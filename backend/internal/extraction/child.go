@@ -10,13 +10,10 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
-	"runtime"
-	"runtime/debug"
-	"runtime/metrics"
 	"sync"
 	"time"
 
+	"github.com/ghislain95/hippo/backend/internal/childproc"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
@@ -24,7 +21,7 @@ import (
 // memory of an HTML tree follows the markup, not the size of the page, and a hostile page of a
 // few hundred kilobytes can build a tree of a hundred megabytes. A PDF is read there too, from
 // its temporary file, handed to the child as descriptor 3. The child is bounded in memory and
-// in time; whatever happens to it, the service keeps running (design.md).
+// in time by internal/childproc; whatever happens to it, the service keeps running (design.md).
 const (
 	// ChildCommand is the subcommand of the binary that reads one page (RunChild).
 	ChildCommand = "extract-page"
@@ -37,9 +34,9 @@ const (
 	// ReadTimeout bounds the reading of a page, apart from the 15 s of its download.
 	ReadTimeout = 10 * time.Second
 	// childExitMemory is the exit code of a child that reached ChildMemoryLimit.
-	childExitMemory = 86
+	childExitMemory = childproc.ExitMemory
 	// childExitInput is the exit code of a child that could not read its request.
-	childExitInput = 2
+	childExitInput = childproc.ExitInput
 	// maxChildHeader bounds the request line the child reads before the body.
 	maxChildHeader = 64 << 10
 	// maxChildOutput bounds the answer the parent reads: a content of 120 000 code points is
@@ -47,8 +44,6 @@ const (
 	maxChildOutput = 2 << 20
 	// childWaitDelay bounds the wait for the pipes of a child killed at its time limit.
 	childWaitDelay = time.Second
-	// watchInterval is how often the child samples its memory.
-	watchInterval = time.Millisecond
 	// childPDFDescriptor is the descriptor on which the child reads a PDF: the first of
 	// exec.Cmd.ExtraFiles.
 	childPDFDescriptor = 3
@@ -56,13 +51,6 @@ const (
 	// read of a PDF, before the parent kills it.
 	deadlineShare = 0.8
 )
-
-// childEnv is the whole environment of the child: never the service's, which holds the API
-// token and the Anthropic key. Two processors at least, so that the watchdog runs while the
-// HTML parser loops.
-func childEnv() []string {
-	return []string{"GOMAXPROCS=2"}
-}
 
 // childRequest is the first line the child reads; the body of a page follows, to the end. A
 // PDF is not on stdin: it is the file of descriptor 3.
@@ -108,12 +96,8 @@ type childOptions struct {
 }
 
 func runChild(stdin io.Reader, stdout io.Writer, opts childOptions) int {
-	debug.SetMemoryLimit(childSoftLimit)
-	if runtime.GOMAXPROCS(0) < 2 {
-		runtime.GOMAXPROCS(2)
-	}
-	watch := watchMemory(ChildMemoryLimit, func() { os.Exit(childExitMemory) })
-	defer watch.stop()
+	watch := childproc.Guard(ChildMemoryLimit, childSoftLimit)
+	defer watch.Stop()
 
 	input := bufio.NewReader(io.LimitReader(stdin, maxChildHeader+MaxBodySize))
 	line, err := input.ReadBytes('\n')
@@ -149,7 +133,7 @@ func runChild(stdin io.Reader, stdout io.Writer, opts childOptions) int {
 	e := out.Extraction
 	result := childResult{
 		Reason: out.Reason, Mode: e.Mode, Title: e.Title, SiteName: e.SiteName, ContentText: e.ContentText,
-		ContentTruncated: e.ContentTruncated, ReadingMinutes: e.ReadingMinutes, PeakBytes: watch.peak(),
+		ContentTruncated: e.ContentTruncated, ReadingMinutes: e.ReadingMinutes, PeakBytes: watch.Peak(),
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false) // <, > and & stay one byte: the answer stays under maxChildOutput
@@ -196,55 +180,6 @@ func readPDFChild(pageURL *url.URL, l link, deadline time.Duration, opts childOp
 	return pdfOutcome(reading, finished, pageURL, l), nil
 }
 
-// memoryWatch samples the memory the runtime holds and calls exit above a limit.
-type memoryWatch struct {
-	done    chan struct{}
-	stopped chan struct{}
-	once    sync.Once
-	max     uint64 // written by the watch only; read after stop
-}
-
-// watchMemory starts a goroutine that reads, every watchInterval, the memory the runtime holds
-// (all its classes, minus the heap returned to the system), and calls exit above limit.
-func watchMemory(limit uint64, exit func()) *memoryWatch {
-	w := &memoryWatch{done: make(chan struct{}), stopped: make(chan struct{})}
-	samples := []metrics.Sample{
-		{Name: "/memory/classes/total:bytes"},
-		{Name: "/memory/classes/heap/released:bytes"},
-	}
-	go func() {
-		defer close(w.stopped)
-		ticker := time.NewTicker(watchInterval)
-		defer ticker.Stop()
-		for {
-			metrics.Read(samples)
-			held := samples[0].Value.Uint64() - samples[1].Value.Uint64()
-			w.max = max(w.max, held)
-			if held > limit {
-				exit()
-			}
-			select {
-			case <-w.done:
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-	return w
-}
-
-// stop ends the watch and waits for it; it may run more than once.
-func (w *memoryWatch) stop() {
-	w.once.Do(func() { close(w.done) })
-	<-w.stopped
-}
-
-// peak stops the watch and returns the highest memory it saw.
-func (w *memoryWatch) peak() uint64 {
-	w.stop()
-	return w.max
-}
-
 // pageReader runs the child that reads a page.
 type pageReader struct {
 	argv    []string // the binary and its arguments, ChildCommand in production
@@ -277,26 +212,27 @@ var childReasons = map[string]map[string]map[string]bool{
 	},
 }
 
-// command builds the child for one page, or for one PDF given as descriptor 3; its
-// environment is childEnv only.
-func (r *pageReader) command(ctx context.Context, req childRequest, body []byte, pdf *os.File, stdout io.Writer) (*exec.Cmd, error) {
+// spec describes the child for one page, or for one PDF given as descriptor 3; its
+// environment is childproc.Env only. ok is false when req cannot be encoded, which a request of
+// strings and integers never is.
+func (r *pageReader) spec(req childRequest, body []byte, pdf *os.File) (spec childproc.Spec, ok bool) {
 	header, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("read page: %w", err)
+		return childproc.Spec{}, false
 	}
-	cmd := exec.CommandContext(ctx, r.argv[0], r.argv[1:]...)
-	cmd.Env = childEnv()
-	cmd.Stdin = io.MultiReader(bytes.NewReader(append(header, '\n')), bytes.NewReader(body))
+	spec = childproc.Spec{
+		Argv:      r.argv,
+		Timeout:   r.timeout,
+		Stdin:     io.MultiReader(bytes.NewReader(append(header, '\n')), bytes.NewReader(body)),
+		MaxOutput: maxChildOutput,
+		WaitDelay: childWaitDelay,
+	}
 	if pdf != nil {
 		// Read-only, and the only descriptor the child inherits: Go opens every other one
 		// close-on-exec.
-		cmd.ExtraFiles = []*os.File{pdf}
+		spec.ExtraFiles = []*os.File{pdf}
 	}
-	cmd.Stdout = stdout
-	cmd.Stderr = nil // discarded: a panic message may quote the page
-	cmd.WaitDelay = childWaitDelay
-	dieWithParent(cmd)
-	return cmd, nil
+	return spec, true
 }
 
 // read reads the HTML page of resp for the link l in a child process. It returns
@@ -334,32 +270,29 @@ func (r *pageReader) readPDF(ctx context.Context, file *os.File, final *url.URL,
 // run runs the child for req and turns its answer into an outcome; fallbackFor builds the
 // fallback of a child that did not answer.
 func (r *pageReader) run(ctx context.Context, req childRequest, body []byte, pdf *os.File, fallbackFor func(string) outcome) (outcome, error) {
-	readCtx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	output := &cappedBuffer{limit: maxChildOutput}
-	cmd, err := r.command(readCtx, req, body, pdf, output)
-	if err != nil {
+	spec, ok := r.spec(req, body, pdf)
+	if !ok {
 		return fallbackFor(reasonReadingFailed), nil
 	}
-	runErr := cmd.Run()
+	res, runErr := childproc.Run(ctx, spec)
 	switch {
-	case ctx.Err() != nil:
+	case errors.Is(runErr, childproc.ErrStopped):
 		return outcome{}, errReaderStopped
-	case errors.Is(readCtx.Err(), context.DeadlineExceeded):
+	case errors.Is(runErr, childproc.ErrTimeout):
 		return fallbackFor(reasonTimeout), nil
-	case cmd.ProcessState == nil:
+	case errors.Is(runErr, childproc.ErrUnavailable):
 		return outcome{}, fmt.Errorf("%w: %w", errReaderUnavailable, runErr)
-	case cmd.ProcessState.ExitCode() == childExitMemory:
+	case errors.Is(runErr, childproc.ErrMemory):
 		return fallbackFor(reasonTooLarge), nil
-	case runErr != nil || output.overflow:
+	case errors.Is(runErr, childproc.ErrFailed) || res.Overflow:
 		return fallbackFor(reasonReadingFailed), nil
 	}
 	format := req.Format
 	if format == "" {
 		format = formatHTML
 	}
-	var result childResult
-	if err := json.Unmarshal(output.Bytes(), &result); err != nil || !childReasons[format][result.Mode][result.Reason] {
+	result, ok := decodeAnswer(res.Output, format)
+	if !ok {
 		return fallbackFor(reasonReadingFailed), nil
 	}
 	out := outcome{Reason: result.Reason, Extraction: store.Extraction{
@@ -372,26 +305,11 @@ func (r *pageReader) run(ctx context.Context, req childRequest, body []byte, pdf
 	return out, nil
 }
 
-// cappedBuffer keeps the first limit bytes written and drops the rest, so that a child that
-// writes too much neither fills the memory of the service nor blocks on its pipe. The buffer is
-// a field, not embedded: an embedded bytes.Buffer would lend its ReadFrom, which io.Copy (and
-// exec.Cmd with it) prefers to Write, and the limit would never apply.
-type cappedBuffer struct {
-	buf      bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if room := b.limit - b.buf.Len(); len(p) > room {
-		b.overflow = true
-		if room > 0 {
-			b.buf.Write(p[:room])
-		}
-		return len(p), nil
+// decodeAnswer decodes the answer of a child asked for format; ok is false for anything that is
+// not an outcome the child gives for that format.
+func decodeAnswer(output []byte, format string) (result childResult, ok bool) {
+	if json.Unmarshal(output, &result) != nil {
+		return childResult{}, false
 	}
-	return b.buf.Write(p)
+	return result, childReasons[format][result.Mode][result.Reason]
 }
-
-// Bytes returns what was kept.
-func (b *cappedBuffer) Bytes() []byte { return b.buf.Bytes() }

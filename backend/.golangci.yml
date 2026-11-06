@@ -108,9 +108,10 @@ linters:
       - comments
       - std-error-handling
     rules:
-      # The extraction runs its own binary (os.Executable) as the child that reads a page, with
-      # fixed arguments and an environment of its own (internal/extraction/child.go).
-      - path: internal/extraction/child\.go
+      # Only internal/childproc starts a subprocess: the service's own binary (os.Executable) as
+      # the child that reads a page or copies an image, with fixed arguments and an environment
+      # of its own (internal/childproc/childproc.go).
+      - path: internal/childproc/childproc\.go
         linters:
           - gosec
         text: G204

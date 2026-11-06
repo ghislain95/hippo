@@ -342,6 +342,13 @@ Moved without behaviour change (add → migrate → remove, each step green):
 - `cmd/hippo` dispatches `extract-page` and `copy-image` before anything else.
 - The gosec G204 exclusion moves from `internal/extraction/child.go` to `internal/childproc/`; « only one file starts a subprocess » now names `childproc`.
 
+As implemented (slice 2), additions to the list above:
+
+- `Run` returns `(Result, error)` with `Result{Output, Overflow, ExitCode, MaxRSS}` filled whatever the outcome (`MaxRSS` from the child's rusage, normalised to bytes, 0 outside Unix: the measures of 3.9 and 6.6 use it). Every error wraps exactly one sentinel: a fifth one, `ErrFailed`, covers « other failures » (another exit code, a signal, the pipes), so callers map outcomes with `errors.Is` only (the `nilerr` linter refuses `err != nil` followed by a fallback returning `nil`). `Spec.Timeout` zero means the parent's context only.
+- `Command(ctx, Spec, stdout) *exec.Cmd` is exported so that tests inspect the child (environment, descriptors, stderr) without starting it; `Run` is built on it. `(*Watch).Stop()` is exported next to `Peak()` (the child stops its watch on early returns).
+- `extraction`: `pageReader.command` becomes `pageReader.spec` (returns a `childproc.Spec`); the answer is decoded by `decodeAnswer`. `export_test.go` keeps every exported name and signature, but its bodies change (they built `cappedBuffer` and `exec.Cmd` themselves); no other extraction test file changes. The measures keep running without time limit, as before.
+- `(*TempDir).NewFile() (w, r *os.File, err error)`: the write end (read-write) and a read-only end, name removed before return, errors wrapping the storage error and naming no file; the unexported `create` (PDFs) is built on it. The name prefix stays `.pdf-` (it lives for an instant, and the start-up sweep removes any regular file).
+
 ### D15. Memory budget (container 384 MiB)
 
 | Part | Bound | How |

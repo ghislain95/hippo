@@ -9,10 +9,11 @@ import (
 	"os"
 )
 
-// The temporary directory holds the PDFs being downloaded, DATA_DIR/tmp: on the volume of the
-// data, not in /tmp, which in the container is the image's layer or a tmpfs counted in its
-// memory. A file loses its name before the download starts: its data lives as long as a
-// descriptor is open on it, in the service or in the child that reads it, and disappears with
+// The temporary directory, DATA_DIR/tmp, holds the PDFs being downloaded and, through NewFile,
+// the files other packages write for a moment (the body of a batch, the copies of images): on
+// the volume of the data, not in /tmp, which in the container is the image's layer or a tmpfs
+// counted in its memory. A file loses its name before it is written: its data lives as long as
+// a descriptor is open on it, in the service or in the child that reads it, and disappears with
 // the last one, crash included. Nothing of a PDF stays on the NAS, and backups never see one
 // (ADR-0020). Every access goes through an os.Root on the directory (design.md).
 const (
@@ -119,26 +120,37 @@ type tempFile struct {
 	w, r *os.File
 }
 
-// create creates a file, opens it a second time read-only, and removes its name. Its errors
-// wrap errStorage.
-func (d *TempDir) create() (*tempFile, error) {
+// NewFile creates a file in the directory, opens it a second time read-only, and removes its
+// name before returning: w writes it, r reads it (or is handed to a child), and its data goes
+// with the last of the two closed, crash included; nothing is left in the directory. The caller
+// closes both. Its errors wrap errStorage and name no file.
+func (d *TempDir) NewFile() (w, r *os.File, err error) {
 	var random [16]byte
 	_, _ = rand.Read(random[:]) // crypto/rand never fails on supported platforms
 	name := tempPrefix + hex.EncodeToString(random[:])
-	w, err := d.root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, tempFileMode)
+	w, err = d.root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, tempFileMode)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create: %w", errStorage, pathless(err))
+		return nil, nil, fmt.Errorf("%w: create: %w", errStorage, pathless(err))
 	}
-	r, err := d.root.OpenFile(name, os.O_RDONLY, 0)
+	r, err = d.root.OpenFile(name, os.O_RDONLY, 0)
 	if err != nil {
 		_ = w.Close()           // empty: nothing to flush
 		_ = d.root.Remove(name) // best effort: the start-up sweep removes it otherwise
-		return nil, fmt.Errorf("%w: open: %w", errStorage, pathless(err))
+		return nil, nil, fmt.Errorf("%w: open: %w", errStorage, pathless(err))
 	}
 	if err := d.root.Remove(name); err != nil {
 		_ = w.Close() // empty: nothing to flush
 		_ = r.Close() // read-only
-		return nil, fmt.Errorf("%w: remove name: %w", errStorage, pathless(err))
+		return nil, nil, fmt.Errorf("%w: remove name: %w", errStorage, pathless(err))
+	}
+	return w, r, nil
+}
+
+// create creates a file as NewFile does, for a PDF. Its errors wrap errStorage.
+func (d *TempDir) create() (*tempFile, error) {
+	w, r, err := d.NewFile()
+	if err != nil {
+		return nil, err
 	}
 	if d.failWrites {
 		_ = w.Close() // its writes fail from now on
