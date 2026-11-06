@@ -6,12 +6,14 @@ tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.3
+	github.com/gen2brain/h265 v0.2.4
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/oapi-codegen/nullable v1.2.0
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/image v0.47.0
 	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.61.0
 )

@@ -80,6 +80,15 @@ linters:
               desc: only internal/extraction parses HTML and decodes charsets
             - pkg: github.com/ledongthuc/pdf
               desc: only internal/extraction reads PDFs, in the child process that bounds them (E2-08)
+        image-decoding-only-in-imagecopy:
+          files:
+            - "$all"
+            - "!**/internal/imagecopy/**"
+          deny:
+            - pkg: golang.org/x/image
+              desc: only internal/imagecopy decodes and scales images, in the child process that bounds them (E3-01)
+            - pkg: github.com/gen2brain
+              desc: only internal/imagecopy decodes HEIC, in the child process that bounds it (E3-01)
         pdf-generator-only-in-tests:
           files:
             - "$all"

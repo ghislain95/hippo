@@ -7,6 +7,8 @@
 //	hippo healthcheck   probe the local /healthz, for the Docker healthcheck
 //	hippo extract-page  read one page from stdin, or one PDF from descriptor 3, as the child of
 //	                    the extraction (internal use)
+//	hippo copy-image    copy the image of descriptor 3 to descriptor 4, as the child of the
+//	                    analysis (internal use)
 package main
 
 import (
@@ -30,6 +32,7 @@ import (
 	"github.com/ghislain95/hippo/backend/internal/config"
 	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
+	"github.com/ghislain95/hippo/backend/internal/imagecopy"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
@@ -48,6 +51,11 @@ func main() {
 	// no configuration, opens no database and logs nothing (internal/extraction, RunChild).
 	if len(os.Args) > 1 && os.Args[1] == extraction.ChildCommand {
 		os.Exit(extraction.RunChild(os.Stdin, os.Stdout))
+	}
+	// The child that copies one image for the analysis, under the same rules
+	// (internal/imagecopy, RunChild).
+	if len(os.Args) > 1 && os.Args[1] == imagecopy.ChildCommand {
+		os.Exit(imagecopy.RunChild(os.Stdin, os.Stdout))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	// After the first signal, restore the default handling: a second Ctrl-C during the drain
