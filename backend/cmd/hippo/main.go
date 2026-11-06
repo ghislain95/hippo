@@ -1,5 +1,5 @@
 // Command hippo is the Hippo backend: HTTP API, SQLite storage, the extraction of captured
-// items and, later, the nightly analysis (ADR-0003).
+// items and the nightly analysis pass (ADR-0003).
 //
 // Usage:
 //
@@ -26,6 +26,9 @@ import (
 	"time"
 	_ "time/tzdata" // the Paris zone of RG-04 without a time zone database in the image
 
+	"github.com/ghislain95/hippo/backend/internal/analysis"
+	"github.com/ghislain95/hippo/backend/internal/analysis/anthropic"
+	"github.com/ghislain95/hippo/backend/internal/analysis/prompt"
 	"github.com/ghislain95/hippo/backend/internal/assetfs"
 	"github.com/ghislain95/hippo/backend/internal/auth"
 	"github.com/ghislain95/hippo/backend/internal/capture"
@@ -33,6 +36,7 @@ import (
 	"github.com/ghislain95/hippo/backend/internal/extraction"
 	"github.com/ghislain95/hippo/backend/internal/httpapi"
 	"github.com/ghislain95/hippo/backend/internal/imagecopy"
+	"github.com/ghislain95/hippo/backend/internal/schedule"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
@@ -86,8 +90,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 	logger := slog.New(slog.NewJSONHandler(stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	// The dates of a duplicate's note are in Paris time (RG-04): no start without the zone.
+	// The dates of a duplicate's note are in Paris time (RG-04), and so is the schedule of the
+	// nightly pass (RG-30): no start without the zone.
 	paris, err := capture.LoadParis()
+	if err != nil {
+		return err
+	}
+
+	// The fixed part of the prompt and the classify_item tool are embedded: an unreadable copy is
+	// a broken build, which must not start.
+	analysisPrompt, err := prompt.Load()
+	if err != nil {
+		return err
+	}
+	analyzer, err := newAnalyzer(cfg.AnthropicAPIKey, logger)
 	if err != nil {
 		return err
 	}
@@ -139,7 +155,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	// a page whose tree is too heavy, or a hostile PDF, kills the child, not the service.
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate the binary for the page reader: %w", err)
+		return fmt.Errorf("locate the binary for the child processes: %w", err)
 	}
 	worker := extraction.NewWorker(extraction.Options{
 		Store:         st,
@@ -163,6 +179,28 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}()
 	worker.Wake() // the items left queued at the last stop
 
+	// The nightly pass, and the reconciliation of the batches a stop left pending. Stopped
+	// before the store, the images and the temporary files are closed (deferred functions run
+	// in reverse order); each image is copied by a child of this binary (`hippo copy-image`).
+	stopAnalysis, err := startAnalysis(ctx, analysisOptions{
+		Store:         st,
+		Analyzer:      analyzer,
+		Model:         cfg.AnalysisModel,
+		Prompt:        analysisPrompt,
+		BudgetUSD:     cfg.MonthlyBudgetUSD,
+		Schedule:      cfg.BatchSchedule,
+		Location:      paris,
+		Assets:        assets,
+		Temp:          tmp,
+		CopierCommand: []string{executable, imagecopy.ChildCommand},
+		Clock:         schedule.SystemClock{},
+		Logger:        logger,
+	})
+	if err != nil {
+		return err
+	}
+	defer stopAnalysis()
+
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(httpapi.Options{
@@ -182,6 +220,21 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		IdleTimeout:  120 * time.Second,
 	}
 	return serve(ctx, server, logger)
+}
+
+// newAnalyzer returns the client of the AI service, or nil without an API key: the pass then
+// sends nothing (RG-81, design.md D3). The returned interface is nil itself, never a nil
+// client.
+func newAnalyzer(apiKey string, logger *slog.Logger) (analysis.Analyzer, error) {
+	if apiKey == "" {
+		logger.Warn("no ANTHROPIC_API_KEY: the nightly analysis sends nothing")
+		return nil, nil
+	}
+	client, err := anthropic.New(apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("create the AI service client: %w", err)
+	}
+	return client, nil
 }
 
 // openAssets creates the assets directory if needed, removes the temporary files an

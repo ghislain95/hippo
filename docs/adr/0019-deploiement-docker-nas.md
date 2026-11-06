@@ -1,6 +1,6 @@
 # ADR-0019 — Déploiement Docker Compose sur le NAS
 
-- **Statut** : Accepté — visibilité amendée par [ADR-0027](0027-depot-public.md)
+- **Statut** : Accepté — visibilité amendée par [ADR-0027](0027-depot-public.md) ; limite mémoire amendée par [ADR-0038](0038-limite-memoire-384-mo.md)
 - **Date** : 2026-10-10
 
 ## Contexte

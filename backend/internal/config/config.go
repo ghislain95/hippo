@@ -11,6 +11,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/ghislain95/hippo/backend/internal/schedule"
 )
 
 // MinAPITokenLength is the minimum length of API_TOKEN, in bytes (ADR-0016).
@@ -31,8 +33,9 @@ type Config struct {
 	AnthropicAPIKey string
 	// AnalysisModel is the Claude model used for the analysis (ANALYSIS_MODEL).
 	AnalysisModel string
-	// BatchSchedule is the cron expression of the nightly batch (BATCH_SCHEDULE).
-	BatchSchedule string
+	// BatchSchedule is the time of the nightly batch, Paris wall-clock time (BATCH_SCHEDULE,
+	// daily form "M H * * *" only, RG-30).
+	BatchSchedule schedule.Daily
 	// BackupSchedule is the cron expression of the nightly backup (BACKUP_SCHEDULE).
 	BackupSchedule string
 	// MonthlyBudgetUSD caps the AI spend of a calendar month (MONTHLY_BUDGET_USD, RG-81).
@@ -64,7 +67,6 @@ func Load(getenv func(string) string) (Config, error) {
 		APIToken:        getenv("API_TOKEN"),
 		AnthropicAPIKey: getenv("ANTHROPIC_API_KEY"),
 		AnalysisModel:   value("ANALYSIS_MODEL", defaultAnalysisModel),
-		BatchSchedule:   value("BATCH_SCHEDULE", defaultBatchSchedule),
 		BackupSchedule:  value("BACKUP_SCHEDULE", defaultBackupSchedule),
 	}
 
@@ -78,6 +80,12 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 	cfg.LogLevel = level
+
+	batch, err := schedule.ParseDaily(value("BATCH_SCHEDULE", defaultBatchSchedule))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("BATCH_SCHEDULE: %w", err))
+	}
+	cfg.BatchSchedule = batch
 
 	budget, err := parseBudget(getenv("MONTHLY_BUDGET_USD"))
 	if err != nil {
