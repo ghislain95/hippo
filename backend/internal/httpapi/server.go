@@ -36,12 +36,18 @@ type AssetStore interface {
 	Asset(ctx context.Context, userID, id string) (store.Asset, error)
 }
 
+// ItemEditor changes the items of a user (internal/store).
+type ItemEditor interface {
+	SetPrivate(ctx context.Context, userID, id string, private bool) (store.Item, error)
+}
+
 // Options are the dependencies of the HTTP server.
 type Options struct {
 	Store      Pinger
 	Auth       Authenticator
 	Capture    Capturer
 	Assets     AssetStore
+	Items      ItemEditor
 	AssetFiles *assetfs.Dir // the image files: uploads are written there, assets read from there
 	Logger     *slog.Logger
 	Version    string
@@ -51,7 +57,7 @@ type Options struct {
 // /api/ requires a valid bearer token.
 func NewServer(opts Options) http.Handler {
 	handlers := &handlers{
-		store: opts.Store, capture: opts.Capture, assets: opts.Assets, assetFiles: opts.AssetFiles,
+		store: opts.Store, capture: opts.Capture, assets: opts.Assets, items: opts.Items, assetFiles: opts.AssetFiles,
 		logger: opts.Logger, version: opts.Version,
 	}
 	strict := NewStrictHandlerWithOptions(handlers, nil, StrictHTTPServerOptions{
@@ -97,6 +103,7 @@ type handlers struct {
 	store      Pinger
 	capture    Capturer
 	assets     AssetStore
+	items      ItemEditor
 	assetFiles *assetfs.Dir
 	logger     *slog.Logger
 	version    string

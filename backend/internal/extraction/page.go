@@ -24,16 +24,15 @@ const (
 
 // Reason classes of the logs: why an item got its mode, or why it waits.
 const (
-	reasonOK              = "ok"
-	reasonTimeout         = "timeout"
-	reasonStatus          = "status"
-	reasonNotHTML         = "not_html"
-	reasonTooLarge        = "too_large"
-	reasonBlocked         = "blocked"
-	reasonShort           = "short"
-	reasonCrashedBefore   = "crashed_before"
-	reasonDeferredYouTube = "deferred_youtube"
-	reasonNetwork         = "network"
+	reasonOK            = "ok"
+	reasonTimeout       = "timeout"
+	reasonStatus        = "status"
+	reasonNotHTML       = "not_html"
+	reasonTooLarge      = "too_large"
+	reasonBlocked       = "blocked"
+	reasonShort         = "short"
+	reasonCrashedBefore = "crashed_before"
+	reasonNetwork       = "network"
 	// reasonUnreachable: the site failed before answering (refused connection, TLS error, host
 	// that does not exist, redirect loop).
 	reasonUnreachable = "unreachable"
@@ -72,10 +71,11 @@ const (
 
 // outcome is what an extraction decided for a link: the item is written with Extraction.
 type outcome struct {
-	Reason     string
-	Status     int    // the HTTP status, 0 when there was no answer
-	Format     string // formatPDF for a PDF, logged; "" otherwise
-	Extraction store.Extraction
+	Reason       string
+	Status       int    // the HTTP status, 0 when there was no answer; of the page for a video
+	OEmbedStatus int    // the HTTP status of a video's oEmbed answer, 0 when not asked or no answer
+	Format       string // formatPDF for a PDF, formatYouTube for a video, logged; "" otherwise
+	Extraction   store.Extraction
 
 	needsPage bool // the answer is an HTML page: readPage decides, in the reading process
 	needsPDF  bool // the answer is a PDF: the reading process reads its file

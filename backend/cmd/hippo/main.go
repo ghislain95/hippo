@@ -162,6 +162,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 			Auth:       auth.NewSingleUser(userID, tokenHash),
 			Capture:    capture.NewService(st, worker, paris, logger),
 			Assets:     st,
+			Items:      st,
 			AssetFiles: assets,
 			Logger:     logger,
 			Version:    version,

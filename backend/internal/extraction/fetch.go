@@ -37,7 +37,39 @@ const (
 	// acceptHeader asks for HTML first, and accepts a PDF: a site that negotiates the type
 	// answers a PDF link instead of 406.
 	acceptHeader = "text/html,application/xhtml+xml,application/pdf;q=0.9"
+	// maxJSONSize is the largest JSON body read in modeJSON, decompressed, in bytes: an oEmbed
+	// answer is a few hundred bytes.
+	maxJSONSize = 64 << 10
 )
+
+// fetchMode is how fetch reads the body of a success status.
+type fetchMode int
+
+const (
+	// modePage reads a page as a link is read: HTML in memory up to MaxBodySize, a PDF streamed
+	// to a temporary file up to MaxPDFSize, any other format to its first bytes.
+	modePage fetchMode = iota
+	// modeHTML reads HTML in memory up to MaxBodySize and any other format, PDF included, to
+	// its first bytes: never a temporary file. The page of a video.
+	modeHTML
+	// modeJSON reads the body in memory up to maxJSONSize whatever its type, TooLarge beyond.
+	// An oEmbed answer.
+	modeJSON
+)
+
+// fetchRequest are the options of one download.
+type fetchRequest struct {
+	// Timeout bounds the whole download, derived inside fetch from the worker's context, so
+	// that classify with that context tells a deadline (timeout) from a stop.
+	Timeout time.Duration
+	Accept  string
+	Mode    fetchMode
+}
+
+// pageRequest is the download of a captured link: the page path, PDF included.
+func pageRequest(timeout time.Duration) fetchRequest {
+	return fetchRequest{Timeout: timeout, Accept: acceptHeader, Mode: modePage}
+}
 
 var (
 	// errBlocked: the address is local or private (RG-27). It never names the address.
@@ -76,16 +108,16 @@ type fetcher struct {
 	resolver  Resolver
 	dialer    *net.Dialer
 	userAgent string
-	timeout   time.Duration
 	limit     int64
 	temp      *TempDir // where PDFs are written
 }
 
-func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x509.CertPool, version string, timeout time.Duration, temp *TempDir) *fetcher {
+func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x509.CertPool, version string, temp *TempDir) *fetcher {
 	f := &fetcher{
 		resolver: resolver,
 		dialer: &net.Dialer{
-			Timeout: timeout,
+			// The deadline of each fetch bounds a connection first; this is only a ceiling.
+			Timeout: DownloadTimeout,
 			// Control sees the address actually dialled, after resolution: a host that resolves
 			// to a local address, a DNS rebinding or a redirect to one are all refused here.
 			Control: func(_, address string, _ syscall.RawConn) error {
@@ -97,7 +129,6 @@ func newFetcher(policy func(netip.AddrPort) bool, resolver Resolver, rootCAs *x5
 			},
 		},
 		userAgent: "Hippo/" + version + " (personal read-later)", // ASCII only: some servers refuse other bytes
-		timeout:   timeout,
 		limit:     MaxBodySize,
 		temp:      temp,
 	}
@@ -146,25 +177,26 @@ func (f *fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 	return nil, errors.Join(errs...)
 }
 
-// fetch downloads target within f.timeout of ctx. An HTML page is read in memory, up to
-// MaxBodySize; a PDF is streamed to a temporary file without name, up to MaxPDFSize, which the
-// caller closes (response.PDF). The response keeps its format and final URL along with an error
-// of the body, so that a PDF that fails falls back with its file name. The error names the
-// URL: it is classified, never logged nor stored.
-func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) {
-	ctx, cancel := context.WithTimeout(ctx, f.timeout)
+// fetch downloads target within req.Timeout of ctx, reading its body as req.Mode says. In
+// modePage, an HTML page is read in memory, up to MaxBodySize; a PDF is streamed to a temporary
+// file without name, up to MaxPDFSize, which the caller closes (response.PDF). The response
+// keeps its format and final URL along with an error of the body, so that a PDF that fails
+// falls back with its file name. The error names the URL: it is classified, never logged nor
+// stored.
+func (f *fetcher) fetch(ctx context.Context, target *url.URL, req fetchRequest) (response, error) {
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
 	defer cancel()
 	defer f.transport.CloseIdleConnections()
 
 	clean := *target
 	clean.User = nil // net/http would send it as Basic Auth
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clean.String(), nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, clean.String(), nil)
 	if err != nil {
 		return response{}, fmt.Errorf("fetch: %w", err)
 	}
-	req.Header.Set("User-Agent", f.userAgent)
-	req.Header.Set("Accept", acceptHeader)
-	req.Header.Set("Accept-Language", "fr,en")
+	httpReq.Header.Set("User-Agent", f.userAgent)
+	httpReq.Header.Set("Accept", req.Accept)
+	httpReq.Header.Set("Accept-Language", "fr,en")
 	// No Accept-Encoding: the transport asks for gzip itself and decompresses transparently.
 
 	// A jar for this item only: consent redirects that set a cookie do not loop, and nothing is
@@ -174,7 +206,7 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 		return response{}, fmt.Errorf("fetch: %w", err)
 	}
 	client := &http.Client{Transport: f.transport, Jar: jar, CheckRedirect: checkRedirect}
-	resp, err := client.Do(req)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return response{}, fmt.Errorf("fetch: %w", err)
 	}
@@ -184,7 +216,10 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 	if out.Status < 200 || out.Status > 299 {
 		return out, nil
 	}
-	if mediaTypeOf(out.ContentType) == "application/pdf" && resp.ContentLength > MaxPDFSize {
+	if req.Mode == modeJSON {
+		return readJSON(resp.Body, out)
+	}
+	if req.Mode == modePage && mediaTypeOf(out.ContentType) == "application/pdf" && resp.ContentLength > MaxPDFSize {
 		// Announced too large: not a byte of the body is read.
 		out.Format, out.TooLarge = formatPDF, true
 		return out, nil
@@ -197,10 +232,10 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 	if err != nil && !errors.Is(err, io.EOF) {
 		return out, fmt.Errorf("fetch: read body: %w", err)
 	}
-	switch out.Format {
-	case formatPDF:
+	switch {
+	case out.Format == formatPDF && req.Mode == modePage:
 		return f.downloadPDF(body, resp.ContentLength, out)
-	case formatHTML:
+	case out.Format == formatHTML:
 		// The limit applies to the decompressed stream: a gzip bomb or a lying Content-Length
 		// stops at the limit.
 		page, err := io.ReadAll(io.LimitReader(body, f.limit+1))
@@ -215,6 +250,21 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL) (response, error) 
 	default:
 		out.Body = bytes.Clone(head)
 	}
+	return out, nil
+}
+
+// readJSON reads a JSON body whole, up to maxJSONSize of the decompressed stream; beyond, out
+// is TooLarge without body.
+func readJSON(body io.Reader, out response) (response, error) {
+	data, err := io.ReadAll(io.LimitReader(body, maxJSONSize+1))
+	if err != nil {
+		return out, fmt.Errorf("fetch: read body: %w", err)
+	}
+	if len(data) > maxJSONSize {
+		out.TooLarge = true
+		return out, nil
+	}
+	out.Body = data
 	return out, nil
 }
 

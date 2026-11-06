@@ -210,3 +210,86 @@ func TestFetchPDF(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestFetchModes(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (*web, *extraction.TempDir, string, func(context.Context, string, extraction.FetchRequest) (extraction.Response, error)) {
+		w := newWeb(t)
+		dir, path := tempDir(t)
+		fetch := extraction.FetcherWithRequest(testPolicy, w, w.roots, dir)
+		return w, dir, path, func(ctx context.Context, raw string, req extraction.FetchRequest) (extraction.Response, error) {
+			return fetch(ctx, mustURL(t, raw), req)
+		}
+	}
+	jsonRequest := extraction.FetchRequest{Timeout: 5 * time.Second, Accept: "application/json", Mode: extraction.ModeJSON}
+	htmlRequest := extraction.FetchRequest{Timeout: 5 * time.Second, Accept: "text/html", Mode: extraction.ModeHTML}
+
+	t.Run("a JSON body is read whole up to 64 KiB, whatever its type", func(t *testing.T) {
+		w, _, _, fetch := setup(t)
+		const link = "https://api.example.com/fits"
+		body := bytes.Repeat([]byte("x"), extraction.MaxJSONSize)
+		w.page(link, "text/html", body)
+		resp, err := fetch(ctx, link, jsonRequest)
+		if err != nil || resp.TooLarge || !bytes.Equal(resp.Body, body) || resp.Status != 200 {
+			t.Errorf("status %d, %d bytes, too large %v, %v; want the 64 KiB read", resp.Status, len(resp.Body), resp.TooLarge, err)
+		}
+		if got := w.headersOf(link).Get("Accept"); got != "application/json" {
+			t.Errorf("Accept = %q, want the Accept of the call", got)
+		}
+	})
+
+	t.Run("a JSON body over 64 KiB is too large", func(t *testing.T) {
+		w, _, _, fetch := setup(t)
+		const link = "https://api.example.com/over"
+		w.page(link, "application/json", bytes.Repeat([]byte("x"), extraction.MaxJSONSize+1))
+		resp, err := fetch(ctx, link, jsonRequest)
+		if err != nil || !resp.TooLarge || resp.Body != nil {
+			t.Errorf("%d bytes, too large %v, %v; want too large without body", len(resp.Body), resp.TooLarge, err)
+		}
+	})
+
+	t.Run("a PDF is never written to disk in HTML mode", func(t *testing.T) {
+		w, dir, path, fetch := setup(t)
+		const link = "https://docs.example.com/video.pdf"
+		w.page(link, "application/pdf", articlePDF())
+		extraction.FailWrites(dir) // a write would fail as storage_unavailable
+		resp, err := fetch(ctx, link, htmlRequest)
+		if err != nil || resp.PDF != nil || resp.Format != "pdf" || len(resp.Body) > 512 {
+			t.Errorf("format %q file %v body %d, %v; want a PDF not read beyond its first bytes, without file", resp.Format, resp.PDF != nil, len(resp.Body), err)
+		}
+		if names := entries(t, path); len(names) != 0 {
+			t.Errorf("temporary directory holds %v", names)
+		}
+	})
+
+	t.Run("an HTML page is read in HTML mode", func(t *testing.T) {
+		w, _, _, fetch := setup(t)
+		const link = "https://blog.example.com/page"
+		w.page(link, "text/html", fixture(t, "article.html"))
+		resp, err := fetch(ctx, link, htmlRequest)
+		if err != nil || resp.Format != "html" || !bytes.Equal(resp.Body, fixture(t, "article.html")) {
+			t.Errorf("format %q, %d bytes, %v; want the page", resp.Format, len(resp.Body), err)
+		}
+	})
+
+	t.Run("a deadline of the call is a timeout, never a stop", func(t *testing.T) {
+		w, _, _, fetch := setup(t)
+		const link = "https://slow.example.com/page"
+		w.handle(link, func(rw http.ResponseWriter, r *http.Request) {
+			rw.Header().Set("Content-Type", "text/html")
+			rw.(http.Flusher).Flush()
+			<-r.Context().Done()
+		})
+		for _, req := range []extraction.FetchRequest{htmlRequest, jsonRequest} {
+			req.Timeout = 200 * time.Millisecond
+			begin := time.Now()
+			_, err := fetch(ctx, link, req)
+			if err == nil || extraction.Classify(ctx, err) != "timeout" {
+				t.Errorf("mode %v: error %v (%s), want timeout", req.Mode, err, extraction.Classify(ctx, err))
+			}
+			if elapsed := time.Since(begin); elapsed > 3*time.Second {
+				t.Errorf("mode %v: answer after %v, want the timeout of the call", req.Mode, elapsed)
+			}
+		}
+	})
+}

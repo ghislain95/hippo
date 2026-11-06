@@ -45,8 +45,9 @@ import (
 // waitLimit bounds every wait on the worker: a test that reaches it has failed.
 const waitLimit = 20 * time.Second
 
-// web is a fictional web served over TLS by one httptest server: every host of example.com
-// resolves to it through the test resolver, so that no test touches the network.
+// web is a fictional web served over TLS by one httptest server: every host of example.com,
+// youtube.com and youtu.be resolves to it through the test resolver, so that no test touches
+// the network.
 type web struct {
 	server   *httptest.Server
 	addr     netip.AddrPort
@@ -55,6 +56,9 @@ type web struct {
 	handlers map[string]http.HandlerFunc // host + path
 	requests map[string]int
 	headers  map[string]http.Header
+	asked    []string                    // host + path + "?" + raw query of every request, in order
+	videos   map[string]http.HandlerFunc // the watch page of each video id
+	oembeds  map[string]http.HandlerFunc // the oEmbed answer of each video id
 	conns    atomic.Int64
 	lookups  atomic.Int64
 	failDNS  atomic.Bool
@@ -63,7 +67,23 @@ type web struct {
 
 func newWeb(t *testing.T) *web {
 	t.Helper()
-	w := &web{handlers: map[string]http.HandlerFunc{}, requests: map[string]int{}, headers: map[string]http.Header{}, failing: map[string]bool{}}
+	w := &web{
+		handlers: map[string]http.HandlerFunc{}, requests: map[string]int{}, headers: map[string]http.Header{}, failing: map[string]bool{},
+		videos: map[string]http.HandlerFunc{}, oembeds: map[string]http.HandlerFunc{},
+	}
+	// The watch page and oEmbed of YouTube dispatch on their query: v for a page, the v of the
+	// page in url for oEmbed.
+	w.handle("https://www.youtube.com/watch", func(rw http.ResponseWriter, r *http.Request) {
+		w.dispatch(w.videos, r.URL.Query().Get("v"), rw, r)
+	})
+	w.handle("https://www.youtube.com/oembed", func(rw http.ResponseWriter, r *http.Request) {
+		page, err := url.Parse(r.URL.Query().Get("url"))
+		if err != nil || r.URL.Query().Get("format") != "json" {
+			http.Error(rw, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		w.dispatch(w.oembeds, page.Query().Get("v"), rw, r)
+	})
 	cert, roots := testCertificate(t)
 	w.roots = roots
 	w.server = httptest.NewUnstartedServer(http.HandlerFunc(w.serve))
@@ -99,6 +119,7 @@ func (w *web) page(rawURL, contentType string, body []byte) {
 func (w *web) serve(rw http.ResponseWriter, r *http.Request) {
 	key := r.Host + r.URL.Path
 	w.mu.Lock()
+	w.asked = append(w.asked, key+"?"+r.URL.RawQuery)
 	w.requests[key]++
 	w.headers[key] = r.Header.Clone()
 	handler := w.handlers[key]
@@ -108,6 +129,60 @@ func (w *web) serve(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handler(rw, r)
+}
+
+// dispatch serves the handler of id among handlers, 404 when there is none.
+func (w *web) dispatch(handlers map[string]http.HandlerFunc, id string, rw http.ResponseWriter, r *http.Request) {
+	w.mu.Lock()
+	handler := handlers[id]
+	w.mu.Unlock()
+	if handler == nil {
+		http.NotFound(rw, r)
+		return
+	}
+	handler(rw, r)
+}
+
+// video serves handler as the watch page of the video id.
+func (w *web) video(id string, handler http.HandlerFunc) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.videos[id] = handler
+}
+
+// videoPage serves body as the watch page of the video id, as YouTube does: HTML, 200.
+func (w *web) videoPage(id string, body []byte) {
+	w.video(id, func(rw http.ResponseWriter, _ *http.Request) {
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = rw.Write(body)
+	})
+}
+
+// oembed serves handler as the oEmbed answer of the video id.
+func (w *web) oembed(id string, handler http.HandlerFunc) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.oembeds[id] = handler
+}
+
+// oembedAnswer serves an oEmbed answer of the video id with status; a success holds title and
+// author.
+func (w *web) oembedAnswer(id string, status int, title, author string) {
+	w.oembed(id, func(rw http.ResponseWriter, _ *http.Request) {
+		if status != http.StatusOK {
+			http.Error(rw, "Bad Request", status)
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		_, _ = rw.Write(oembedJSON(id, title, author))
+	})
+}
+
+// requested is every request the web received, host + path + "?" + raw query, in order.
+func (w *web) requested() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.asked...)
 }
 
 // failHost makes the resolution of host fail as on a NAS outage, while the others succeed.
@@ -141,13 +216,19 @@ func (w *web) Resolve(_ context.Context, host string, _ uint16) ([]netip.AddrPor
 	if w.failDNS.Load() || failing {
 		return nil, &net.DNSError{Err: "dial udp: connect: network is unreachable", Name: host, IsTemporary: true}
 	}
-	if host == "example.com" || strings.HasSuffix(host, ".example.com") {
+	for _, domain := range []string{"example.com", "youtube.com"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return []netip.AddrPort{w.addr}, nil
+		}
+	}
+	if host == "youtu.be" {
 		return []netip.AddrPort{w.addr}, nil
 	}
 	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
 
-// testCertificate is a self-signed certificate of example.com and its subdomains.
+// testCertificate is a self-signed certificate of example.com, youtube.com, their subdomains,
+// and youtu.be.
 func testCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -157,7 +238,7 @@ func testCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "example.com"},
-		DNSNames:              []string{"example.com", "*.example.com"},
+		DNSNames:              []string{"example.com", "*.example.com", "youtube.com", "*.youtube.com", "youtu.be"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
@@ -1234,26 +1315,6 @@ func TestExtractionWorker(t *testing.T) {
 		assertFallback(t, h, item, "public.example.com")
 		if got := conns.Load(); got != 0 {
 			t.Errorf("%d connections reached the refused server, want none", got)
-		}
-	})
-
-	// Requirement: YouTube links wait for their own extraction.
-
-	t.Run("YouTube link", func(t *testing.T) {
-		h := newHarness(t)
-		h.start()
-		var ids []string
-		for _, link := range []string{"https://www.youtube.com/watch?v=abc", "https://youtu.be/abc", "https://YouTube.com/shorts/xyz"} {
-			ids = append(ids, h.captureLink(link, false).ID)
-			h.waitPass()
-		}
-		for _, id := range ids {
-			if item := h.item(h.owner, id); item.Status != "queued" || item.ExtractionMode != nil {
-				t.Errorf("item %s: status %q mode %q, want queued", id, item.Status, mode(item))
-			}
-		}
-		if asked, lookups := len(h.policy.addresses()), h.web.lookups.Load(); asked+int(lookups) != 0 {
-			t.Errorf("dials %d, lookups %d: want no request", asked, lookups)
 		}
 	})
 

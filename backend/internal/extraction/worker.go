@@ -3,12 +3,15 @@
 // downloaded once, through a client of its own that never reaches a local or private address;
 // its page is read locally with Readability, or its PDF, streamed to a temporary file without
 // name, with github.com/ledongthuc/pdf and a layout layer of its own; both are read in a child
-// process bounded in memory and time. A note or an image has nothing to extract. It is the only
-// domain that imports net/http, and the only package that imports Readability,
+// process bounded in memory and time. A YouTube video is read from its canonical page, for its
+// title, channel, description and duration, in the same child, else from its oEmbed answer;
+// it has no transcript in V1 (RG-22, ADR-0037). A note or an image has nothing to extract. It
+// is the only domain that imports net/http, and the only package that imports Readability,
 // golang.org/x/net/html and the PDF reader (docs/dev/conventions-backend.md).
 //
 // Private items are extracted like the others: the extraction asks the captured URL from its
-// own site and sends nothing else (RG-92 exception); nothing here talks to the AI (RG-12).
+// own site and sends nothing else; for a video, the canonical page and oEmbed of YouTube, which
+// carry the video id only (RG-92 exception). Nothing here talks to the AI (RG-12).
 package extraction
 
 import (
@@ -17,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -83,6 +87,7 @@ type Worker struct {
 	store     *store.Store
 	fetcher   *fetcher
 	reader    *pageReader
+	timeout   time.Duration // a whole download, a video's two requests together (RG-23)
 	logger    *slog.Logger
 	after     func(time.Duration) <-chan time.Time
 	now       func() time.Time
@@ -123,8 +128,9 @@ func NewWorker(opts Options) *Worker {
 	}
 	return &Worker{
 		store:       opts.Store,
-		fetcher:     newFetcher(opts.Policy, resolver, opts.RootCAs, opts.Version, timeout, opts.TempDir),
+		fetcher:     newFetcher(opts.Policy, resolver, opts.RootCAs, opts.Version, opts.TempDir),
 		reader:      &pageReader{argv: opts.ReaderCommand, timeout: readTimeout},
+		timeout:     timeout,
 		logger:      opts.Logger,
 		after:       after,
 		now:         now,
@@ -266,12 +272,6 @@ func (w *Worker) extract(ctx context.Context, userID string, item store.QueuedIt
 	}
 	// The host in the form of the provisional title (RG-26): the site name of a fallback.
 	l := link{title: item.Title, host: strings.ToLower(target.Hostname())}
-	if isYouTube(target.Hostname()) {
-		// E2-06 extracts YouTube links; until then they wait, untouched (RG-63).
-		w.logger.DebugContext(ctx, "item extraction deferred", slog.String("item_id", item.ID),
-			slog.String("reason", reasonDeferredYouTube))
-		return stepNext
-	}
 	if item.AttemptStarted {
 		// The previous attempt never finished: the page may have crashed the backend. It is not
 		// downloaded again.
@@ -286,7 +286,10 @@ func (w *Worker) extract(ctx context.Context, userID string, item store.QueuedIt
 		w.logStoreError(ctx, "start extraction attempt", item.ID, err)
 		return stepNext
 	}
-	resp, err := w.fetcher.fetch(ctx, target)
+	if id, ok := videoID(target); ok {
+		return w.extractVideo(ctx, userID, item, id, l, start)
+	}
+	resp, err := w.fetcher.fetch(ctx, target, pageRequest(w.timeout))
 	if resp.PDF != nil {
 		// Both descriptors of the file are closed on every path; its data goes with them.
 		defer func() { _ = resp.PDF.Close() }() // no name, nothing to flush: a failure loses nothing
@@ -345,6 +348,103 @@ func (w *Worker) extract(ctx context.Context, userID string, item store.QueuedIt
 	return stepNext
 }
 
+// extractVideo extracts the YouTube video id of item, whose attempt has started: its
+// canonical page, read in the child for its player data, else its oEmbed answer, else the
+// fallback of l (RG-22, RG-23, RG-26). The two requests share the timeout of a download, 2/3
+// for the page and 1/3 for oEmbed. A stop or a network outage of the NAS on either request
+// leaves the item queued, as for a page.
+func (w *Worker) extractVideo(ctx context.Context, userID string, item store.QueuedItem, id string, l link, start time.Time) step {
+	itemID := item.ID
+	reachedSite := false
+	var out outcome
+	page, err := w.fetcher.fetch(ctx, canonicalPage(id), fetchRequest{Timeout: w.timeout * 2 / 3, Accept: acceptHeader, Mode: modeHTML})
+	reason := ""
+	if err != nil {
+		reason = classify(ctx, err)
+		switch reason {
+		case reasonStopped:
+			w.releaseAttempt(ctx, userID, itemID)
+			return stepStop
+		case reasonNetwork:
+			// oEmbed is not asked: it is the same site, behind the same network.
+			return w.networkOutage(ctx, userID, item, l, start)
+		}
+		reachedSite = reason != reasonBlocked // a refusal of the address policy never reached the site
+	} else {
+		reachedSite = true
+		reason = videoPageReason(page)
+		if reason == "" {
+			out, err = w.reader.readYouTube(ctx, page, id, l)
+			switch {
+			case errors.Is(err, errReaderStopped):
+				w.releaseAttempt(ctx, userID, itemID)
+				return stepStop
+			case errors.Is(err, errReaderUnavailable):
+				w.releaseAttempt(ctx, userID, itemID)
+				w.logger.ErrorContext(ctx, "page reader unavailable", slog.String("item_id", itemID),
+					slog.String("reason", reasonReaderUnavailable), slog.String("error", err.Error()), w.duration(start))
+				return stepPause
+			}
+			reason = out.Reason
+		}
+	}
+
+	oembedStatus := 0
+	if reason != reasonOK {
+		answer, err := w.fetcher.fetch(ctx, oembedURL(id), fetchRequest{Timeout: w.timeout / 3, Accept: jsonAccept, Mode: modeJSON})
+		if err != nil {
+			switch oembedReason := classify(ctx, err); oembedReason {
+			case reasonStopped:
+				w.releaseAttempt(ctx, userID, itemID)
+				return stepStop
+			case reasonNetwork:
+				return w.networkOutage(ctx, userID, item, l, start)
+			default:
+				reachedSite = reachedSite || oembedReason != reasonBlocked
+			}
+		} else {
+			reachedSite = true
+			oembedStatus = answer.Status
+		}
+		var ok bool
+		if err == nil && isSuccess(answer.Status) && isYouTube(answer.URL.Hostname()) && !answer.TooLarge {
+			out, ok = oembedOutcome(answer.Body, l)
+		}
+		if !ok {
+			out = fallback(reason, l)
+		}
+	}
+	out.Format = formatYouTube
+	out.Status = page.Status
+	out.OEmbedStatus = oembedStatus
+	w.write(ctx, userID, itemID, out, start, reachedSite)
+	return stepNext
+}
+
+// videoPageReason tells why the answer to a video's page cannot hold its player data, "" when
+// it can: a success status, a final URL on YouTube, an HTML body within MaxBodySize.
+func videoPageReason(page response) string {
+	switch {
+	case !isSuccess(page.Status):
+		return reasonStatus
+	case page.URL == nil || !isYouTube(page.URL.Hostname()):
+		// A redirect off YouTube (a check for robots): its body is not YouTube's.
+		return reasonNoMetadata
+	case page.TooLarge:
+		return reasonTooLarge
+	case page.Format != formatHTML:
+		return reasonNotHTML
+	case mediaTypeOf(page.ContentType) == "" && !strings.HasPrefix(http.DetectContentType(page.Body), "text/html"):
+		return reasonNotHTML
+	}
+	return ""
+}
+
+// isSuccess tells whether status is 2xx.
+func isSuccess(status int) bool {
+	return status >= 200 && status <= 299
+}
+
 // networkOutage handles a link whose download met a network outage of the NAS. The outage
 // counts only when another link reached its site since this link's previous outage (since
 // start-up for its first one): during a real outage of the NAS, nothing reaches a site and the
@@ -401,6 +501,9 @@ func (w *Worker) write(ctx context.Context, userID, itemID string, out outcome, 
 	if out.Status != 0 {
 		attrs = append(attrs, slog.Int("http_status", out.Status))
 	}
+	if out.OEmbedStatus != 0 {
+		attrs = append(attrs, slog.Int("oembed_status", out.OEmbedStatus))
+	}
 	attrs = append(attrs, w.duration(start))
 	w.logger.LogAttrs(ctx, slog.LevelInfo, "item extracted", attrs...)
 }
@@ -429,8 +532,8 @@ func (w *Worker) logStoreError(ctx context.Context, msg, itemID string, err erro
 }
 
 // downloadHost is the host a queued item would be downloaded from, in lower case, "" when its
-// extraction makes no request: a note, an image, a URL without host, a YouTube link, a link
-// whose previous attempt never finished.
+// extraction makes no request: a note, an image, a URL without host, a link whose previous
+// attempt never finished. A YouTube video is asked from www.youtube.com whatever its form.
 func downloadHost(item store.QueuedItem) string {
 	if item.Kind != "link" || item.URL == nil || item.AttemptStarted {
 		return ""
@@ -439,15 +542,8 @@ func downloadHost(item store.QueuedItem) string {
 	if err != nil {
 		return ""
 	}
-	host := strings.ToLower(target.Hostname())
-	if isYouTube(host) {
-		return ""
+	if _, ok := videoID(target); ok {
+		return youtubeHost
 	}
-	return host
-}
-
-// isYouTube tells whether host is youtube.com, one of its subdomains, or youtu.be.
-func isYouTube(host string) bool {
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
-	return host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be"
+	return strings.ToLower(target.Hostname())
 }

@@ -14,6 +14,8 @@ const bundledContract = "../../../api/openapi.bundled.gen.json"
 // requestBodies holds one valid JSON body per operation whose request body is required. A new
 // operation with a required body and no entry here fails the test, so that it gets a case.
 var requestBodies = map[string]string{
+	// updateItem applies is_private only (mark-private, E2-07); is_pinned still answers 501
+	// until E4-03, so the operation stays in the sweep and out of implementedOperations.
 	"updateItem":            `{"is_pinned": true}`,
 	"updateReadingProgress": `{"read_progress": 0.5}`,
 	"createCategory":        `{"name": "Kubernetes"}`,

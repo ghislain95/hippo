@@ -77,6 +77,7 @@ func newFixture(t *testing.T) fixture {
 		Auth:       twoUsers{auth.NewSingleUser(userID, auth.HashToken(testToken)), auth.NewSingleUser(otherID, auth.HashToken(otherToken))},
 		Capture:    capture.NewService(st, noWake{}, paris, logger),
 		Assets:     st,
+		Items:      st,
 		AssetFiles: assets,
 		Logger:     logger,
 		Version:    "test",
@@ -381,11 +382,26 @@ func TestAPIConventions(t *testing.T) {
 		// Same rule on an operation without a strict body yet: the generated decoder hits it.
 		t.Run("oversized JSON body of another operation", func(t *testing.T) {
 			f := newFixture(t)
-			body := `{"annotations": "` + strings.Repeat("a", 2<<20) + `"}`
-			resp := f.do(t, http.MethodPatch, "/api/items/01JB8Z6Q4M1X2Y3Z4A5B6C7D8E", testToken, "application/json", body)
+			body := `{"name": "` + strings.Repeat("a", 2<<20) + `"}`
+			resp := f.do(t, http.MethodPatch, "/api/categories/1", testToken, "application/json", body)
 			problem := assertProblem(t, resp, http.StatusRequestEntityTooLarge)
 			if problem.Type != "about:blank" {
 				t.Errorf("type = %q, want about:blank", problem.Type)
+			}
+		})
+
+		// The generated decoder of a JSON-only operation reads the body as JSON whatever its
+		// Content-Type: the bound does not depend on the header either.
+		t.Run("oversized body without the JSON content type", func(t *testing.T) {
+			f := newFixture(t)
+			for _, path := range []string{"/api/categories/1", "/api/items/01JB8Z6Q4M1X2Y3Z4A5B6C7D8E"} {
+				for _, contentType := range []string{"", "text/plain"} {
+					body := `{"name": "` + strings.Repeat("a", 2<<20) + `"}`
+					resp := f.do(t, http.MethodPatch, path, testToken, contentType, body)
+					if problem := assertProblem(t, resp, http.StatusRequestEntityTooLarge); problem.Type != "about:blank" {
+						t.Errorf("%s with %q: type = %q, want about:blank", path, contentType, problem.Type)
+					}
+				}
 			}
 		})
 	})

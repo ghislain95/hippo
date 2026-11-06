@@ -203,7 +203,7 @@ func (s *Store) mergeDuplicate(ctx context.Context, tx *sql.Tx, existing Item, i
 	if noteChanged {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE items SET user_note = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`,
-			note, now.Format(timeLayout), seq, existing.UserID, existing.ID); err != nil {
+			note, now.Format(TimeLayout), seq, existing.UserID, existing.ID); err != nil {
 			return Item{}, fmt.Errorf("update item note: %w", err)
 		}
 	}
@@ -224,7 +224,7 @@ func (s *Store) insertItem(ctx context.Context, tx *sql.Tx, userID string, in Ne
 	if err != nil {
 		return "", fmt.Errorf("capture item: %w", err)
 	}
-	date := now.Format(timeLayout)
+	date := now.Format(TimeLayout)
 	title := in.Title
 	if in.TitleAt != nil {
 		title = in.TitleAt(now)
@@ -247,7 +247,7 @@ func recordClientID(ctx context.Context, tx *sql.Tx, userID string, clientID *st
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO capture_ids (user_id, client_id, item_id, created_at) VALUES (?, ?, ?, ?)`,
-		userID, *clientID, itemID, now.Format(timeLayout)); err != nil {
+		userID, *clientID, itemID, now.Format(TimeLayout)); err != nil {
 		return asUniqueViolation("capture_ids", fmt.Errorf("record client id: %w", err))
 	}
 	return nil
@@ -255,9 +255,11 @@ func recordClientID(ctx context.Context, tx *sql.Tx, userID string, clientID *st
 
 // SetPrivate sets the privacy flag of the item id of userID, or returns ErrNotFound. It leaves
 // the status and the fiche alone: making an analysed item private keeps its fiche, and the flag
-// alone prevents any re-analysis (RG-12, RG-14). Putting an item made public back into the
-// analysis queue (RG-14) belongs to the story of the fiche's switch, not to this primitive.
-// Nothing is written when the flag already has this value.
+// alone prevents any re-analysis (RG-12, RG-14). No requeue is needed when an item is made
+// public: the queue of the nightly batch is the extracted items that are not private, so an
+// extracted item is back in it, while an analysed item keeps its fiche without reanalysis and
+// a failed one waits for « Relancer » (RG-14 as made precise on 2026-11-05, RG-35). Nothing is
+// written when the flag already has this value.
 func (s *Store) SetPrivate(ctx context.Context, userID, id string, private bool) (Item, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -292,7 +294,7 @@ func (s *Store) SetPrivate(ctx context.Context, userID, id string, private bool)
 func setPrivate(ctx context.Context, tx *sql.Tx, userID, id string, private bool, now time.Time, seq int64) error {
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE items SET is_private = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`,
-		boolInt(private), now.Format(timeLayout), seq, userID, id); err != nil {
+		boolInt(private), now.Format(TimeLayout), seq, userID, id); err != nil {
 		return fmt.Errorf("set item privacy: %w", err)
 	}
 	return nil
@@ -410,7 +412,7 @@ func scanItem(row *sql.Row) (Item, error) {
 }
 
 func parseTime(raw string) (time.Time, error) {
-	parsed, err := time.Parse(timeLayout, raw)
+	parsed, err := time.Parse(TimeLayout, raw)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parse date: %w", err)
 	}

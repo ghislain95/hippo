@@ -60,7 +60,7 @@ func insertAsset(ctx context.Context, tx *sql.Tx, userID, itemID string, in NewA
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO assets (id, item_id, user_id, path, mime_type, width, height, size_bytes, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, itemID, userID, in.Path, in.MimeType, in.Width, in.Height, in.SizeBytes, now.Format(timeLayout)); err != nil {
+		in.ID, itemID, userID, in.Path, in.MimeType, in.Width, in.Height, in.SizeBytes, now.Format(TimeLayout)); err != nil {
 		return fmt.Errorf("insert asset: %w", err)
 	}
 	return nil

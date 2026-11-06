@@ -133,18 +133,22 @@ RG-20, RG-21, RG-23, RG-24, RG-25 · ADR-0008
 
 ### E2-06 — Extraire une vidéo YouTube · S
 
-RG-22
-- Pour une URL YouTube, titre, chaîne, durée et transcription (si disponible, langue d'origine) sont extraits ; le temps de lecture est la durée.
-- Sans transcription : repli sur titre et description.
+✅ Terminé le 5 novembre 2026 par le change `extract-youtube` ([archive](../openspec/changes/archive/2026-11-05-extract-youtube/proposal.md)). Sans transcription (RG-22 modifiée, ADR-0037) : titre, chaîne, durée et description lus dans la page de la vidéo, sinon titre et chaîne par oEmbed ; RG-92 nomme ces deux requêtes. Corrige aussi la borne de sortie du processus enfant d'E2-05, qui ne s'appliquait pas.
+
+RG-22, RG-23, RG-25 · ADR-0037 — *périmètre réduit le 5 novembre 2026 avec Ghislain : pas de transcription en V1*
+- Pour une URL YouTube, titre, chaîne, durée et description sont extraits, lus dans la page de la vidéo, sinon titre et chaîne par oEmbed ; le temps de lecture est la durée.
+- La description tient lieu de contenu, en repli (RG-23).
 - Hérité d'E2-05 (1er novembre 2026) : reprendre les liens YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) restés `queued` ; l'extraction des pages web les laisse en file sans les télécharger ([spec](spec-v1.md#extraction-dun-élément)).
 
 ### E2-07 — Marquer un élément privé · M
 
+✅ Terminé le 5 novembre 2026 par le change `mark-private` ([archive](../openspec/changes/archive/2026-11-05-mark-private/proposal.md)). Précise RG-14 (un élément analysé dont on décoche « Privé » garde sa fiche, sans réanalyse ; le statut de traitement ne change jamais). `PATCH /api/items/{item_id}` applique `is_private` seul ; les autres champs répondent `501` jusqu'à E4-03.
+
 RG-10 à RG-14 · ADR-0023
 - `is_private` est enregistré à la capture et modifiable ensuite.
 - Un élément privé n'est jamais sélectionné pour l'analyse (vérifié dans E3-01 et E3-06).
-- Décocher Privé remet l'élément dans la file.
-- Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14).
+- Décocher Privé remet dans la file un élément qui n'a pas encore de fiche ; un élément analysé garde sa fiche, sans réanalyse (RG-14).
+- Hérité d'E2-02 (27 octobre 2026) : `store.SetPrivate` existe déjà, mais `SetPrivate(false)` ne remet pas encore l'élément dans la file d'analyse ; cette story le complète (RG-14). Résolu par RG-14 précisée le 5 novembre 2026 : un élément privé s'arrête à `extracted`, la file du batch prend les éléments `extracted` non privés, aucun changement de statut n'est donc nécessaire.
 
 ### E2-08 — Extraire un PDF · M
 
@@ -416,6 +420,7 @@ Sans détail pour l'instant ; chaque ligne deviendra un epic le moment venu.
 | V1.5 | Recherche sémantique (embeddings locaux) et recherche hybride |
 | V1.5 | Éléments liés |
 | V1.5 | Extraction des reels Instagram (ADR-0025) |
+| V1.5 | Transcription des vidéos YouTube (ADR-0037), avec l'outil des reels |
 | V1.5 | Découpage des contenus très longs |
 | V1.5 ou plus tard | Mémo vocal transcrit |
 | V2 | Sujets suivis et sources de veille |

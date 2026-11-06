@@ -186,8 +186,28 @@ func WriterFile(w io.Writer) *os.File {
 // Fetcher downloads as the worker does, with the address policy, resolver and certificate
 // authorities given, PDFs written to dir.
 func Fetcher(policy func(netip.AddrPort) bool, resolver Resolver, roots *x509.CertPool, timeout time.Duration, dir *TempDir) func(context.Context, *url.URL) (Response, error) {
-	f := newFetcher(policy, resolver, roots, "test", timeout, dir)
-	return f.fetch
+	f := newFetcher(policy, resolver, roots, "test", dir)
+	return func(ctx context.Context, target *url.URL) (Response, error) {
+		return f.fetch(ctx, target, pageRequest(timeout))
+	}
+}
+
+// FetchRequest exposes fetchRequest to the tests of extraction_test.
+type FetchRequest = fetchRequest
+
+// Reading modes of a fetch.
+const (
+	ModePage = modePage
+	ModeHTML = modeHTML
+	ModeJSON = modeJSON
+)
+
+// MaxJSONSize exposes maxJSONSize to the tests of extraction_test.
+const MaxJSONSize = maxJSONSize
+
+// FetcherWithRequest downloads as Fetcher does, with the options of each call.
+func FetcherWithRequest(policy func(netip.AddrPort) bool, resolver Resolver, roots *x509.CertPool, dir *TempDir) func(context.Context, *url.URL, FetchRequest) (Response, error) {
+	return newFetcher(policy, resolver, roots, "test", dir).fetch
 }
 
 // FailWrites makes every temporary file of dir fail its writes, as on a full disk.
@@ -211,3 +231,47 @@ const FreeSpaceMargin = freeSpaceMargin
 
 // SetFreeSpace makes dir measure its free space with free.
 func SetFreeSpace(dir *TempDir, free func() (uint64, bool, error)) { dir.freeSpace = free }
+
+// VideoID exposes videoID to the tests of extraction_test.
+var VideoID = videoID
+
+// CanonicalPage exposes canonicalPage to the tests of extraction_test.
+var CanonicalPage = canonicalPage
+
+// OEmbedURL exposes oembedURL to the tests of extraction_test.
+var OEmbedURL = oembedURL
+
+// ReadYouTube reads the player data of a video page in the test process, as the child does,
+// for the video id and a link whose provisional title and host is provisional.
+func ReadYouTube(body []byte, id, provisional string) Outcome {
+	return readYouTube(body, id, link{title: provisional, host: provisional})
+}
+
+// ReadVideoInChild reads a video page as the worker does, in a child run by argv.
+func ReadVideoInChild(ctx context.Context, argv []string, timeout time.Duration, body []byte, id, provisional string) (Outcome, error) {
+	r := &pageReader{argv: argv, timeout: timeout}
+	resp := response{Status: 200, ContentType: "text/html; charset=utf-8", Body: body, URL: canonicalPage(id)}
+	return r.readYouTube(ctx, resp, id, link{title: provisional, host: provisional})
+}
+
+// ChildExitMemory exposes childExitMemory to the tests of extraction_test.
+const ChildExitMemory = childExitMemory
+
+// MaxChildOutput exposes maxChildOutput to the tests of extraction_test.
+const MaxChildOutput = maxChildOutput
+
+// MeasureVideoChild reads the video page body for the video id in a child run by argv, as the
+// worker does, and reports its memory.
+func MeasureVideoChild(argv []string, body []byte, id string) (ChildMeasure, error) {
+	output := &cappedBuffer{limit: maxChildOutput}
+	req := childRequest{
+		ContentType: "text/html; charset=utf-8", URL: canonicalPage(id).String(), Title: "t", Host: "h",
+		Format: formatYouTube, VideoID: id,
+	}
+	cmd, err := (&pageReader{argv: argv, timeout: ReadTimeout}).command(context.Background(), req, body, nil, output)
+	if err != nil {
+		return ChildMeasure{}, err
+	}
+	_ = cmd.Run() // the exit code is the measure
+	return measure(cmd, output), nil
+}

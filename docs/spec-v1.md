@@ -28,7 +28,7 @@ Un seul utilisateur en V1 ; le modèle de données prévoit plusieurs utilisateu
 | Captures d'écran et photos, lues par l'IA | V1 |
 | Notes texte, dictées avec le clavier iOS | V1 |
 | Option « Privé » (stocké, jamais envoyé à l'IA), décochée par défaut | V1 |
-| Extraction des pages web et des transcriptions YouTube | V1 |
+| Extraction des pages web, des PDF et des métadonnées des vidéos YouTube | V1 |
 | Analyse de nuit : type, catégorie, tags, fiche structurée | V1 |
 | 7 types de contenu, chacun avec son template, plus un template générique | V1 |
 | Catégories et types proposés par l'IA, écran Revue | V1 |
@@ -37,6 +37,7 @@ Un seul utilisateur en V1 ; le modèle de données prévoit plusieurs utilisateu
 | Lecture hors ligne, thèmes clair et sombre | V1 |
 | Export Markdown compatible Obsidian | V1 |
 | Extraction des reels Instagram (compte secondaire) | V1.5 |
+| Transcription des vidéos YouTube ([ADR-0037](adr/0037-youtube-sans-transcription.md)) | V1.5 |
 | Recherche par le sens et « Éléments liés » | V1.5 |
 | Découpage des contenus très longs | V1.5 |
 | Mémo vocal transcrit | V1.5 ou plus tard |
@@ -62,7 +63,7 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 | --- | --- | --- |
 | Backend | Go, librairie standard `net/http`, `log/slog` | [0003](adr/0003-backend-go.md) |
 | Base de données | SQLite (WAL) + FTS5, driver `modernc.org/sqlite`, images sur disque | [0004](adr/0004-sqlite.md) |
-| Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; PDF par `github.com/ledongthuc/pdf` et une couche de mise en page maison ; transcriptions YouTube | [0008](adr/0008-extraction-et-reanalyse.md) |
+| Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; PDF par `github.com/ledongthuc/pdf` et une couche de mise en page maison ; métadonnées des vidéos YouTube lues dans leur page, sinon par oEmbed, sans transcription en V1 ([ADR-0037](adr/0037-youtube-sans-transcription.md)) | [0008](adr/0008-extraction-et-reanalyse.md) |
 | IA | Claude Haiku 4.5, API Message Batches, SDK `anthropic-sdk-go`, derrière une interface `Analyzer` | [0005](adr/0005-haiku-batch.md) |
 | Sortie de l'IA | Outil `classify_item` forcé, validé par JSON Schema | [0006](adr/0006-sortie-structuree.md) |
 | Contrat d'API | OpenAPI 3.1, `oapi-codegen` côté Go, client TypeScript généré | [0017](adr/0017-contrat-openapi.md) |
@@ -209,7 +210,7 @@ Les migrations sont versionnées et appliquées au démarrage.
 Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois par nuit, en un seul batch. Le cycle de vie complet est dans le [document métier](metier.md#4-cycle-de-vie-dun-élément).
 
 1. **Capture** — `POST /api/items` crée l'élément en `queued` et répond tout de suite (RG-01 à RG-06).
-2. **Extraction** — en arrière-plan, juste après : page web via go-readability, texte d'un PDF, transcription YouTube quand elle existe, rien pour une image ou une note. Repli sur les métadonnées `og:*` (ou le titre du PDF) en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-28). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
+2. **Extraction** — en arrière-plan, juste après : page web via go-readability, texte d'un PDF, titre, chaîne, durée et description d'une vidéo YouTube (sans transcription en V1), rien pour une image ou une note. Repli sur les métadonnées `og:*` (ou le titre du PDF) en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-28). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
 3. **Envoi du batch** — à 2 h (`BATCH_SCHEDULE`), les éléments `extracted` **non privés** partent dans un seul batch, 200 au maximum, après vérification du budget (RG-30 à RG-32, RG-81). Statut `submitted`.
 4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
 5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
@@ -226,7 +227,7 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 
 ### Extraction d'un élément
 
-Mise en œuvre de RG-20 à RG-28 : les pages web, livrées par E2-05 (change `extract-web-page`, 1er novembre 2026), et les PDF, livrés par E2-08 (change `extract-pdf`, 2 novembre 2026). Les transcriptions YouTube (E2-06) restent à faire.
+Mise en œuvre de RG-20 à RG-28 : les pages web, livrées par E2-05 (change `extract-web-page`, 1er novembre 2026), les PDF, livrés par E2-08 (change `extract-pdf`, 2 novembre 2026), et les vidéos YouTube, livrées par E2-06 sans transcription (change `extract-youtube`, 5 novembre 2026, RG-22 modifiée, [ADR-0037](adr/0037-youtube-sans-transcription.md)).
 
 **Déroulement**
 
@@ -245,6 +246,7 @@ Mise en œuvre de RG-20 à RG-28 : les pages web, livrées par E2-05 (change `ex
 | `fallback` | Délai dépassé (téléchargement ou lecture), statut d'erreur, type autre que HTML ou PDF, page trop grande ou trop lourde à lire, texte trop court, adresse refusée, échec du site (connexion refusée, TLS, boucle de redirections, domaine inexistant), lecture en échec | Sur une réponse 2xx seulement : `og:title` ou `<title>`, et `og:description` comme contenu, coupée à ~120 000 caractères et marquée tronquée au-delà, comme tout contenu (RG-24). Sinon le titre provisoire et l'hôte. Pas de temps de lecture (RG-23) |
 | `full` (PDF) | Réponse 2xx en PDF d'au plus 50 Mio, texte d'au moins 200 caractères | Titre dans l'ordre de RG-28 (ci-dessous). Site : l'hôte. Contenu coupé à ~120 000 caractères (RG-24). Temps de lecture à 230 mots par minute sur **tout le document**, 1 minute au moins (RG-25, RG-28) ; une lecture arrêtée par son délai est marquée tronquée et estime les pages non lues au prorata des pages lues |
 | `fallback` (PDF) | PDF scanné (moins de 200 caractères de texte), protégé par un mot de passe, chiffré en AES-256, abîmé (tronqué, table de références cassée, pas un PDF malgré son type, arbre de pages hors bornes), plus de 50 Mio, délai de 15 s dépassé, lecture trop lourde ou trop longue | Titre dans l'ordre de RG-28 avec ce qui a pu être obtenu (le titre des métadonnées seulement si le document s'est ouvert). Site : l'hôte. Ni contenu ni temps de lecture (RG-23) |
+| `fallback` (vidéo YouTube) | Toujours, faute de transcription (RG-22) | Données du lecteur de la page : titre, chaîne comme site, description comme contenu (coupée à ~120 000 caractères, RG-24), durée comme temps de lecture. Sinon oEmbed : titre et chaîne, ni contenu ni temps de lecture. Sinon le titre provisoire et l'hôte. Voir « Vidéos YouTube » ci-dessous |
 | `none` | Note, image | Rien |
 
 L'image d'aperçu de RG-23 n'est pas récupérée : aucune image n'est créée pour un lien.
@@ -275,13 +277,27 @@ Un lien répondu en PDF (`application/pdf`, ou un corps qui commence par `%PDF-`
 - Mesures de l'enfant du 2 novembre 2026 (darwin/arm64, mémoire tenue par le runtime) : article de 10 pages 6,4 Mio et 13 ms ; 400 pages 10,1 Mio et 57 ms ; PDF de 45 Mo 10,2 Mio et 25 ms ; page qui se décompresse en plus de 100 Mo de mots 10,6 Mio et 5,1 s (lue entière) ; chaîne de 100 Mo : arrêt à la limite de mémoire en 61 ms ; arbre de pages qui se contient : repli `damaged` en 8 ms ; boucle de sections de références : repli `timeout` au délai de 8 s.
 - Mesure en conteneur du 2 novembre 2026 (image `linux/arm64`, `--memory 128m`, serveur en marche, PDF servi sur un réseau Docker de documentation `203.0.113.0/24` et capturé par l'API) : au repos, pic de 61,6 Mo ; un PDF de 44,7 Mo est lu en entier en 0,5 s avec un pic de 114,2 Mo ; un PDF de 51,7 Mo (juste sous 50 Mio), pic de 129,2 Mo (123 Mio sur 128), dont 52 Mo de cache de pages du fichier, récupérable, et 68,5 Mo de mémoire anonyme. Aucun processus tué (`oom_kill` 0), le contrôle de santé a toujours répondu, le dossier temporaire est vide après chaque PDF. Détail : `design.md` du change `extract-pdf`.
 
+**Vidéos YouTube**
+
+Une vidéo YouTube est lue pour ses métadonnées, sans transcription en V1 (E2-06, RG-22, [ADR-0037](adr/0037-youtube-sans-transcription.md)).
+
+- **Reconnaissance** : hôte `youtube.com`, un de ses sous-domaines ou `youtu.be`, et un identifiant de vidéo de 11 caractères (`A-Z`, `a-z`, `0-9`, `-`, `_`) sous l'une des formes `watch?v=<id>` (le premier `v`), `youtu.be/<id>`, `/shorts/<id>`, `/live/<id>`, `/embed/<id>`, `/v/<id>`. Un lien YouTube sans vidéo (chaîne, playlist, accueil) est lu comme une page web. `youtube-nocookie.com` et `www.youtu.be` ne sont pas des hôtes YouTube.
+- **Page canonique** : seule `https://www.youtube.com/watch?v=<id>` est demandée, jamais l'URL capturée : ses paramètres de suivi (`si`, `utm_*`, `t`) ne quittent pas le NAS.
+- **Lecture** : l'enfant (mêmes bornes de mémoire, de temps et de réponse qu'une page) cherche le bloc `ytInitialPlayerResponse = {…}` (3 occurrences au plus) et garde, de ses `videoDetails` dont le `videoId` est celui demandé, le titre, la chaîne (`author`), la durée (`lengthSeconds`) et la description (`shortDescription`). Description : sauts de ligne gardés, retours chariot et caractères de contrôle retirés. Temps de lecture : la durée en minutes arrondie au-dessus, 1 au moins ; null pour une durée nulle (direct), absente, invalide ou de plus de 1 000 000 s.
+- **Repli oEmbed** : une page sans données utiles (statut d'erreur, délai, plus de 2 Mio, page de consentement, redirection hors de YouTube, bloc absent, d'une autre vidéo ou mal formé) mène à `https://www.youtube.com/oembed?url=<page canonique>&format=json`, réponse de 64 Kio au plus, servie par YouTube : son `title` et son `author_name` deviennent titre et site. Sinon, le titre provisoire et l'hôte capturé (RG-26).
+- **Délais** : 10 s pour la page, 5 s pour oEmbed, soit les 15 s d'un téléchargement (RG-23) ; la lecture par l'enfant s'y ajoute, comme pour une page.
+- **Panne, arrêt, crash** : une panne réseau du NAS sur l'une des deux requêtes laisse la vidéo en file, sans demander oEmbed après la page ; un arrêt aussi ; une vidéo dont la tentative n'a pas fini passe en repli sans aucune requête. Toutes les formes d'une vidéo comptent comme l'hôte `www.youtube.com` pour la logique de panne d'une passe.
+- **Liens laissés en file par E2-05** : repris par la passe suivante, sans migration.
+- Vérification réelle du 5 novembre 2026, avec les en-têtes du service : page de 1,37 Mo sans page de consentement, données du lecteur présentes ; oEmbed répond le titre et la chaîne.
+- Mesures de l'enfant du 5 novembre 2026 (darwin/arm64, pages fictives de 1 900 Kio) : données de forme réelle 10,3 Mio ; description qui remplit la page 18,8 Mio en ASCII, 15,5 Mio en caractères de 4 octets ; 11 à 20 ms par lecture.
+
 **Adresses (RG-27)**
 
 Seules les adresses publiques d'Internet sont contactées. Sont refusées : boucle locale, réseaux privés, lien local, plage Tailscale `100.64.0.0/10`, plages locales IPv6 et plages réservées. Le contrôle porte sur chaque adresse réellement appelée, redirections et changement de résolution DNS compris. Un lien vers l'adresse publique de la maison passe par la box : RG-27 ne le couvre pas (accepté avec Ghislain le 1er novembre 2026).
 
 **Éléments privés (RG-92)**
 
-Ils sont extraits comme les autres : seule l'URL capturée est demandée à son site, rien d'autre ne lui est envoyé, et rien ne part vers l'IA (RG-12). Le site voit l'adresse publique du NAS, comme pour un navigateur ; un lien à usage unique est consommé.
+Ils sont extraits comme les autres : seule l'URL capturée est demandée à son site, rien d'autre ne lui est envoyé, et rien ne part vers l'IA (RG-12). Pour une vidéo YouTube, la page canonique et oEmbed sont demandés à YouTube, le site de l'URL capturée, et ne portent que l'identifiant de la vidéo. Le site voit l'adresse publique du NAS, comme pour un navigateur ; un lien à usage unique est consommé.
 
 **Requête**
 
@@ -295,7 +311,6 @@ Ils sont extraits comme les autres : seule l'URL capturée est demandée à son 
 | --- | --- |
 | Arrêt du backend pendant un téléchargement | Rien n'est écrit sur l'élément ; `started_at` est remis à null ; l'élément est repris au redémarrage |
 | Panne réseau côté NAS (aucun résolveur DNS joignable, réseau ou hôte injoignable) | Rien n'est écrit sur l'élément ; la passe essaie encore 2 liens d'autres hôtes au plus, puis le worker attend 5 minutes. Un report ne compte que si un autre lien a joint son site depuis le report précédent de ce lien : une panne du NAS qui empêche la résolution, coupe le réseau ou rend les hôtes injoignables ne fait donc jamais passer un lien en repli ; au 3e report compté (un domaine en panne), le lien passe en repli. Si le DNS répond depuis un cache alors que la liaison Internet est coupée, la connexion expire : c'est un échec du site, et le lien passe en repli |
-| Lien YouTube (`youtube.com` et ses sous-domaines, `youtu.be`) | Laissé en file jusqu'à E2-06 |
 | Le NAS ne peut pas écrire le fichier temporaire d'un PDF (moins de place libre que la taille du PDF, ou 50 Mio si elle est inconnue, plus 64 Mio de marge ; volume en lecture seule ; erreur d'entrée-sortie) | Rien n'est écrit sur l'élément ; `started_at` est remis à null ; une erreur est loguée (`storage_unavailable`) ; la passe continue avec les éléments qui n'ont pas besoin de fichier (notes, images, pages web), puis le worker attend 5 minutes |
 
 Un site qui ne répond pas, refuse la connexion ou n'existe pas (le résolveur a répondu « hôte inconnu ») est un échec du site : repli.
@@ -319,7 +334,7 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 | POST | /api/items | Capturer : JSON `{url ou note, user_note?, is_private?, client_id?, source?}`, ou multipart avec une image (voir ci-dessous) ; `source` facultatif dans les deux formats, `share` par défaut, ou `manual` ; `201` nouvel élément, `200` doublon ou capture rejouée avec l'élément existant (RG-04, RG-07, RG-08) ; un doublon ajoute sa note datée (RG-04) et ne fait que resserrer la confidentialité : il peut rendre l'élément privé, jamais public (RG-15) |
 | GET | /api/items | Lister : `q`, `type` (clé), `category` (id), `tag` (id, répétable), `status`, `read_status`, `pinned`, `unsorted` ; curseur |
 | GET | /api/items/{item_id} | Détail complet avec la fiche et les images |
-| PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface) |
+| PATCH | /api/items/{item_id} | Corriger type, catégorie, tags ; épingle, annotations, note, privé (`null` efface). Seul `is_private` est appliqué depuis E2-07 (change `mark-private`, 5 novembre 2026) : il ne change jamais le statut de traitement (RG-14) ; une requête qui porte un autre champ répond `501` en entier, sans rien appliquer, jusqu'à E4-03 |
 | PUT | /api/items/{item_id}/progress | Position et statut de lecture |
 | DELETE | /api/items/{item_id} | Supprimer |
 | POST | /api/items/{item_id}/analyze | Analyse immédiate |
