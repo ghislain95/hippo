@@ -166,6 +166,8 @@ RG-21, RG-23, RG-24, RG-25, RG-28 · ADR-0008 — *ajoutée le 1er novembre 2026
 
 ### E3-01 — Construire et envoyer le batch de la nuit · M
 
+✅ Terminé le 6 novembre 2026 par le change `submit-nightly-batch` ([archive](../openspec/changes/archive/2026-11-06-submit-nightly-batch/proposal.md)). Ajoute RG-38 (copie de l'image envoyée à l'IA), précise RG-14, RG-30 et RG-32, et l'ADR-0038 (conteneur à 384 Mo). Crée les types de contenu, les catégories de départ et les batchs ; tant qu'E3-02 n'enregistre pas les coûts, un seul batch part. À mesurer sur le NAS au premier déploiement : le temps de copie d'un HEIC de 48 Mpx (au-delà de 30 s, l'image ne part pas) et celui de la lecture d'un gros PDF, surveillée à la milliseconde.
+
 RG-12, RG-14, RG-30, RG-31, RG-32, RG-38, RG-81 · ADR-0005, ADR-0006, ADR-0038
 - À l'heure configurée (`BATCH_SCHEDULE`), les éléments `extracted`, non privés, sont envoyés en un batch Message Batches (une requête par élément, `custom_id` = id).
 - Aucun élément : aucun appel.

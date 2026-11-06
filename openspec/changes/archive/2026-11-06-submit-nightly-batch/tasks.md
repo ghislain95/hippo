@@ -70,7 +70,7 @@ Before starting: `graphify check-update .`, read RG-12, RG-14, RG-30 to RG-37, R
 
 ## 7. Integration checks
 
-- [ ] 7.1 `make check` green (lint, tests with `-race`, generated files, schemas, docs, infra, OpenSpec).
-- [ ] 7.2 `code-reviewer` pass on the uncommitted diff (RG-12, RG-90, RG-81 tests present, no content in logs, no SDK outside `analysis/anthropic`, no image decoder outside `imagecopy`); fix findings.
-- [ ] 7.3 `/opsx:verify` on `submit-nightly-batch`: every scenario has its test, design deviations written back into design.md.
+- [x] 7.1 `make check` green (lint, tests with `-race`, generated files, schemas, docs, infra, OpenSpec).
+- [x] 7.2 `code-reviewer` pass on the uncommitted diff (RG-12, RG-90, RG-81 tests present, no content in logs, no SDK outside `analysis/anthropic`, no image decoder outside `imagecopy`); fix findings.
+- [x] 7.3 `/opsx:verify` on `submit-nightly-batch`: every scenario has its test, design deviations written back into design.md.
 - [ ] 7.4 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md).
