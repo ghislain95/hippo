@@ -123,7 +123,10 @@ func TestRunCheck(t *testing.T) {
 		return stale
 	}
 	args := func(out, openAPIOut string) []string {
-		return []string{"-schemas", schemasDir, "-examples", examplesDir, "-out", out, "-openapi-out", openAPIOut, "-check"}
+		return []string{
+			"-schemas", schemasDir, "-examples", examplesDir, "-out", out, "-openapi-out", openAPIOut,
+			"-prompt", promptFile, "-prompt-out", promptOutFile, "-check",
+		}
 	}
 
 	t.Run("fails when the bundle is stale", func(t *testing.T) {
@@ -148,7 +151,10 @@ func TestRunCheck(t *testing.T) {
 	})
 
 	t.Run("requires the OpenAPI output flag", func(t *testing.T) {
-		err := run([]string{"-schemas", schemasDir, "-examples", examplesDir, "-out", bundleFile}, &bytes.Buffer{})
+		err := run([]string{
+			"-schemas", schemasDir, "-examples", examplesDir, "-out", bundleFile,
+			"-prompt", promptFile, "-prompt-out", promptOutFile,
+		}, &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "-openapi-out") {
 			t.Errorf("run without -openapi-out: error = %v", err)
 		}

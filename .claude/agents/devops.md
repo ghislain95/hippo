@@ -14,7 +14,7 @@ Une image légère, un compose identique sur le Mac et le NAS, une CI rapide et 
 ADR-0015 (Tailscale), ADR-0019 (Docker sur le NAS), ADR-0020 (sauvegardes), ADR-0027 (dépôt et image publics), ADR-0029 (workflow git et porte `ci-ok`), ADR-0030 (outillage), `infra/CLAUDE.md`.
 
 ## Règles dures
-- Image distroless, binaire statique (`CGO_ENABLED=0`), utilisateur non root, ~20 Mo ; `mem_limit: 128m`.
+- Image distroless, binaire statique (`CGO_ENABLED=0`), utilisateur non root, ~20 Mo ; `mem_limit: 384m` (ADR-0038, qui amende ADR-0019 pour la copie des images).
 - Aucun port ouvert sur la box : en production, seul `tailscale serve` publie le service. La variante locale ne publie que sur `127.0.0.1`.
 - Aucun secret dans une image, un workflow, un log ou un fichier versionné : `.env` (non versionné) sur le NAS, `GITHUB_TOKEN` en CI. Toute nouvelle variable est documentée dans `infra/.env.example`.
 - Workflows : `permissions` minimales, `timeout-minutes`, actions épinglées à une version majeure, chaque job derrière son filtre de chemin et agrégé dans `ci-ok`. Un job ajouté hors de `ci-ok` ne protège rien.

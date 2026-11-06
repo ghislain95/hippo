@@ -64,7 +64,8 @@ iPhone ──HTTPS (Tailscale)──► service Go ──► SQLite (+ images su
 | Backend | Go, librairie standard `net/http`, `log/slog` | [0003](adr/0003-backend-go.md) |
 | Base de données | SQLite (WAL) + FTS5, driver `modernc.org/sqlite`, images sur disque | [0004](adr/0004-sqlite.md) |
 | Extraction | go-readability (fork Readeck, voir [Extraction d'un élément](#extraction-dun-élément)) et `golang.org/x/net/html` ; PDF par `github.com/ledongthuc/pdf` et une couche de mise en page maison ; métadonnées des vidéos YouTube lues dans leur page, sinon par oEmbed, sans transcription en V1 ([ADR-0037](adr/0037-youtube-sans-transcription.md)) | [0008](adr/0008-extraction-et-reanalyse.md) |
-| IA | Claude Haiku 4.5, API Message Batches, SDK `anthropic-sdk-go`, derrière une interface `Analyzer` | [0005](adr/0005-haiku-batch.md) |
+| IA | Claude Haiku 4.5, API Message Batches, SDK `github.com/anthropics/anthropic-sdk-go/v2` (v2.7.0), derrière l'interface `analysis.Analyzer` | [0005](adr/0005-haiku-batch.md) |
+| Copie des images pour l'IA | `golang.org/x/image` (WebP, mise à l'échelle) et `github.com/gen2brain/h265` (HEIC), dans un processus enfant (voir [Copie de l'image](#copie-de-limage)) | [0038](adr/0038-limite-memoire-384-mo.md) |
 | Sortie de l'IA | Outil `classify_item` forcé, validé par JSON Schema | [0006](adr/0006-sortie-structuree.md) |
 | Contrat d'API | OpenAPI 3.1, `oapi-codegen` côté Go, client TypeScript généré | [0017](adr/0017-contrat-openapi.md) |
 | Mobile | Expo (React Native), development build, extension de partage en Swift | [0012](adr/0012-appli-expo.md), [0014](adr/0014-extension-de-partage-autonome.md), [0036](adr/0036-extension-de-partage-swift.md) |
@@ -79,7 +80,7 @@ La fiche est stockée telle que l'IA l'a renvoyée, en JSON validé : c'est la s
 
 Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) : ULID (`TEXT`) pour les éléments, les images et les batchs ; entiers pour les catégories et les tags ; les types de contenu sont désignés par leur clé dans l'API. Les dates sont en ISO 8601 UTC.
 
-**users** — `id`, `name`, `api_token_hash`, `created_at`. Une ligne en V1, créée au premier démarrage.
+**users** — `id`, `name`, `api_token_hash`, `created_at`, `categories_seeded_at`. Une ligne en V1, créée au premier démarrage. `categories_seeded_at` (E3-01, migration `00006_analysis.sql`) marque la création unique des catégories de départ : nul pour un utilisateur qui ne les a pas encore reçues.
 
 **items** — un élément.
 
@@ -99,8 +100,8 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | content_text | TEXT, nullable | Contenu extrait, conservé pour la réanalyse (~120 000 caractères max) |
 | content_truncated | INTEGER (0/1) | Le contenu dépassait la limite |
 | reading_minutes | INTEGER, nullable | Temps de lecture de l'original, calculé à l'extraction (RG-25) |
-| type_id | INTEGER, nullable | Type de contenu ; ajouté par la story qui crée `content_types` |
-| category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par la story qui crée `categories` |
+| type_id | INTEGER, nullable | Type de contenu ; ajouté par E3-01, écrit à partir d'E3-02 |
+| category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par E3-01, écrit à partir d'E3-02 |
 | title | TEXT | Titre affiché : avant analyse, titre provisoire (nom d'hôte d'un lien, première ligne d'une note, note de capture ou date d'une image, [RG-26](metier.md#extraction)), puis titre d'origine ou écrit par l'IA |
 | fiche_json | TEXT (JSON), nullable | Fiche générée, au format du type |
 | search_text | TEXT | Fiche aplatie en texte, pour la recherche |
@@ -116,7 +117,7 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | read_status | TEXT | `to_read`, `in_progress`, `read` |
 | read_progress | REAL | 0 à 1 |
 | attempts, last_error | INTEGER, TEXT | Suivi des échecs |
-| batch_id | TEXT, nullable | Batch Anthropic en cours ; ajouté par la story qui crée `batches` |
+| batch_id | TEXT (ULID), nullable | Batch de la nuit qui porte l'élément (`batches.id`), écrit à l'envoi ; ajouté par E3-01 |
 | created_at, updated_at, extracted_at, analyzed_at, read_at, deleted_at | TEXT | Horodatage |
 | change_seq | INTEGER | Séquence de modification, pour la synchronisation |
 
@@ -126,7 +127,7 @@ La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle évolue ai
 | --- | --- | --- |
 | Unicité de `(user_id, normalized_url)`, index partiel hors valeurs nulles | E2-02 (migration `00003_capture_ids.sql`) | Un lien n'existe qu'une fois par utilisateur (RG-04). Les liens capturés avant E2-02 gardent `normalized_url` nul et ne sont jamais reconnus comme doublons : aucune base réelle n'existait avant E6, donc aucun remplissage (une migration n'est que du SQL, [ADR-0032](adr/0032-migrations-goose.md), et RG-05 ne s'écrit pas en SQL) |
 | Suppression de `client_id` et de son index | E2-02 (migration `00003_capture_ids.sql`) | Les identifiants de capture passent dans `capture_ids`, seule référence des rejeux ; les valeurs existantes y sont copiées avant la suppression |
-| `type_id`, `category_id`, `batch_id` | celle qui crée `content_types`, `categories`, `batches` | Elles référencent ces tables ; ajoutées par `ALTER TABLE items ADD COLUMN … REFERENCES …` |
+| `type_id`, `category_id`, `batch_id`, index `items_user_status` sur `(user_id, status, id)` et `items_batch` sur `batch_id` (partiel, hors valeurs nulles) | E3-01 (migration `00006_analysis.sql`) | Les colonnes référencent `content_types`, `categories`, `batches` ; ajoutées par `ALTER TABLE items ADD COLUMN … REFERENCES …`, nulles pour les éléments existants. Le premier index sert la sélection du batch, le second le retour des éléments d'un batch |
 
 **capture_ids** — l'identifiant de chaque capture reçue (RG-08), créée par E2-02 (migration `00003_capture_ids.sql`).
 
@@ -171,7 +172,7 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 - `started_at` est renseigné et validé avant le téléchargement. Au démarrage, une ligne dont `started_at` est renseigné signale un téléchargement interrompu par un crash : le lien passe en repli sans être retéléchargé. Un arrêt ou un report réseau remet `started_at` à null et garde la ligne, avec son compteur. La ligne est supprimée dans la transaction qui écrit l'élément en `extracted`.
 - La table n'est pas synchronisée vers l'appli : ni `updated_at` ni `change_seq`.
 
-**categories** — arborescence de 2 niveaux (RG-51).
+**categories** — arborescence de 2 niveaux (RG-51), créée par E3-01 (migration `00006_analysis.sql`).
 
 | Champ | Type | Rôle |
 | --- | --- | --- |
@@ -183,9 +184,11 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 | color | TEXT, nullable | Couleur d'accent ; héritée du parent si null (RG-59) |
 | created_at, updated_at, deleted_at, change_seq | TEXT, INTEGER | Horodatage et séquence de modification |
 
-Unicité : `(user_id, parent_id, nom normalisé)`.
+- Clé étrangère `(parent_id, user_id)` vers `categories (id, user_id)` (index unique `categories_id_user`) : le parent est une catégorie du même utilisateur (RG-90). Une catégorie n'est pas son propre parent (`CHECK`). La profondeur de 2 niveaux est tenue par le store : en E3-01, seul l'amorçage écrit des catégories ; E3-03 ajoute la vérification commune.
+- **Catégories de départ** : chaque utilisateur reçoit l'arborescence de [métier §6](metier.md#6-catégories-de-départ), écrite en Go par le store (pas par la migration) : 9 racines avec leur description, 15 sous-catégories sans description (l'IA lit leur chemin, `Dev › Java & Spring`), toutes `active`, couleur nulle, une valeur de `change_seq` par ligne. `categories_seeded_at` est posé dans la même transaction : une seule fois par utilisateur, même s'il supprime ensuite toutes ses catégories. Un utilisateur créé avant E3-01 les reçoit au démarrage suivant.
+- Unicité de `(user_id, parent_id, nom normalisé)` : prévue, l'index arrive avec E3-03, qui écrit les propositions.
 
-**content_types** — partagés entre utilisateurs ([ADR-0022](adr/0022-preparation-multi-utilisateur.md)). Clés de départ : `tech_article`, `tutorial`, `tip`, `recipe`, `place`, `resource`, `note` ([métier §7](metier.md#7-types-de-contenu)).
+**content_types** — partagés entre utilisateurs ([ADR-0022](adr/0022-preparation-multi-utilisateur.md)), créée par E3-01 (migration `00006_analysis.sql`). La migration insère les 7 types de départ, ids 1 à 7 dans l'ordre de [métier §7](metier.md#7-types-de-contenu) : `tech_article`, `tutorial`, `tip`, `recipe`, `place`, `resource`, `note`, tous `active` avec `has_template` à 1. Elle avance `sync_sequence` en SQL d'une valeur par ligne : seule exception à la fonction unique du store ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)). Seule table lue sans `user_id` : elle est partagée par conception, ce n'est pas une table d'un utilisateur.
 
 | Champ | Type | Rôle |
 | --- | --- | --- |
@@ -195,10 +198,28 @@ Unicité : `(user_id, parent_id, nom normalisé)`.
 | proposal_reason | TEXT, nullable | Justification donnée par l'IA |
 | updated_at, deleted_at, change_seq | TEXT, INTEGER | Synchronisés vers l'appli ; un type fusionné laisse une trace `deleted_at` (RG-72) |
 
+**batches** — un batch de la nuit, créé par E3-01 (migration `00006_analysis.sql`). Non synchronisé vers l'appli. Rôle des statuts : [Envoi du batch de la nuit](#envoi-du-batch-de-la-nuit).
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| id | TEXT (ULID) | Identifiant du batch chez Hippo, créé avant l'envoi |
+| user_id | TEXT | Propriétaire |
+| anthropic_batch_id | TEXT, nullable, unique | Identifiant donné par Anthropic ; nul tant que l'envoi n'est pas confirmé |
+| status | TEXT | `pending` (éléments soumis, envoi pas encore confirmé), `in_progress` (accepté par Anthropic), `ended` (résultats disponibles, E3-02), `failed` (refusé, jamais arrivé ou annulé avant l'envoi) |
+| model, prompt_version, envelope_version | TEXT, INTEGER, INTEGER | Modèle, version du prompt et version de l'enveloppe de la réponse (RG-64) |
+| item_count | INTEGER | Éléments soumis, de 1 à 200 (`CHECK`). Après le retrait d'éléments cochés Privé avant l'envoi, le nombre d'éléments encore dans le batch ; un batch passé en `failed` faute d'élément restant garde le dernier nombre écrit (celui d'origine si tous ses éléments ont été retirés d'un coup) |
+| input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens | INTEGER, nullable | Tokens consommés, écrits par E3-02 (RG-80) |
+| cost_usd | REAL, nullable | Coût calculé, écrit par E3-02 ; compté dans le mois de `created_at` (RG-81) |
+| created_at | TEXT | Création, juste avant l'envoi |
+| sent_at | TEXT, nullable | Acceptation par Anthropic |
+| ended_at | TEXT, nullable | Fin du batch (E3-02) |
+
+Index `batches_user_created` sur `(user_id, created_at)`, pour le coût du mois. Table `STRICT`.
+
 **Autres tables**
 
 - **tags** (`id` entier, `user_id`, `name` unique par utilisateur, `updated_at`, `deleted_at`, `change_seq` ; un tag fusionné laisse une trace) et **item_tags** (`item_id`, `tag_id`).
-- **batches** : `id` Anthropic, `user_id`, statut (`in_progress`, `ended`, `failed`), nombre d'éléments, tokens d'entrée, de sortie et de cache, `cost_usd`, dates. Les analyses immédiates sont enregistrées dans une table **analysis_calls** de même forme, pour le calcul du budget.
+- **analysis_calls** : les analyses immédiates, de même forme que `batches`, pour le calcul du budget (E3-08).
 - **settings** : réglages clé-valeur par utilisateur, dont `last_review_at`.
 - **sync_sequence** : une seule ligne (`id = 1`), la valeur courante de la séquence de modification. Elle n'avance que par une seule fonction du store, dans la transaction de l'écriture ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)).
 - **items_fts** : table virtuelle FTS5 sur `title`, `search_text`, `user_note`, `annotations` et les tags, tokenizer `unicode61 remove_diacritics 2`, tenue à jour par des triggers.
@@ -211,7 +232,7 @@ Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois pa
 
 1. **Capture** — `POST /api/items` crée l'élément en `queued` et répond tout de suite (RG-01 à RG-06).
 2. **Extraction** — en arrière-plan, juste après : page web via go-readability, texte d'un PDF, titre, chaîne, durée et description d'une vidéo YouTube (sans transcription en V1), rien pour une image ou une note. Repli sur les métadonnées `og:*` (ou le titre du PDF) en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-28). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
-3. **Envoi du batch** — à 2 h (`BATCH_SCHEDULE`), les éléments `extracted` **non privés** partent dans un seul batch, 200 au maximum, après vérification du budget (RG-30 à RG-32, RG-81). Statut `submitted`.
+3. **Envoi du batch** — une fois par nuit, à l'heure de Paris (`BATCH_SCHEDULE`, 2 h par défaut), les éléments `extracted` **non privés** de chaque utilisateur partent dans un seul batch, 200 au maximum et 200 Mio au plus, après les gardes (clé d'API, batch sans coût, budget) (RG-30 à RG-32, RG-81). Les images partent en copie réduite et sans métadonnées (RG-38). Statut `submitted`. Détail ci-dessous, [Envoi du batch de la nuit](#envoi-du-batch-de-la-nuit).
 4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
 5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
 
@@ -221,7 +242,7 @@ Le format exact des requêtes, le prompt, les schémas des fiches et l'ordre de 
 
 **Budget de tokens**
 
-- Entrée : le contenu extrait seul, jamais le HTML, jusqu'à ~120 000 caractères ; images redimensionnées à 1 568 px sur leur plus grand côté avant envoi.
+- Entrée : le contenu extrait seul, jamais le HTML, jusqu'à ~120 000 caractères ; pour une image, sa copie réduite à 1 568 px sur son grand côté (RG-38, [Copie de l'image](#copie-de-limage)). L'API peut la réduire encore (budget d'environ 1,15 Mpx par image, non vérifié) : sans effet sur le résultat attendu.
 - Sortie : plafond de 4 000 tokens, 8 000 pour la seconde tentative d'une réponse coupée (RG-36) ; la longueur réelle suit la richesse du contenu.
 - Cache de prompt sur la partie fixe, le référentiel et l'outil.
 
@@ -269,7 +290,7 @@ Un lien répondu en PDF (`application/pdf`, ou un corps qui commence par `%PDF-`
 
 - **Taille** : 50 Mio au plus (52 428 800 octets ; les « 50 Mo » de la décision, comme les 2 Mo des pages sont 2 Mio), sur le flux décompressé. Un PDF annoncé plus gros par son `Content-Length` n'est pas lu du tout ; un corps plus long est arrêté à la limite. Repli `too_large`. Les pages HTML gardent 2 Mio (décidé avec Ghislain le 2 novembre 2026).
 - **Délai** : les 15 s de téléchargement de RG-23 couvrent aussi le PDF ; 50 Mio en 15 s demandent environ 28 Mbit/s du site au NAS, un PDF plus lent passe en repli (`timeout`) avec le nom de son fichier pour titre. La lecture a ses propres 10 s ; l'enfant répond à 8 s (80 %) avec ce qu'il a lu, avant que le parent ne le tue.
-- **Dossier temporaire** : le PDF est copié, sans passer par la mémoire du service, dans un fichier de `DATA_DIR/tmp` **dont le nom est supprimé avant le téléchargement**. Le service écrit par un descripteur, l'enfant lit par un second, en lecture seule, reçu comme descripteur 3. Les données disparaissent avec le dernier descripteur, crash compris ; un fichier laissé par un crash entre la création et la suppression du nom est supprimé au démarrage. Rien d'un PDF ne reste sur le NAS ni dans les sauvegardes. Règles : [conventions du backend](dev/conventions-backend.md#dossier-temporaire-de-lextraction).
+- **Dossier temporaire** : le PDF est copié, sans passer par la mémoire du service, dans un fichier de `DATA_DIR/tmp` **dont le nom est supprimé avant le téléchargement**. Le service écrit par un descripteur, l'enfant lit par un second, en lecture seule, reçu comme descripteur 3. Les données disparaissent avec le dernier descripteur, crash compris ; un fichier laissé par un crash entre la création et la suppression du nom est supprimé au démarrage. Rien d'un PDF ne reste sur le NAS ni dans les sauvegardes. Règles : [conventions du backend](dev/conventions-backend.md#dossier-temporaire).
 - **Lecture** : `github.com/ledongthuc/pdf` lit la structure, les filtres, le chiffrement et les polices ; une couche de mise en page maison place les glyphes : largeurs des glyphes, espaces déduits des positions, retours à la ligne aux changements de ligne de base, `\n\n` entre les pages, ligatures (U+FB00 à U+FB06) développées, traits d'union conditionnels (U+00AD) retirés, mot coupé par un trait d'union en fin de ligne recollé avec son trait d'union (aucune lettre perdue), caractères de contrôle et glyphes indéchiffrables retirés. Le texte est gardé jusqu'à 120 000 caractères, même au milieu d'une page ; au-delà, la lecture compte encore les mots sans garder le texte.
 - **Bornes** : arbre de pages parcouru par notre code, 32 niveaux et 40 000 nœuds au plus, chaque nœud une seule fois (au-delà, ou un nœud rencontré deux fois : PDF abîmé), 20 000 pages lues au plus (les suivantes ne sont ni lues ni comptées dans le temps de lecture) ; objets de formulaire suivis sur 4 niveaux ; une page illisible est sautée ; l'ouverture, le titre et chaque page sont lus sous `recover`. Un en-tête de version 2.0 est présenté à la librairie comme 1.7 (non vérifié sur de vrais PDF 2.0 ; l'AES-256 de 2.0 passe en repli).
 - **Titre (RG-28)** : le titre des métadonnées (`/Info /Title`), sans caractères de contrôle (le bourrage AES compris) ni caractères invisibles de mise en forme (espace sans chasse, marque d'ordre des octets), espaces resserrés ; sauf un titre parasite : vide, commençant par `Microsoft Word - `, `Microsoft PowerPoint - ` ou `Microsoft Excel - `, égal à `Untitled`, `Sans titre`, `Document1` ou `PowerPoint Presentation` sans tenir compte de la casse, ou un nom de fichier (dernier segment après `/` ou `\` finissant, juste après un caractère qui n'est pas une espace, par une extension de document : `doc`, `docx`, `odt`, `rtf`, `txt`, `pdf`, `ps`, `tex`, `dvi`, `htm`, `html`, `xhtml`, `md`, `ppt`, `pptx`, `odp`, `key`, `xls`, `xlsx`, `ods`, `numbers`, `pages`, `indd`, `tif`, `tiff`, `jpg`, `jpeg`, `png`). À défaut, le dernier segment non vide du chemin de l'URL servie (après redirections) s'il finit par `.pdf` sans tenir compte de la casse, décodé (`%20`…) ou gardé tel quel s'il ne se décode pas en UTF-8 (`%E9t%E9`), sans `.pdf`. À défaut, le titre provisoire. Puis la borne de 1 000 caractères. Le nom du site reste l'hôte de l'URL capturée.
@@ -324,6 +345,99 @@ Avant de télécharger un lien, `started_at` est renseigné dans sa ligne `extra
 [ADR-0008](adr/0008-extraction-et-reanalyse.md) retient go-readability. Le module d'origine, `github.com/go-shiori/go-readability`, est archivé depuis le 30 décembre 2025 et renvoie vers son fork maintenu, `codeberg.org/readeck/go-readability/v2`, épinglé en v2.1.3 (accord de Ghislain le 1er novembre 2026). Le choix de l'ADR ne change pas. `golang.org/x/net/html` lit les balises `og:*` et `html/charset` décode l'encodage déclaré.
 
 Les PDF sont lus par `github.com/ledongthuc/pdf` (BSD-3, sans dépendance transitive, environ +0,6 Mo de binaire), épinglé à la pseudo-version `v0.0.0-20261020125853-5e46805f718e` faute d'étiquette (accord de Ghislain le 2 novembre 2026), avec notre couche de mise en page plutôt que son `GetPlainText`, qui garde tout le texte d'une page en mémoire (231 Mio sur une page piégée) et perd les espaces que seules les positions donnent. Quatre librairies ont été comparées le 2 novembre 2026 sur des PDF fictifs : `github.com/digitorus/pdf` ne décode pas les polices Type0, cas courant sur le web ; `github.com/pdfcpu/pdfcpu` n'extrait pas le texte ; `github.com/klippa-app/go-pdfium` en WebAssembly lit le mieux mais tient 36 Mio pour un petit PDF et 264 Mio au premier démarrage, au-delà de l'enfant et du conteneur. Seul `internal/extraction` importe la librairie (règle `depguard`) ; elle n'ouvre aucun fichier ni connexion d'elle-même.
+
+### Envoi du batch de la nuit
+
+Mise en œuvre de RG-12, RG-14, RG-30 à RG-32, RG-38 et RG-81 par E3-01 (change `submit-nightly-batch`, novembre 2026). Package `internal/analysis` (la passe), `internal/schedule` (l'horaire), `internal/analysis/anthropic` (le client). Le format des requêtes est dans [`prompt/`](prompt/README.md).
+
+**Horaire (RG-30)**
+
+- `BATCH_SCHEDULE` n'accepte que la forme quotidienne `M H * * *` : minute et heure en nombres d'un ou deux chiffres, un seul espace entre les champs. Toute autre forme (liste, intervalle, pas, nom, jour ou mois fixé, six champs) arrête le démarrage avec une erreur qui nomme la variable. Défaut : `0 2 * * *`.
+- L'heure est toujours celle de Paris (`Europe/Paris`, embarqué dans le binaire), jamais le fuseau du système : `TZ` ne règle que l'horodatage des logs.
+- Une seule exécution par date de Paris. À l'automne, une heure qui existe deux fois s'exécute la première fois. Au printemps, une heure qui n'existe pas (entre 2 h et 3 h) s'exécute à la fin du trou, 3 h.
+- Pas de rattrapage : un redémarrage après l'heure attend la date suivante. Un réveil plus de 10 minutes après l'instant prévu (`schedule.LateTolerance` ; NAS sorti de veille, horloge qui avance) n'exécute rien et logue `missed_run`.
+- Une horloge qui recule pendant une passe ne la relance pas pour la même date.
+- La passe et l'horaire ont leur propre contexte ; l'arrêt du service attend la passe en cours avant de fermer la base.
+
+**Gardes, dans cet ordre, avant toute lecture de contenu**
+
+1. **Clé d'API** : sans `ANTHROPIC_API_KEY`, rien n'est envoyé ni réconcilié (`no_api_key`, une ligne par passe). Le service démarre quand même.
+2. **Batch sans coût** : après la réconciliation de ses batchs `pending`, un utilisateur qui a un batch `pending`, `in_progress`, ou `ended` sans coût enregistré n'envoie rien (`cost_pending`). Un batch `failed` ne bloque jamais. Tant qu'E3-02 n'enregistre pas les coûts, un seul batch part : les suivants attendent.
+3. **Budget (RG-81)** : somme des `cost_usd` des batchs de l'utilisateur créés dans le mois en cours, de minuit le 1er à minuit le 1er du mois suivant, heure de Paris. Atteint (`>=`, donc un budget de 0 n'envoie jamais) : rien n'est envoyé (`budget_reached`). Un batch compte dans le mois de son envoi, même s'il finit le mois suivant.
+
+Chaque refus logue l'utilisateur, la raison et le nombre d'éléments en attente. Aucune image n'est décodée pour une passe qui n'enverra rien.
+
+**Sélection (RG-32)**
+
+- Par utilisateur (RG-90) : éléments `extracted`, non privés, non supprimés, les plus anciens d'abord (ordre des ULID), 200 au plus.
+- Le corps assemblé ne dépasse pas 200 Mio (209 715 200 octets, sous la limite de 256 Mo annoncée par l'API, non vérifiée) : la requête qui ne tient plus et toutes les suivantes attendent la nuit suivante.
+- Un élément supprimé depuis la sélection est sauté, la passe continue.
+
+**Construction**
+
+- Une requête par élément, `custom_id` = id de l'élément. Partie fixe du prompt, référentiel (construit une fois par batch) et outil identiques octet pour octet dans chaque requête.
+- L'URL envoyée est l'URL capturée sans ses identifiants (`user:mot-de-passe@`), paramètres de suivi compris : c'est ce qui a été partagé (RG-92).
+- Le contenu d'un élément est lu au moment d'écrire sa requête : un seul en mémoire à la fois.
+- Chaque requête est écrite dans un fichier de **segments** ; le **corps** est ensuite assemblé, dans un second fichier, à partir des seuls éléments soumis, puis envoyé en flux. Le service ne tient jamais un corps en mémoire. Deux fichiers temporaires sans nom ([conventions du backend](dev/conventions-backend.md#dossier-temporaire)) : au plus deux fois 200 Mio de disque, un instant. Un disque plein arrête la passe de l'utilisateur avant la soumission (`storage_unavailable`).
+- Garde-fou de RG-12 : un élément privé qui atteindrait la construction l'arrête ; rien n'est soumis ni envoyé, une erreur est loguée (`private_item`).
+
+**Soumission et envoi**
+
+1. **Transaction** (`BEGIN IMMEDIATE`) : le statut, `is_private` et `deleted_at` de chaque élément sont relus pour l'utilisateur ; seuls ceux encore `extracted`, non privés et non supprimés sont gardés. Le batch est inséré en `pending` et ces éléments passent à `submitted` (`batch_id`, `updated_at`, `change_seq`), sans changer `attempts`. Aucun élément gardé : aucune ligne, aucun appel (RG-31).
+2. **Assemblage du corps** à partir des éléments soumis.
+3. **Retrait des éléments devenus privés** : les éléments soumis sont relus ; un élément coché Privé depuis la transaction est retiré du batch et revient à `extracted`, sans fiche, et le corps est réécrit sans lui. Cette étape se répète jusqu'à ce qu'aucun élément ne soit retiré ; les autres partent la même nuit (RG-12, RG-14). S'il n'en reste aucun, le batch passe en `failed` et rien n'est envoyé.
+4. **Arrêt** : un service qui s'arrête à ce moment n'envoie rien ; le batch passe en `failed`, ses éléments reviennent à `extracted`.
+5. **Envoi** : un seul appel, sans nouvelle tentative automatique (une création rejouée serait un double envoi), 10 minutes au plus. Pour un élément coché Privé, il ne reste comme fenêtre que l'envoi lui-même.
+6. **Issue** :
+
+| Réponse | Effet |
+| --- | --- |
+| Acceptée (2xx avec l'identifiant du batch) | Batch `in_progress`, `anthropic_batch_id` et `sent_at` enregistrés |
+| Refus (4xx) | Batch `failed` ; ses éléments reviennent à `extracted` sans tentative comptée et repartent la nuit suivante |
+| Inconnue : coupure, délai, arrêt pendant l'envoi, crash, redirection, erreur du service (5xx, 529 compris), 2xx sans identifiant lisible | Rien n'est écrit : le batch reste `pending` et la réconciliation le règle |
+
+Les écritures après l'envoi passent par un contexte non annulable, borné à 10 s : un batch accepté pendant un arrêt est enregistré.
+
+**Réconciliation**
+
+- Au démarrage, en arrière-plan, et avant la passe de chaque utilisateur qui a un batch `pending`, quand une clé d'API existe. La passe et la réconciliation ne tournent jamais en même temps.
+- La liste des batchs de la clé est lue, du plus récent au plus ancien : 100 par page, 10 pages au plus, 2 minutes au plus.
+- Pour chaque batch `pending`, du plus ancien au plus récent, un candidat est un batch créé entre 10 minutes avant et 20 minutes après lui, avec le même nombre de requêtes, et dont l'identifiant n'est pas déjà enregistré. Un seul candidat : il est adopté (`in_progress`). Aucun ou plusieurs : le batch passe en `failed`, ses éléments reviennent à `extracted`, et un avertissement `possible_double_send` est logué.
+- Une liste en échec ou incomplète laisse le batch `pending` : la garde « batch sans coût » bloque l'utilisateur jusqu'à une réconciliation réussie.
+- **Risque résiduel**, accepté au cadrage : un batch accepté par Anthropic mais pas rapproché est renvoyé la nuit suivante. Cas possibles : deux batchs `pending` de même taille, de deux utilisateurs, dans la même fenêtre ; un refus 4xx donné après la création, ce que l'API n'est pas connue pour faire. Au plus un double envoi par batch concerné, toujours logué. En V1, un seul utilisateur et une clé dédiée : seul le second cas reste.
+
+**Logs**
+
+- Une ligne par utilisateur et par passe : `user_id`, `outcome` (`sent`, `nothing_to_send`, ou la raison du refus ou de l'échec), éléments sélectionnés, soumis et laissés en attente, images sans copie, taille du corps, identifiants du batch, durée.
+- Un avertissement par batch dont des éléments cochés Privé ont été retirés avant l'envoi : `user_id`, `batch_id`, `outcome` `private_after_submit`, `removed` (éléments retirés), `remaining` (éléments restants).
+- Une ligne par image sans copie : `item_id`, `asset_id`, `reason`. Une ligne par batch réconcilié : `batch_id`, `item_count`, `outcome` (`adopted`, `possible_double_send`, `list_failed`, `not_pending`).
+- Jamais un titre, une URL, une note, un contenu, une image, un corps, le message d'erreur de l'API ni la clé ; un test le vérifie.
+
+### Copie de l'image
+
+Mise en œuvre de RG-38. L'IA reçoit une copie, jamais le fichier stocké, qui ne change pas.
+
+- **Processus enfant** `hippo copy-image`, aux mêmes règles que celui de l'extraction : environnement réduit à `GOMAXPROCS=2`, ni configuration, ni base, ni log. Il reçoit l'image stockée en lecture seule sur le descripteur 3 et écrit la copie dans un fichier temporaire sans nom, descripteur 4. Aucun chemin ne traverse la frontière du processus. Une image à la fois.
+- **Étapes** : lecture de l'en-tête seul ; plus de 50 Mpx, refus sans décodage. Décodage (JPEG, PNG, WebP ; HEIC, images en grille comprises). Réduction, jamais d'agrandissement : moyenne de blocs entiers, puis interpolation bilinéaire jusqu'à 1 568 px sur le grand côté. Redressement : orientation EXIF d'un JPEG, propriétés `irot` et `imir` d'un HEIC. Transparence aplatie sur du blanc. Encodage JPEG qualité 85, sans aucun segment de métadonnées (ni EXIF, ni XMP, ni profil ICC, ni commentaire).
+- **Couleurs** : un HEIC et un WebP avec pertes sont convertis selon la matrice et la plage qu'ils déclarent ; un HEIC à matrice inconnue est illisible. Le profil ICC (Display P3) est ignoré : une telle photo sort un peu moins saturée.
+- **Limites** : 256 Mio de mémoire (limite souple 200 Mio), 30 s, copie de 5 Mio au plus.
+- **Échec** : la requête part sans bloc image (RG-38), la passe continue. Raisons loguées : `too_many_pixels`, `undecodable`, `too_large`, `timeout`, `copy_failed`, `asset_missing`. Un enfant qui ne peut pas démarrer (binaire absent, `fork` refusé) arrête la passe de l'utilisateur avant la soumission (`copier_unavailable`) : rien n'est envoyé.
+- **Cas connus sans image** à 48 Mpx : JPEG progressif, PNG entrelacé, PNG 16 bits, HEIC de plus de 8 bits. Les téléphones écrivent des JPEG de base et des PNG non entrelacés.
+- **Bibliothèques** : `golang.org/x/image` v0.47.0 (WebP, interpolation) et `github.com/gen2brain/h265` v0.2.4 (HEIC, Go pur, sans cgo), accord de Ghislain le 6 novembre 2026. Seul `internal/imagecopy` les importe (règle `depguard` `image-decoding-only-in-imagecopy`).
+- **Mesures de l'enfant** du 6 novembre 2026 (darwin/arm64, images synthétiques bruitées, lancement compris) :
+
+| Image | Pic résident | Temps |
+| --- | --- | --- |
+| JPEG 12 Mpx | 44 Mo | 0,33 s |
+| Capture d'écran PNG, 1290 × 2796 | 40 Mo | 0,06 s |
+| HEIC 12 Mpx | 53 Mo | 0,54 s |
+| JPEG 48 Mpx | 91 Mo | 1,10 s |
+| HEIC 48 Mpx, en grille | 120 Mo | 1,91 s |
+| PNG 48 Mpx | 209 Mo | 0,46 s |
+
+Mesuré le 6 novembre 2026 dans le conteneur linux/arm64 limité à 384 Mo : un HEIC de 48 Mpx copié pendant la lecture d'un PDF de 49 Mo. La mémoire du conteneur a culminé à 215 Mio, sans processus tué ; le service a répondu à tous les contrôles de santé et le dossier temporaire était vide après coup. Le pire cas mesuré, un PNG de 48 Mpx, a culminé à 289 Mio. Ces pics ont été mesurés avec une surveillance à la milliseconde ; à 10 ms, un enfant peut aller un peu plus loin avant de s'arrêter, ce qui reste à remesurer pour les cas qui dépassent la limite (PNG entrelacé ou 16 bits). La copie y a pris 13 à 16 s quand l'enfant surveillait sa mémoire toutes les millisecondes, 2,3 s avec l'intervalle de 10 ms retenu pour la copie d'image ; le temps sur le NAS reste à mesurer, une copie au-delà de 30 s partant sans image. Le plafond reste à 50 Mpx.
+
+Le plafond de 50 Mpx tient sous la limite de 256 Mio. La limite du conteneur passe à 384 Mo pour faire place à cet enfant ([ADR-0038](adr/0038-limite-memoire-384-mo.md)).
 
 ## API REST
 
@@ -397,7 +511,8 @@ Deux conteneurs : le service Go et un sidecar Tailscale qui le publie en HTTPS s
 - Images construites par GitHub Actions, publiées sur GHCR (privé) ; mise à jour par `docker compose pull && docker compose up -d`.
 - Sauvegarde nocturne à 3 h par `VACUUM INTO` et copie des images, 14 jours conservés, plus une copie chiffrée externe ([ADR-0020](adr/0020-sauvegardes.md)).
 - Logs JSON sur la sortie standard, sans secret ni contenu d'élément.
-- Limite mémoire à 128 Mo.
+- Limite mémoire à 384 Mo ([ADR-0038](adr/0038-limite-memoire-384-mo.md), qui amende ADR-0019) : le service, l'enfant d'extraction (48 Mio) et l'enfant de copie d'image (256 Mio).
+- `TZ` ne règle que l'horodatage des logs : l'horaire du batch et toutes les dates du domaine sont à l'heure de Paris.
 
 ```yaml
 # infra/docker-compose.yml (ébauche)
@@ -427,7 +542,7 @@ services:
       - TZ=Europe/Paris
     volumes:
       - ./data:/data
-    mem_limit: 128m
+    mem_limit: 384m
     restart: unless-stopped
 ```
 
@@ -445,7 +560,7 @@ Tarifs de Haiku 4.5 relevés en octobre 2026 : 1 $ / 5 $ par million de tokens (
 | Capture d'écran | image + prompt, 800 sortie | ~0,004 $ |
 | Analyse immédiate (hors batch) | contenu moyen | ~0,01 $ |
 
-**Garde-fous** : crédits prépayés sans recharge automatique ; budget mensuel applicatif (`MONTHLY_BUDGET_USD`, 5 $) vérifié avant chaque envoi ; plafonds de 200 éléments par batch, ~120 000 caractères en entrée, 4 000 tokens en sortie. Clé d'API dédiée au projet.
+**Garde-fous** : crédits prépayés sans recharge automatique ; budget mensuel applicatif (`MONTHLY_BUDGET_USD`, 5 $) vérifié avant chaque envoi ; plafonds de 200 éléments et 200 Mio par batch, ~120 000 caractères en entrée, 4 000 tokens en sortie. Clé d'API dédiée au projet. Pour le batch de la nuit, les gardes s'appliquent dans cet ordre : clé d'API, batch sans coût enregistré, budget du mois ([détail](#envoi-du-batch-de-la-nuit)). Aucune nouvelle tentative automatique d'un envoi : un envoi à l'issue inconnue est réconcilié plutôt que renvoyé.
 
 ## Risques et points à vérifier
 

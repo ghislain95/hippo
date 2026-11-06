@@ -112,7 +112,7 @@ RG-01, RG-02, RG-04, RG-07, RG-08, RG-09, RG-26
 
 ### E2-04 — Capturer une image · M
 
-✅ Terminé le 27 octobre 2026 par le change `capture-image` ([archive](../openspec/changes/archive/2026-10-27-capture-image/proposal.md)). Étend RG-26 (titre provisoire d'une image) ; le retrait des métadonnées et la conversion HEIC avant analyse sont renvoyés à E3-01.
+✅ Terminé le 27 octobre 2026 par le change `capture-image` ([archive](../openspec/changes/archive/2026-10-27-capture-image/proposal.md)). Étend RG-26 (titre provisoire d'une image) ; le retrait des métadonnées et la conversion HEIC avant analyse sont renvoyés à E3-01, qui les règle par la copie de l'image ([RG-38](metier.md#analyse), 6 novembre 2026).
 
 RG-01, RG-02, RG-08 · ADR-0004, ADR-0035
 - `POST /api/items` en multipart avec une image JPEG, PNG, HEIC ou WebP de 20 Mo maximum crée un élément `image` et une ligne `assets`.
@@ -166,17 +166,22 @@ RG-21, RG-23, RG-24, RG-25, RG-28 · ADR-0008 — *ajoutée le 1er novembre 2026
 
 ### E3-01 — Construire et envoyer le batch de la nuit · M
 
-RG-12, RG-30, RG-31, RG-32 · ADR-0005, ADR-0006
+✅ Terminé le 6 novembre 2026 par le change `submit-nightly-batch` ([archive](../openspec/changes/archive/2026-11-06-submit-nightly-batch/proposal.md)). Ajoute RG-38 (copie de l'image envoyée à l'IA), précise RG-14, RG-30 et RG-32, et l'ADR-0038 (conteneur à 384 Mo). Crée les types de contenu, les catégories de départ et les batchs ; tant qu'E3-02 n'enregistre pas les coûts, un seul batch part. À mesurer sur le NAS au premier déploiement : le temps de copie d'un HEIC de 48 Mpx (au-delà de 30 s, l'image ne part pas) et celui de la lecture d'un gros PDF, surveillée à la milliseconde.
+
+RG-12, RG-14, RG-30, RG-31, RG-32, RG-38, RG-81 · ADR-0005, ADR-0006, ADR-0038
 - À l'heure configurée (`BATCH_SCHEDULE`), les éléments `extracted`, non privés, sont envoyés en un batch Message Batches (une requête par élément, `custom_id` = id).
 - Aucun élément : aucun appel.
 - Au-delà de 200 éléments, les plus anciens partent, les autres attendent.
 - Chaque requête suit [`prompt/README.md`](prompt/README.md) : partie fixe, référentiel, outil forcé, plafond de sortie, cache.
 - **Test obligatoire** : un élément privé n'apparaît dans aucune requête, quel que soit son statut.
 - Les éléments envoyés passent à `submitted` ; le batch est enregistré dans `batches`.
-- À trancher au cadrage avec Ghislain (hérité d'E2-02 et d'E2-04, 27 octobre 2026) :
-  - retirer les métadonnées (EXIF, position GPS) de la copie d'une image envoyée à l'IA ; le fichier sur le NAS reste intact ;
-  - convertir un HEIC avant l'envoi, l'API ne lisant que JPEG, PNG, GIF et WebP (l'appli et l'extension envoient du JPEG) ;
-  - que faire du résultat d'un élément rendu privé pendant qu'il est `submitted` (RG-15) ; la sélection revérifie `is_private` dans la transaction d'envoi.
+- Tranché au cadrage avec Ghislain le 6 novembre 2026 (points hérités d'E2-02 et d'E2-04) :
+  - une image part en copie redressée, réduite à 1 568 px, en JPEG sans métadonnées ; un HEIC est converti ; le fichier du NAS reste intact (RG-38 ajoutée) ;
+  - un élément déjà parti dans le batch garde son résultat ; coché Privé avant le départ effectif, il est retiré du batch et n'est pas envoyé (RG-14 précisée) ;
+  - l'heure du batch est celle de Paris, sans nuit sautée, doublée ni rattrapée (RG-30 précisée) ; le corps d'un batch ne dépasse pas 200 Mio (RG-32 complétée) ;
+  - la limite mémoire du conteneur passe à 384 Mo ([ADR-0038](adr/0038-limite-memoire-384-mo.md)) ;
+  - dépendances acceptées : `anthropic-sdk-go`, `golang.org/x/image`, `github.com/gen2brain/h265`.
+- La garde de budget du batch (RG-81) est faite ici, avec celle d'un batch sans coût enregistré ; E3-08 garde l'analyse immédiate.
 
 ### E3-02 — Suivre le batch et appliquer les résultats · M
 
@@ -223,8 +228,13 @@ RG-35, RG-60 à RG-64
 ### E3-08 — Respecter le budget mensuel · M
 
 RG-80 à RG-82 · ADR-0021
-- Avant chaque envoi (batch ou immédiat), le coût cumulé du mois est comparé au budget ; s'il est atteint, rien n'est envoyé et l'événement est journalisé.
-- Le coût est calculé à partir des tokens réels et des tarifs configurés.
+
+La garde du batch de la nuit est faite par E3-01 (budget du mois de Paris vérifié avant chaque batch, refus journalisé, change `submit-nightly-batch`). Reste ici l'analyse immédiate et l'alerte :
+
+- Avant chaque analyse immédiate, le coût cumulé du mois est comparé au budget ; s'il est atteint, rien n'est envoyé et l'événement est journalisé.
+- Les analyses immédiates sont enregistrées dans `analysis_calls` (tokens, coût) ; le coût du mois additionne batchs et analyses immédiates, pour les deux gardes.
+- Réglages affiche une alerte quand le budget est atteint (RG-81).
+- Le coût d'une analyse immédiate est calculé à partir des tokens réels et des tarifs configurés, comme celui d'un batch (E3-02).
 
 ### E3-09 — Jeu de test du prompt · M
 

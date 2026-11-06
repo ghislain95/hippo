@@ -21,16 +21,22 @@ linters:
     - unconvert
     - usestdlibvars
   settings:
+    misspell:
+      # French words of the domain (docs/metier.md section 6, the starting categories), not
+      # English misspellings.
+      ignore-rules:
+        - conteneurs
+        - plantes
     depguard:
       # Architecture rules (docs/dev/conventions-backend.md, "Dépendances entre couches").
       rules:
         anthropic-only-in-analysis:
           files:
             - "$all"
-            - "!**/internal/analysis/**"
+            - "!**/internal/analysis/anthropic/**"
           deny:
             - pkg: github.com/anthropics/anthropic-sdk-go
-              desc: only internal/analysis talks to the Anthropic API, behind the Analyzer interface (ADR-0005)
+              desc: only internal/analysis/anthropic talks to the Anthropic API, behind the analysis.Analyzer interface (ADR-0005)
         store-knows-no-transport:
           files:
             - "**/internal/store/**"
@@ -74,6 +80,15 @@ linters:
               desc: only internal/extraction parses HTML and decodes charsets
             - pkg: github.com/ledongthuc/pdf
               desc: only internal/extraction reads PDFs, in the child process that bounds them (E2-08)
+        image-decoding-only-in-imagecopy:
+          files:
+            - "$all"
+            - "!**/internal/imagecopy/**"
+          deny:
+            - pkg: golang.org/x/image
+              desc: only internal/imagecopy decodes and scales images, in the child process that bounds them (E3-01)
+            - pkg: github.com/gen2brain
+              desc: only internal/imagecopy decodes HEIC, in the child process that bounds it (E3-01)
         pdf-generator-only-in-tests:
           files:
             - "$all"
@@ -102,9 +117,10 @@ linters:
       - comments
       - std-error-handling
     rules:
-      # The extraction runs its own binary (os.Executable) as the child that reads a page, with
-      # fixed arguments and an environment of its own (internal/extraction/child.go).
-      - path: internal/extraction/child\.go
+      # Only internal/childproc starts a subprocess: the service's own binary (os.Executable) as
+      # the child that reads a page or copies an image, with fixed arguments and an environment
+      # of its own (internal/childproc/childproc.go).
+      - path: internal/childproc/childproc\.go
         linters:
           - gosec
         text: G204

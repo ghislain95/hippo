@@ -161,3 +161,152 @@ func InsertDeferredPDFAttemptForTest(t testing.TB, s *Store, userID, itemID stri
 		t.Fatalf("insert deferred attempt: %v", err)
 	}
 }
+
+// SeedVersion5ForTest creates the database at path with the migrations up to 00005 only, and
+// stores, by SQL as E2 did, a user and two items: an extracted link and a queued note (tests of
+// 00006 only). It returns the ids of the user and the items, and the value of the sequence.
+func SeedVersion5ForTest(t testing.TB, path string) (userID string, itemIDs []string, sequence int64) {
+	t.Helper()
+	ctx := t.Context()
+	db, err := sql.Open("sqlite", dsn(path))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }() // every write below is committed
+	provider, err := migrationProvider(db)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 5); err != nil {
+		t.Fatalf("migrate to version 5: %v", err)
+	}
+	userID = "01JB8Z6Q4M1X2Y3Z4A5B6C7D90"
+	itemIDs = []string{"01JB8Z6Q4M1X2Y3Z4A5B6C7D91", "01JB8Z6Q4M1X2Y3Z4A5B6C7D92"}
+	const date = "2026-11-01T10:00:00.000Z"
+	if _, err := db.ExecContext(ctx, `INSERT INTO users (id, name, api_token_hash, created_at) VALUES (?, 'owner', 'hash', ?)`,
+		userID, date); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO items (id, user_id, kind, source, url, normalized_url, status, extraction_mode, title, created_at, updated_at, extracted_at, change_seq)
+		 VALUES (?, ?, 'link', 'share', 'https://example.com/a', 'https://example.com/a', 'extracted', 'full', 'A page', ?, ?, ?, 1)`,
+		itemIDs[0], userID, date, date, date); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO items (id, user_id, kind, source, user_note, status, title, created_at, updated_at, change_seq)
+		 VALUES (?, ?, 'note', 'share', 'An idea', 'queued', 'An idea', ?, ?, 2)`,
+		itemIDs[1], userID, date, date); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE sync_sequence SET value = 2 WHERE id = 1`); err != nil {
+		t.Fatalf("seed sequence: %v", err)
+	}
+	return userID, itemIDs, 2
+}
+
+// ContentTypeRowForTest is a row of content_types as the migration wrote it (tests only).
+type ContentTypeRowForTest struct {
+	ID          int64
+	Key         string
+	Name        string
+	Status      string
+	HasTemplate int64
+	UpdatedAt   string
+	Deleted     bool
+	ChangeSeq   int64
+}
+
+// ContentTypeRowsForTest reads every row of content_types, by id (tests only).
+func ContentTypeRowsForTest(t testing.TB, s *Store) []ContentTypeRowForTest {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(),
+		`SELECT id, key, name, status, has_template, updated_at, deleted_at IS NOT NULL, change_seq FROM content_types ORDER BY id`)
+	if err != nil {
+		t.Fatalf("read content types: %v", err)
+	}
+	defer func() { _ = rows.Close() }() // read only
+	var types []ContentTypeRowForTest
+	for rows.Next() {
+		var row ContentTypeRowForTest
+		if err := rows.Scan(&row.ID, &row.Key, &row.Name, &row.Status, &row.HasTemplate, &row.UpdatedAt, &row.Deleted, &row.ChangeSeq); err != nil {
+			t.Fatalf("read content types: %v", err)
+		}
+		types = append(types, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read content types: %v", err)
+	}
+	return types
+}
+
+// ClassificationNullsForTest tells whether type_id, category_id and batch_id of an item are
+// NULL (tests only).
+func ClassificationNullsForTest(t testing.TB, s *Store, userID, itemID string) (typeNull, categoryNull, batchNull bool) {
+	t.Helper()
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT type_id IS NULL, category_id IS NULL, batch_id IS NULL FROM items WHERE user_id = ? AND id = ?`,
+		userID, itemID).Scan(&typeNull, &categoryNull, &batchNull); err != nil {
+		t.Fatalf("read classification columns: %v", err)
+	}
+	return typeNull, categoryNull, batchNull
+}
+
+// CategoriesSeededAtForTest reads the seeding marker of a user, nil when NULL (tests only).
+func CategoriesSeededAtForTest(t testing.TB, s *Store, userID string) *string {
+	t.Helper()
+	var marker sql.Null[string]
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT categories_seeded_at FROM users WHERE id = ?`, userID).Scan(&marker); err != nil {
+		t.Fatalf("read seeding marker: %v", err)
+	}
+	return ptr(marker)
+}
+
+// CategoryRowForTest is a row of categories as stored (tests only).
+type CategoryRowForTest struct {
+	ID             int64
+	UserID         string
+	Name           string
+	Description    *string
+	ParentID       *int64
+	Status         string
+	ProposalReason *string
+	Color          *string
+	CreatedAt      string
+	UpdatedAt      string
+	Deleted        bool
+	ChangeSeq      int64
+}
+
+// CategoryRowsForTest reads every row of categories of a user, deleted ones included, by id
+// (tests only).
+func CategoryRowsForTest(t testing.TB, s *Store, userID string) []CategoryRowForTest {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(),
+		`SELECT id, user_id, name, description, parent_id, status, proposal_reason, color, created_at, updated_at,
+		   deleted_at IS NOT NULL, change_seq
+		 FROM categories WHERE user_id = ? ORDER BY id`, userID)
+	if err != nil {
+		t.Fatalf("read categories: %v", err)
+	}
+	defer func() { _ = rows.Close() }() // read only
+	var categories []CategoryRowForTest
+	for rows.Next() {
+		var (
+			row                                CategoryRowForTest
+			description, proposalReason, color sql.Null[string]
+			parentID                           sql.Null[int64]
+		)
+		if err := rows.Scan(&row.ID, &row.UserID, &row.Name, &description, &parentID, &row.Status, &proposalReason,
+			&color, &row.CreatedAt, &row.UpdatedAt, &row.Deleted, &row.ChangeSeq); err != nil {
+			t.Fatalf("read categories: %v", err)
+		}
+		row.Description, row.ParentID, row.ProposalReason, row.Color = ptr(description), ptr(parentID), ptr(proposalReason), ptr(color)
+		categories = append(categories, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read categories: %v", err)
+	}
+	return categories
+}

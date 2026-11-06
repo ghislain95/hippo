@@ -13,7 +13,7 @@ Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HT
 ## Règles critiques
 
 - Aucun port ouvert sur la box ; aucun secret dans un fichier versionné.
-- `mem_limit: 128m`, `restart: unless-stopped`, healthcheck par `hippo healthcheck` (l'image distroless n'a pas de `curl`).
+- `mem_limit: 384m` (ADR-0038, amende ADR-0019 : copie des images du batch de nuit), `restart: unless-stopped`, healthcheck par `hippo healthcheck` (l'image distroless n'a pas de `curl`).
 - Toute nouvelle variable est documentée dans `.env.example` dans le même commit.
 
 ## Commandes (depuis la racine du dépôt)

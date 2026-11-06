@@ -11,13 +11,17 @@ GENERATED := api/fiches.gen.json \
 	api/openapi.bundled.gen.json \
 	backend/internal/httpapi/api.gen.go \
 	backend/internal/analysis/schema/classify-item.bundled.json \
+	backend/internal/analysis/prompt/prompt.gen.json \
 	app/src/api/schema.gen.ts
 
-# Fiche schemas → bundled classify_item schema and OpenAPI fiche components (ADR-0031, ADR-0035).
+# Fiche schemas → bundled classify_item schema and OpenAPI fiche components (ADR-0031, ADR-0035);
+# system prompt → embedded copy of its fixed part and version (submit-nightly-batch, design.md D4).
 SCHEMABUNDLE := cd backend && go run ./cmd/schemabundle -schemas ../docs/prompt/schemas \
 	-examples ../docs/prompt/schemas/examples \
 	-out internal/analysis/schema/classify-item.bundled.json \
-	-openapi-out ../api/fiches.gen.json
+	-openapi-out ../api/fiches.gen.json \
+	-prompt ../docs/prompt/system-prompt.md \
+	-prompt-out internal/analysis/prompt/prompt.gen.json
 
 # infra/.env is optional for the local targets: without it, variables come from the shell.
 LOCAL_ENV_FILE := infra/.env

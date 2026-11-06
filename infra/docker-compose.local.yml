@@ -24,7 +24,8 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
-    mem_limit: 128m
+    # ADR-0038: the nightly batch runs an image copy child of up to 256 MiB beside the service.
+    mem_limit: 384m
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/hippo", "healthcheck"]

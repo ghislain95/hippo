@@ -17,7 +17,7 @@ import (
 )
 
 func TestRun(t *testing.T) {
-	t.Run("starts, answers the healthcheck and stops on cancel", func(t *testing.T) {
+	t.Run("starts without an API key, answers the healthcheck and stops on cancel", func(t *testing.T) {
 		port := freePort(t)
 		env := map[string]string{
 			"API_TOKEN": "test-token-0123456789abcdef012345",
@@ -51,8 +51,56 @@ func TestRun(t *testing.T) {
 		if strings.Contains(logs.String(), env["API_TOKEN"]) {
 			t.Error("logs contain the API token")
 		}
+		for _, want := range []string{
+			`"msg":"no ANTHROPIC_API_KEY: the nightly analysis sends nothing"`,
+			`"msg":"analysis scheduled","batch_schedule":"0 2 * * *","time_zone":"Europe/Paris"`,
+		} {
+			if !strings.Contains(logs.String(), want) {
+				t.Errorf("logs lack %s:\n%s", want, logs)
+			}
+		}
 		if entries, err := os.ReadDir(filepath.Join(env["DATA_DIR"], "tmp")); err != nil || len(entries) != 0 {
 			t.Errorf("temporary directory: %v (%v), want created empty", entries, err)
+		}
+	})
+
+	t.Run("starts with an API key and never logs it", func(t *testing.T) {
+		// A new base holds no pending batch and no waiting item: neither the reconciliation at
+		// start-up nor a pass reaches the network.
+		port := freePort(t)
+		env := map[string]string{
+			"API_TOKEN":         "test-token-0123456789abcdef012345",
+			"ANTHROPIC_API_KEY": "sk-ant-test-KEY-MUST-NOT-LEAK-7f3c9e",
+			"HTTP_ADDR":         "127.0.0.1:" + port,
+			"DATA_DIR":          t.TempDir(),
+		}
+		getenv := func(name string) string { return env[name] }
+		ctx, cancel := context.WithCancel(context.Background())
+		logs := &bytes.Buffer{}
+		done := make(chan error, 1)
+		go func() { done <- run(ctx, nil, getenv, logs) }()
+		deadline := time.Now().Add(5 * time.Second)
+		for healthcheck(context.Background(), getenv) != nil {
+			if time.Now().After(deadline) {
+				cancel()
+				t.Fatalf("server never became healthy:\n%s", logs)
+			}
+			time.Sleep(20 * time.Millisecond) // polling a real server: no event to wait on
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		for _, secret := range []string{env["ANTHROPIC_API_KEY"], "KEY-MUST-NOT-LEAK", env["API_TOKEN"]} {
+			if strings.Contains(logs.String(), secret) {
+				t.Errorf("logs contain %q", secret)
+			}
+		}
+		if strings.Contains(logs.String(), "no ANTHROPIC_API_KEY") {
+			t.Errorf("logs say there is no key:\n%s", logs)
+		}
+		if !strings.Contains(logs.String(), `"msg":"analysis scheduled"`) {
+			t.Errorf("logs lack the schedule of the analysis:\n%s", logs)
 		}
 	})
 
@@ -85,6 +133,18 @@ func TestRun(t *testing.T) {
 		err := run(context.Background(), nil, func(string) string { return "" }, &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "API_TOKEN") {
 			t.Errorf("run() error = %v, want an API_TOKEN error", err)
+		}
+	})
+
+	t.Run("refuses to start with a schedule that is not daily", func(t *testing.T) {
+		env := map[string]string{
+			"API_TOKEN":      "test-token-0123456789abcdef012345",
+			"DATA_DIR":       t.TempDir(),
+			"BATCH_SCHEDULE": "*/5 * * * *",
+		}
+		err := run(context.Background(), nil, func(name string) string { return env[name] }, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "BATCH_SCHEDULE") {
+			t.Errorf("run() error = %v, want a BATCH_SCHEDULE error", err)
 		}
 	})
 

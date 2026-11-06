@@ -11,9 +11,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
-	"syscall"
 	"time"
+
+	"github.com/ghislain95/hippo/backend/internal/childproc"
 )
 
 // Response exposes response to the tests of extraction_test.
@@ -50,11 +50,11 @@ func ReadInChild(ctx context.Context, argv []string, timeout time.Duration, resp
 
 // ChildCommandForTest builds the child of one page as the worker does, for its environment.
 func ChildCommandForTest(ctx context.Context, argv []string) *exec.Cmd {
-	cmd, err := (&pageReader{argv: argv, timeout: time.Second}).command(ctx, childRequest{}, nil, nil, io.Discard)
-	if err != nil {
-		panic(err)
+	spec, ok := (&pageReader{argv: argv, timeout: time.Second}).spec(childRequest{}, nil, nil)
+	if !ok {
+		panic("request not encoded")
 	}
-	return cmd
+	return childproc.Command(ctx, spec, io.Discard)
 }
 
 // ErrReaderStopped exposes errReaderStopped to the tests of extraction_test.
@@ -84,30 +84,29 @@ type ChildMeasure struct {
 
 // MeasureChild reads the HTML page of resp in a child run by argv and reports its memory.
 func MeasureChild(argv []string, resp Response) (ChildMeasure, error) {
-	output := &cappedBuffer{limit: maxChildOutput}
-	cmd, err := (&pageReader{argv: argv, timeout: ReadTimeout}).command(context.Background(),
-		childRequest{ContentType: resp.ContentType, URL: resp.URL.String(), Title: "t", Host: "h"}, resp.Body, nil, output)
-	if err != nil {
-		return ChildMeasure{}, err
-	}
-	_ = cmd.Run() // the exit code is the measure
-	return measure(cmd, output), nil
+	return measure(argv, childRequest{ContentType: resp.ContentType, URL: resp.URL.String(), Title: "t", Host: "h"}, resp.Body, nil)
 }
 
-func measure(cmd *exec.Cmd, output *cappedBuffer) ChildMeasure {
-	m := ChildMeasure{ExitCode: cmd.ProcessState.ExitCode()}
-	if usage, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
-		m.MaxRSS = usage.Maxrss // bytes on Darwin
-		if runtime.GOOS == "linux" {
-			m.MaxRSS *= 1024 // kilobytes on Linux
-		}
+// measure runs the child of req as the worker does, but without time limit, and reports its
+// memory.
+func measure(argv []string, req childRequest, body []byte, pdf *os.File) (ChildMeasure, error) {
+	spec, ok := (&pageReader{argv: argv, timeout: ReadTimeout}).spec(req, body, pdf)
+	if !ok {
+		return ChildMeasure{}, errors.New("request not encoded")
 	}
+	spec.Timeout = 0
+	res, err := childproc.Run(context.Background(), spec)
+	if errors.Is(err, childproc.ErrUnavailable) {
+		return ChildMeasure{}, err
+	}
+	// Any other outcome is measured: the exit code is the measure.
+	m := ChildMeasure{ExitCode: res.ExitCode, MaxRSS: res.MaxRSS}
 	var result childResult
-	if json.Unmarshal(output.Bytes(), &result) == nil {
+	if json.Unmarshal(res.Output, &result) == nil {
 		m.PeakBytes = result.PeakBytes
 		m.Mode, m.Reason = result.Mode, result.Reason
 	}
-	return m
+	return m, nil
 }
 
 // PDFTitle exposes pdfTitle to the tests of extraction_test.
@@ -145,27 +144,21 @@ func ReadPDFInChild(ctx context.Context, argv []string, timeout time.Duration, d
 // ChildPDFCommandForTest builds the child of one PDF as the worker does, for its environment
 // and descriptors.
 func ChildPDFCommandForTest(ctx context.Context, argv []string, pdf *os.File) *exec.Cmd {
-	cmd, err := (&pageReader{argv: argv, timeout: time.Second}).command(ctx, childRequest{Format: formatPDF}, nil, pdf, io.Discard)
-	if err != nil {
-		panic(err)
+	spec, ok := (&pageReader{argv: argv, timeout: time.Second}).spec(childRequest{Format: formatPDF}, nil, pdf)
+	if !ok {
+		panic("request not encoded")
 	}
-	return cmd
+	return childproc.Command(ctx, spec, io.Discard)
 }
 
 // MeasurePDFChild reads the PDF file in a child run by argv, as the worker does, and reports
 // its memory.
 func MeasurePDFChild(argv []string, file *os.File) (ChildMeasure, error) {
-	output := &cappedBuffer{limit: maxChildOutput}
 	req := childRequest{
 		URL: "https://example.com/a.pdf", Title: "t", Host: "h", Format: formatPDF,
 		DeadlineMS: int64(float64(ReadTimeout)*deadlineShare) / int64(time.Millisecond),
 	}
-	cmd, err := (&pageReader{argv: argv, timeout: ReadTimeout}).command(context.Background(), req, nil, file, output)
-	if err != nil {
-		return ChildMeasure{}, err
-	}
-	_ = cmd.Run() // the exit code is the measure
-	return measure(cmd, output), nil
+	return measure(argv, req, nil, file)
 }
 
 // CreateTempFile creates a file without name in dir as the fetcher does, and returns its
@@ -263,15 +256,9 @@ const MaxChildOutput = maxChildOutput
 // MeasureVideoChild reads the video page body for the video id in a child run by argv, as the
 // worker does, and reports its memory.
 func MeasureVideoChild(argv []string, body []byte, id string) (ChildMeasure, error) {
-	output := &cappedBuffer{limit: maxChildOutput}
 	req := childRequest{
 		ContentType: "text/html; charset=utf-8", URL: canonicalPage(id).String(), Title: "t", Host: "h",
 		Format: formatYouTube, VideoID: id,
 	}
-	cmd, err := (&pageReader{argv: argv, timeout: ReadTimeout}).command(context.Background(), req, body, nil, output)
-	if err != nil {
-		return ChildMeasure{}, err
-	}
-	_ = cmd.Run() // the exit code is the measure
-	return measure(cmd, output), nil
+	return measure(argv, req, body, nil)
 }

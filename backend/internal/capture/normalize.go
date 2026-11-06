@@ -20,7 +20,7 @@ func Normalize(rawURL string) string {
 
 	scheme, afterScheme, ok := strings.Cut(rest, "://")
 	if !ok {
-		// Unreachable for a URL validated by provisionalTitle; kept total rather than panicking.
+		// Unreachable for a URL validated by ProvisionalTitle; kept total rather than panicking.
 		return rawURL
 	}
 	authority, path := afterScheme, ""

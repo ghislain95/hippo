@@ -7,7 +7,7 @@ Binaire Go unique : API HTTP, stockage SQLite, extraction, batch nocturne ([ADR-
 - Librairie standard (`net/http`, `log/slog`) ; aucune dépendance nouvelle sans accord de Ghislain.
 - Contrat d'abord : `api/openapi.yaml`, puis `make generate`. `*.gen.go` ne s'édite jamais.
 - `user_id` dans chaque requête sur une table métier (RG-90) ; jamais d'élément privé vers l'IA (RG-12) ; budget vérifié avant chaque envoi (RG-81).
-- Handlers sans logique métier ; seul `internal/analysis` importe le SDK Anthropic (règles `depguard` de `.golangci.yml`).
+- Handlers sans logique métier ; seul `internal/analysis/anthropic` importe le SDK Anthropic, seul `internal/imagecopy` importe les décodeurs `golang.org/x/image` et `github.com/gen2brain/h265` (règles `depguard` de `.golangci.yml`).
 - Migrations : nouveau fichier `internal/store/migrations/NNNNN_<nom>.sql`, jamais la modification d'un fichier existant.
 - Logs JSON sans secret ni contenu d'élément.
 - Tests d'intégration sur vraie SQLite (`t.TempDir()`), sans réseau ; un scénario OpenSpec = un sous-test nommé d'après lui.

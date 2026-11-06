@@ -74,7 +74,10 @@ type Item struct {
 	AnalyzedAt       *time.Time
 	ReadAt           *time.Time
 	ChangeSeq        int64
-	Assets           []Asset // never nil
+	// BatchID is the batch the item was last submitted with (batches.id), nil before its first
+	// batch and after a batch that was not sent.
+	BatchID *string
+	Assets  []Asset // never nil
 }
 
 // CaptureItem stores a capture of userID, in one write transaction (RG-04, RG-08, RG-90):
@@ -314,7 +317,7 @@ type querier interface {
 const itemColumns = `id, user_id, kind, source, title, url, site_name, user_note, is_private, status,
 	extraction_mode, content_truncated, reading_minutes, content_ok, content_issue, language, freshness, model,
 	prompt_version, schema_version, user_edited, annotations, is_pinned, read_status, read_progress, attempts,
-	last_error, created_at, updated_at, extracted_at, analyzed_at, read_at, change_seq`
+	last_error, created_at, updated_at, extracted_at, analyzed_at, read_at, change_seq, batch_id`
 
 func itemByID(ctx context.Context, db querier, userID, id string) (Item, error) {
 	row := db.QueryRowContext(ctx,
@@ -363,12 +366,13 @@ func scanItem(row *sql.Row) (Item, error) {
 		contentOK                                    sql.Null[bool]
 		userEdited, createdAt, updatedAt             string
 		extractedAt, analyzedAt, readAt              sql.Null[string]
+		batchID                                      sql.Null[string]
 	)
 	err := row.Scan(&item.ID, &item.UserID, &item.Kind, &item.Source, &item.Title, &url, &siteName, &userNote,
 		&item.IsPrivate, &item.Status, &extractionMode, &item.ContentTruncated, &readingMinutes,
 		&contentOK, &contentIssue, &language, &freshness, &model, &promptVersion, &schemaVersion, &userEdited,
 		&annotations, &item.IsPinned, &item.ReadStatus, &item.ReadProgress, &item.Attempts, &lastError,
-		&createdAt, &updatedAt, &extractedAt, &analyzedAt, &readAt, &item.ChangeSeq)
+		&createdAt, &updatedAt, &extractedAt, &analyzedAt, &readAt, &item.ChangeSeq, &batchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
 	}
@@ -380,7 +384,7 @@ func scanItem(row *sql.Row) (Item, error) {
 	item.ExtractionMode, item.ContentIssue, item.Language = ptr(extractionMode), ptr(contentIssue), ptr(language)
 	item.Freshness, item.Model, item.Annotations, item.LastError = ptr(freshness), ptr(model), ptr(annotations), ptr(lastError)
 	item.ReadingMinutes, item.PromptVersion, item.SchemaVersion = ptr(readingMinutes), ptr(promptVersion), ptr(schemaVersion)
-	item.ContentOK = ptr(contentOK)
+	item.ContentOK, item.BatchID = ptr(contentOK), ptr(batchID)
 
 	if err := json.Unmarshal([]byte(userEdited), &item.UserEdited); err != nil {
 		return Item{}, fmt.Errorf("read item %s: user_edited: %w", item.ID, err)
