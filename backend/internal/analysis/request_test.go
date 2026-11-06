@@ -32,6 +32,16 @@ func sameJSON(t *testing.T, a, b []byte) bool {
 	return bytes.Equal(ja, jb)
 }
 
+// toolSchema is the bundled schema as the tool's input schema, without $schema nor x- keywords.
+func toolSchema(t *testing.T) []byte {
+	t.Helper()
+	s, err := prompt.ToolSchema(schema.ClassifyItem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 // text is the text of the only text block of a request, which comes first.
 func (r request) text(t *testing.T) string {
 	t.Helper()
@@ -68,7 +78,7 @@ func TestRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(p.Tools) != 1 || p.Tools[0].Name != "classify_item" || p.Tools[0].Description != want.ToolDescription ||
-			!sameJSON(t, p.Tools[0].InputSchema, schema.ClassifyItem) {
+			!sameJSON(t, p.Tools[0].InputSchema, toolSchema(t)) {
 			t.Errorf("tools are not the single classify_item tool with the bundled schema: %d tools", len(p.Tools))
 		}
 		if len(p.ToolChoice) != 2 || p.ToolChoice["type"] != "tool" || p.ToolChoice["name"] != "classify_item" {

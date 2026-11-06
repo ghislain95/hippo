@@ -126,12 +126,12 @@ Before building a user's batch, the pass SHALL check in this order, and send not
 - **THEN** the batch is sent
 
 ### Requirement: Each request follows the prompt contract
-Each request SHALL carry the item id as `custom_id`, the configured model, the forced `classify_item` tool with the bundled schema, then a system made of the fixed part of the prompt and the référentiel, with a cache point after the référentiel, then one user message for the item. The output cap SHALL be 4000 tokens, or 8000 for an item whose cut response was already retried once. The référentiel SHALL be identical in every request of a batch (RG-34, RG-36, RG-52, ADR-0005, ADR-0006).
+Each request SHALL carry the item id as `custom_id`, the configured model, the forced `classify_item` tool with the bundled schema as its input schema (without its `$schema` keyword nor its `x-*` extension keywords), then a system made of the fixed part of the prompt and the référentiel, with a cache point after the référentiel, then one user message for the item. The output cap SHALL be 4000 tokens, or 8000 for an item whose cut response was already retried once. The référentiel SHALL be identical in every request of a batch (RG-34, RG-36, RG-52, ADR-0005, ADR-0006).
 
 #### Scenario: A request carries the tool, the system and the item
 - **GIVEN** one `extracted` public link item of the user
 - **WHEN** the pass runs
-- **THEN** its request has `custom_id` equal to the item id, the model `claude-haiku-4-5`, the single tool `classify_item` with the bundled schema as input schema and forced by `tool_choice`, a system of two text blocks (the fixed part of the prompt, then the référentiel with a cache point), one user message, and an output cap of 4000
+- **THEN** its request has `custom_id` equal to the item id, the model `claude-haiku-4-5`, the single tool `classify_item` with the bundled schema, without its `$schema` and `x-*` keywords, as input schema and forced by `tool_choice`, a system of two text blocks (the fixed part of the prompt, then the référentiel with a cache point), one user message, and an output cap of 4000
 
 #### Scenario: A retried cut response gets the doubled cap
 - **GIVEN** an `extracted` public item marked as already retried after a cut response
@@ -246,15 +246,15 @@ Before the send, one transaction SHALL move the selected items still `extracted`
 - **THEN** it is `submitted` with `attempts` 1
 
 ### Requirement: A refused send puts the items back
-When the AI service answers the send with an error, the items SHALL go back to `extracted` without any attempt counted, with a greater `change_seq`, and the batch SHALL be recorded as failed (RG-30, RG-35).
+When the AI service answers the send with a client error status (4xx), the items SHALL go back to `extracted` without any attempt counted, with a greater `change_seq`, and the batch SHALL be recorded as failed (RG-30, RG-35).
 
 #### Scenario: The service refuses the batch
-- **GIVEN** two `extracted` public items and an AI service that answers the send with an error status
+- **GIVEN** two `extracted` public items and an AI service that answers the send with a client error status (4xx)
 - **WHEN** the pass runs
 - **THEN** both items are `extracted` again with their previous `attempts` and a greater `change_seq`, and the batch is failed
 
 ### Requirement: A send whose outcome is unknown is reconciled
-When the send gets no answer (timeout, lost connection, stop of the backend, crash), the batch SHALL stay pending with its items `submitted`. At start-up and at the start of each pass, a pending batch SHALL be matched with the batches the AI service holds for the key: exactly one unrecorded batch created around its creation with the same number of requests is adopted; otherwise its items go back to `extracted` and the batch is failed, and this is logged as a possible double send (RG-30).
+When the send gets no answer (timeout, lost connection, stop of the backend during the send, crash) or a server error status (5xx), the batch SHALL stay pending with its items `submitted`. At start-up and at the start of each pass, a pending batch SHALL be matched with the batches the AI service holds for the key: exactly one unrecorded batch created around its creation with the same number of requests is adopted; otherwise its items go back to `extracted` and the batch is failed, and this is logged as a possible double send (RG-30).
 
 #### Scenario: A lost answer is matched at the next start
 - **GIVEN** a batch sent by the backend, accepted by the AI service, whose answer was lost, and the backend restarted
@@ -272,7 +272,7 @@ When the send gets no answer (timeout, lost connection, stop of the backend, cra
 - **THEN** no batch is sent and a log line gives the reason `cost_pending`
 
 ### Requirement: A private item is never sent to the AI
-No request of any batch SHALL contain a private item, its id or any of its content, whatever its status, including an item checked Privé after the pass selected it and before its items are submitted; such an item SHALL stay `extracted`. A private item reaching the request building SHALL stop the user's batch, sending nothing (RG-12, ADR-0023).
+No request of any batch SHALL contain a private item, its id or any of its content, whatever its status, including an item checked Privé after the pass selected it and before its items are submitted; such an item SHALL stay `extracted`. An item checked Privé after its items were submitted and before the batch is sent SHALL cancel the send: the batch is failed, its items are back to `extracted`, and nothing is sent. A private item reaching the request building SHALL stop the user's batch, sending nothing (RG-12, ADR-0023).
 
 #### Scenario: Private items at every status are never sent
 - **GIVEN** private items of the user in each status `queued`, `extracted`, `submitted`, `analyzed` and `failed`, with distinctive titles, notes and contents, and one `extracted` public item
@@ -283,6 +283,11 @@ No request of any batch SHALL contain a private item, its id or any of its conte
 - **GIVEN** two `extracted` public items, one of which is checked Privé after the pass selected it and before the submission
 - **WHEN** the pass sends its batch
 - **THEN** the batch holds only the other item's request, and the item made private is still `extracted`
+
+#### Scenario: An item made private after submission and before the send cancels the send
+- **GIVEN** two `extracted` public items selected and submitted by the pass, one of which is checked Privé before the batch is sent
+- **WHEN** the pass is about to send its batch
+- **THEN** the AI service receives nothing, the batch is `failed`, and both items are back to `extracted`
 
 #### Scenario: A private item reaching the request building stops the batch
 - **GIVEN** a request building handed a private item

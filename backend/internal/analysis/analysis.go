@@ -13,6 +13,13 @@
 //     under its byte limit (RG-32), refuses a private item (RG-12), and assembles the body of
 //     the items the submission actually moved.
 //
+// The nightly pass (Pass, design.md D3, D7, D8) runs, for each user: the reconciliation of
+// the batches whose send has an unknown outcome, the guards in their order (an API key, no
+// batch without a recorded cost, the Paris month's spend below the budget: RG-81, ADR-0021),
+// the selection, the requests, the submission transaction that re-reads each item (RG-12), and
+// one send through the Analyzer, never retried. The Anthropic SDK hides behind Analyzer, in
+// internal/analysis/anthropic (ADR-0005); tests use analysistest.
+//
 // No item content reaches a log nor an error: only ids, counts and reason classes (RG-92,
 // ADR-0027).
 package analysis

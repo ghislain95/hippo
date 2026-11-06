@@ -152,6 +152,28 @@ func TestItemEditing(t *testing.T) {
 				t.Errorf("stored item private %v, %s; want public and failed", stored.IsPrivate, stored.Status)
 			}
 		})
+
+		t.Run("A submitted item made private stays submitted", func(t *testing.T) {
+			f := newFixture(t)
+			id := f.newLink(t, testToken, false)
+			ctx := context.Background()
+			written, err := f.store.WriteExtraction(ctx, f.userID, id, store.Extraction{Mode: "fallback"})
+			if err != nil || !written {
+				t.Fatalf("WriteExtraction = %v, %v; want the item extracted", written, err)
+			}
+			batchID, moved, err := f.store.SubmitBatch(ctx, f.userID,
+				store.NewBatch{Model: "claude-haiku-4-5", PromptVersion: 3, EnvelopeVersion: 1}, []string{id})
+			if err != nil || len(moved) != 1 {
+				t.Fatalf("SubmitBatch = %v, %v; want the item submitted", moved, err)
+			}
+			_, item := capturedItem(t, f.patchItem(t, testToken, id, `{"is_private": true}`), http.StatusOK)
+			assertMembers(t, item, map[string]any{"is_private": true, "status": "submitted"})
+			stored := f.storedItem(t, f.userID, id)
+			if !stored.IsPrivate || stored.Status != "submitted" || stored.BatchID == nil || *stored.BatchID != batchID {
+				t.Errorf("stored item private %v, %s, batch %v; want private, submitted with batch %s",
+					stored.IsPrivate, stored.Status, stored.BatchID, batchID)
+			}
+		})
 	})
 
 	t.Run("Only the owner can change an item", func(t *testing.T) {

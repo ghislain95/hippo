@@ -8,10 +8,12 @@
 package prompt
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ghislain95/hippo/backend/internal/analysis/schema"
 )
@@ -31,7 +33,8 @@ type Prompt struct {
 	// ToolDescription is the description of the classify_item tool: the root description of
 	// its schema.
 	ToolDescription string
-	// InputSchema is the bundled classify_item schema, as embedded.
+	// InputSchema is the bundled classify_item schema as the tool's input schema: the embedded
+	// bundle without its "$schema" keyword nor any "x-*" keyword, at any depth (ToolSchema).
 	InputSchema json.RawMessage
 }
 
@@ -68,11 +71,102 @@ func load(promptCopy, bundled []byte) (Prompt, error) {
 	if root.Description == "" {
 		return Prompt{}, errors.New("read the embedded classify_item schema: no description at its root")
 	}
+	input, err := ToolSchema(bundled)
+	if err != nil {
+		return Prompt{}, fmt.Errorf("read the embedded classify_item schema: %w", err)
+	}
 	return Prompt{
 		Version:         copied.PromptVersion,
 		Fixed:           copied.Fixed,
 		EnvelopeVersion: *root.SchemaVersion,
 		ToolDescription: root.Description,
-		InputSchema:     json.RawMessage(bundled),
+		InputSchema:     input,
 	}, nil
+}
+
+// ToolSchema returns the JSON Schema bundled as the input schema of a tool: the API promises
+// only « a JSON Schema object », so the "$schema" keyword (the dialect) and every extension
+// keyword "x-*" (x-schema-version, Hippo's own) are left out, at any depth. Everything else
+// keeps its meaning: $defs, $ref, title, description, every constraint. Only keywords go: a
+// property or a definition named "x-…" stays, and the values of enum, const, default and
+// examples are data, copied as they are. Keys come out sorted (encoding/json), numbers as
+// written.
+func ToolSchema(bundled []byte) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(bundled))
+	dec.UseNumber()
+	var root any
+	if err := dec.Decode(&root); err != nil {
+		return nil, fmt.Errorf("tool schema: %w", err)
+	}
+	if _, ok := root.(map[string]any); !ok {
+		return nil, errors.New("tool schema: the schema is not an object")
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(toolSchema(root)); err != nil {
+		return nil, fmt.Errorf("tool schema: %w", err)
+	}
+	return json.RawMessage(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))), nil
+}
+
+// toolSchema strips a schema (an object) of its "$schema" and "x-*" keywords, and recurses into
+// its subschemas.
+func toolSchema(node any) any {
+	switch v := node.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, value := range v {
+			switch {
+			case key == "$schema" || strings.HasPrefix(key, "x-"):
+				// left out
+			case namedSchemas(key):
+				out[key] = schemaMap(value)
+			case dataKeyword(key):
+				out[key] = value
+			default:
+				out[key] = toolSchema(value)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, value := range v {
+			out[i] = toolSchema(value)
+		}
+		return out
+	default:
+		return node
+	}
+}
+
+// schemaMap strips each schema of a map of names to schemas, keeping every name.
+func schemaMap(node any) any {
+	m, ok := node.(map[string]any)
+	if !ok {
+		return node
+	}
+	out := make(map[string]any, len(m))
+	for name, value := range m {
+		out[name] = toolSchema(value)
+	}
+	return out
+}
+
+// namedSchemas tells whether the value of key maps names (never keywords) to schemas.
+func namedSchemas(key string) bool {
+	switch key {
+	case "$defs", "definitions", "properties", "patternProperties", "dependentSchemas":
+		return true
+	}
+	return false
+}
+
+// dataKeyword tells whether the value of key is data, not a schema.
+func dataKeyword(key string) bool {
+	switch key {
+	case "enum", "const", "default", "examples":
+		return true
+	}
+	return false
 }

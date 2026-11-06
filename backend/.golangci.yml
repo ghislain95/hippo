@@ -33,10 +33,10 @@ linters:
         anthropic-only-in-analysis:
           files:
             - "$all"
-            - "!**/internal/analysis/**"
+            - "!**/internal/analysis/anthropic/**"
           deny:
             - pkg: github.com/anthropics/anthropic-sdk-go
-              desc: only internal/analysis talks to the Anthropic API, behind the Analyzer interface (ADR-0005)
+              desc: only internal/analysis/anthropic talks to the Anthropic API, behind the analysis.Analyzer interface (ADR-0005)
         store-knows-no-transport:
           files:
             - "**/internal/store/**"

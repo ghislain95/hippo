@@ -51,6 +51,18 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	st, path := storetest.OpenWithPath(t)
+	return newEnvOn(t, st, path)
+}
+
+// newEnvWithClock is newEnv with a store that reads the time from now.
+func newEnvWithClock(t *testing.T, now func() time.Time) *env {
+	t.Helper()
+	st, path := storetest.OpenWithClock(t, now)
+	return newEnvOn(t, st, path)
+}
+
+func newEnvOn(t *testing.T, st *store.Store, path string) *env {
+	t.Helper()
 	assetDir := filepath.Join(t.TempDir(), "assets")
 	if err := os.MkdirAll(assetDir, 0o750); err != nil {
 		t.Fatal(err)
@@ -122,6 +134,12 @@ func (e *env) note(t *testing.T, userID, text string) string {
 // returns the item id and the path of the stored file.
 func (e *env) image(t *testing.T, userID string, content []byte, mime string, userNote *string) (string, string) {
 	t.Helper()
+	return e.imageWith(t, userID, content, mime, userNote, false)
+}
+
+// imageWith is image, private when private is set.
+func (e *env) imageWith(t *testing.T, userID string, content []byte, mime string, userNote *string, private bool) (string, string) {
+	t.Helper()
 	id, err := e.st.NewID()
 	if err != nil {
 		t.Fatalf("NewID: %v", err)
@@ -136,7 +154,7 @@ func (e *env) image(t *testing.T, userID string, content []byte, mime string, us
 		t.Fatal(err)
 	}
 	itemID := e.capture(t, userID, store.NewItem{
-		Kind: "image", Source: "share", Status: "queued", UserNote: userNote,
+		Kind: "image", Source: "share", Status: "queued", UserNote: userNote, IsPrivate: private,
 		TitleAt: func(now time.Time) string { return "Image du " + now.Format(time.DateOnly) },
 		Asset:   &store.NewAsset{ID: id, Path: rel, MimeType: mime, SizeBytes: int64(len(content))},
 	}, store.Extraction{Mode: "none"})
