@@ -272,7 +272,7 @@ When the send gets no answer (timeout, lost connection, stop of the backend duri
 - **THEN** no batch is sent and a log line gives the reason `cost_pending`
 
 ### Requirement: A private item is never sent to the AI
-No request of any batch SHALL contain a private item, its id or any of its content, whatever its status, including an item checked Privé after the pass selected it and before its items are submitted; such an item SHALL stay `extracted`. An item checked Privé after its items were submitted and before the batch is sent SHALL cancel the send: the batch is failed, its items are back to `extracted`, and nothing is sent. A private item reaching the request building SHALL stop the user's batch, sending nothing (RG-12, ADR-0023).
+No request of any batch SHALL contain a private item, its id or any of its content, whatever its status, including an item checked Privé after the pass selected it and before its items are submitted; such an item SHALL stay `extracted`. An item checked Privé after its items were submitted and before the batch is sent SHALL be left out of the send: it is back to `extracted` without batch, and the batch is sent the same night with the other items only, or not at all when none is left. A private item reaching the request building SHALL stop the user's batch, sending nothing (RG-12, ADR-0023).
 
 #### Scenario: Private items at every status are never sent
 - **GIVEN** private items of the user in each status `queued`, `extracted`, `submitted`, `analyzed` and `failed`, with distinctive titles, notes and contents, and one `extracted` public item
@@ -284,8 +284,13 @@ No request of any batch SHALL contain a private item, its id or any of its conte
 - **WHEN** the pass sends its batch
 - **THEN** the batch holds only the other item's request, and the item made private is still `extracted`
 
-#### Scenario: An item made private after submission and before the send cancels the send
+#### Scenario: An item made private after submission and before the send is left out of the send
 - **GIVEN** two `extracted` public items selected and submitted by the pass, one of which is checked Privé before the batch is sent
+- **WHEN** the pass sends its batch
+- **THEN** the AI service receives a batch with only the other item's request, no byte of it contains the private item's id, title or content, the private item is back to `extracted` without batch, and the other item is `submitted`
+
+#### Scenario: When every item of the batch is made private, nothing is sent
+- **GIVEN** two `extracted` public items selected and submitted by the pass, both checked Privé before the batch is sent
 - **WHEN** the pass is about to send its batch
 - **THEN** the AI service receives nothing, the batch is `failed`, and both items are back to `extracted`
 

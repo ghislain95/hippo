@@ -84,12 +84,15 @@ type PassConfig struct {
 	// ListTimeout bounds the list of a reconciliation; zero or less means DefaultListTimeout.
 	ListTimeout time.Duration
 
-	// selected, beforeSubmit and afterSubmit are test hooks (export_test.go): the first replaces
+	// selected, beforeSubmit, afterSubmit and beforeRewrite are test hooks (export_test.go): the first replaces
 	// the selection handed to the request building, the second runs between the request
 	// building and the submission transaction, the third right after that transaction.
 	selected     func(userID string, queue []store.AnalysisQueueItem) []store.AnalysisQueueItem
 	beforeSubmit func(ctx context.Context, userID string, ids []string)
 	afterSubmit  func(ctx context.Context, userID, batchID string)
+	// beforeRewrite runs before each rewrite of the body after items were left out; its error
+	// fails the rewrite (test hook).
+	beforeRewrite func(ctx context.Context, userID, batchID string) error
 }
 
 // Pass is the nightly analysis pass (RG-30 to RG-32, RG-81, design.md D2, D3, D7, D8): for
@@ -388,6 +391,50 @@ func (p *Pass) send(ctx context.Context, line *userPass, reqs *Requests, moved [
 	}
 	line.bodyBytes = size
 
+	// Last check before the send: an item checked Privé since the submission is left out of
+	// the batch, back to extracted, and the body is assembled again from the remaining ids, so
+	// that item_count is the number of requests sent; the others go the same night. Repeated
+	// until a round leaves nothing out, so that an item checked Privé during a rewrite is left
+	// out too: the window left is the upload itself. When none is left, nothing is sent (RG-12,
+	// RG-14, design.md D7, D11).
+	// The loop ends: each round that goes on leaves out at least one item of a batch of at most
+	// 200, and a batch left empty is failed.
+	for {
+		dropped, remaining, err := p.cfg.Store.DropPrivateFromBatch(ctx, userID, batchID)
+		if err != nil {
+			putBack()
+			line.outcome, line.level, line.err = outcomeFailed, slog.LevelError, err
+			if ctx.Err() != nil {
+				line.outcome, line.level = outcomeStopped, slog.LevelWarn
+			}
+			return
+		}
+		if len(dropped) == 0 {
+			break
+		}
+		p.cfg.Logger.Warn("analysis pass: items made private before the send left out",
+			slog.String("user_id", userID), slog.String("batch_id", batchID), slog.String("outcome", outcomePrivateAfter),
+			slog.Int("removed", len(dropped)), slog.Int("remaining", len(remaining)))
+		line.submitted = len(remaining)
+		if len(remaining) == 0 {
+			// The batch is failed by the same transaction: nothing is sent.
+			line.outcome, line.level, line.bodyBytes = outcomePrivateAfter, slog.LevelWarn, 0
+			return
+		}
+		if p.cfg.beforeRewrite != nil {
+			err = p.cfg.beforeRewrite(ctx, userID, batchID)
+		}
+		if err == nil {
+			size, err = rewriteBody(reqs, bodyW, remaining)
+		}
+		if err != nil {
+			putBack()
+			line.outcome, line.level, line.err = outcomeStorage, slog.LevelError, err
+			return
+		}
+		line.bodyBytes = size
+	}
+
 	// A pass stopped before the send sends nothing: the items go back rather than wait for a
 	// reconciliation that would report a possible double send.
 	if err := ctx.Err(); err != nil {
@@ -396,17 +443,6 @@ func (p *Pass) send(ctx context.Context, line *userPass, reqs *Requests, moved [
 		return
 	}
 
-	// Last check before the send: an item checked Privé since the submission stops the whole
-	// batch, which is not sent (RG-12, design.md D7, D11). The window left is the upload itself.
-	private, err := p.cfg.Store.PrivateInBatch(ctx, userID, batchID)
-	if err != nil || private > 0 {
-		putBack()
-		line.outcome, line.level, line.err = outcomePrivateAfter, slog.LevelWarn, err
-		if err != nil {
-			line.outcome, line.level = outcomeFailed, slog.LevelError
-		}
-		return
-	}
 	sendCtx, cancel := context.WithTimeout(ctx, p.cfg.SendTimeout)
 	ref, err := p.cfg.Analyzer.CreateBatch(sendCtx, io.NewSectionReader(bodyR, 0, size), size)
 	cancel()
@@ -442,6 +478,17 @@ func (p *Pass) send(ctx context.Context, line *userPass, reqs *Requests, moved [
 			line.status, line.errorType = server.Status, server.Type
 		}
 	}
+}
+
+// rewriteBody empties the body file w and writes in it the body of ids, from the segments.
+func rewriteBody(reqs *Requests, w *os.File, ids []string) (int64, error) {
+	if err := w.Truncate(0); err != nil {
+		return 0, fmt.Errorf("%w: truncate body: %w", errStorage, pathless(err))
+	}
+	if _, err := w.Seek(0, io.SeekStart); err != nil {
+		return 0, fmt.Errorf("%w: rewind body: %w", errStorage, pathless(err))
+	}
+	return reqs.WriteBody(w, ids)
 }
 
 // closeFiles closes the two ends of an unnamed temporary file; its data goes with them.

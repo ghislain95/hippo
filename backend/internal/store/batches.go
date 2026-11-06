@@ -310,15 +310,89 @@ func (s *Store) WaitingCount(ctx context.Context, userID string) (int, error) {
 	return count, nil
 }
 
-// PrivateInBatch counts the items of userID still submitted with batchID that are private: an
-// item checked Privé after the submission, before the send, which the pass checks right before
-// sending (RG-12, design.md D7, D11).
-func (s *Store) PrivateInBatch(ctx context.Context, userID, batchID string) (int, error) {
-	var count int
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM items WHERE user_id = ? AND batch_id = ? AND status = 'submitted' AND is_private = 1`,
-		userID, batchID).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count private items of batch %s: %w", batchID, err)
+// DropPrivateFromBatch leaves out of the pending batch batchID of userID its items checked
+// Privé since the submission, in one write transaction (RG-12, design.md D7, D11): each goes
+// back to extracted without batch, with a new updated_at and change_seq, its attempts
+// unchanged, and the batch's item_count becomes the number of items still submitted with it.
+// When none remains, the batch is failed in the same transaction (nothing is sent). It returns
+// the ids left out and the ids remaining, both in id order (the order of the submission): the
+// body is built from the remaining ids, so that item_count is the number of requests sent.
+// Nothing is written when no item was made private. It returns ErrNotFound when the user has no
+// pending batch of this id.
+func (s *Store) DropPrivateFromBatch(ctx context.Context, userID, batchID string) (dropped, remaining []string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
 	}
-	return count, nil
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+
+	var pending bool
+	if err := tx.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM batches WHERE user_id = ? AND id = ? AND status = 'pending')`,
+		userID, batchID).Scan(&pending); err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+	}
+	if !pending {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: no pending batch: %w", batchID, ErrNotFound)
+	}
+	dropped, err = queryIDs(ctx, tx,
+		`SELECT id FROM items WHERE user_id = ? AND batch_id = ? AND status = 'submitted' AND is_private = 1 ORDER BY id`,
+		userID, batchID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+	}
+	remaining, err = queryIDs(ctx, tx,
+		`SELECT id FROM items WHERE user_id = ? AND batch_id = ? AND status = 'submitted' AND is_private = 0 ORDER BY id`,
+		userID, batchID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+	}
+	if len(dropped) == 0 {
+		return nil, remaining, nil
+	}
+	date := s.now().UTC().Format(TimeLayout)
+	for _, id := range dropped {
+		seq, err := nextChangeSeq(ctx, tx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE items SET status = 'extracted', batch_id = NULL, updated_at = ?, change_seq = ?
+			 WHERE user_id = ? AND id = ? AND batch_id = ? AND status = 'submitted'`,
+			date, seq, userID, id, batchID); err != nil {
+			return nil, nil, fmt.Errorf("drop private items of batch %s: item %s: %w", batchID, id, err)
+		}
+	}
+	// item_count is between 1 and 200 (CHECK): a batch left empty keeps its count and fails.
+	update := `UPDATE batches SET item_count = ? WHERE user_id = ? AND id = ? AND status = 'pending'`
+	args := []any{len(remaining), userID, batchID}
+	if len(remaining) == 0 {
+		update = `UPDATE batches SET status = 'failed' WHERE user_id = ? AND id = ? AND status = 'pending'`
+		args = args[1:]
+	}
+	if _, err := tx.ExecContext(ctx, update, args...); err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, fmt.Errorf("drop private items of batch %s: %w", batchID, err)
+	}
+	return dropped, remaining, nil
+}
+
+// queryIDs returns the first column of the rows of query, as strings.
+func queryIDs(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }() // read only: rows.Err below reports what matters
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

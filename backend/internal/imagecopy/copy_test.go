@@ -326,3 +326,15 @@ func TestNewCopier(t *testing.T) {
 		t.Errorf("timeout 1s becomes %v", got)
 	}
 }
+
+func TestGuardOf(t *testing.T) {
+	req := defaultRequest()
+	hard, soft, every := guardOf(req)
+	if hard != ChildMemoryLimit || soft != 200<<20 || every != 10*time.Millisecond {
+		t.Errorf("guard %d, %d, every %v; want 256 MiB, 200 MiB, every 10 ms", hard, soft, every)
+	}
+	req.MemoryLimit = 16 << 20
+	if hard, soft, _ := guardOf(req); hard != 16<<20 || soft != 25<<19 {
+		t.Errorf("guard %d, %d for a request of 16 MiB; want 16 MiB, 12.5 MiB", hard, soft)
+	}
+}

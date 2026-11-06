@@ -40,3 +40,9 @@ func MatchPending(pending []store.Batch, listed []BatchInfo, recorded map[string
 func WithAfterSubmit(cfg *PassConfig, hook func(ctx context.Context, userID, batchID string)) {
 	cfg.afterSubmit = hook
 }
+
+// WithBeforeRewrite runs hook before each rewrite of the body after items made private were
+// left out; its error fails the rewrite (RG-12 and D7 tests).
+func WithBeforeRewrite(cfg *PassConfig, hook func(ctx context.Context, userID, batchID string) error) {
+	cfg.beforeRewrite = hook
+}

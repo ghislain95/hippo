@@ -383,25 +383,110 @@ func TestWaitingCount(t *testing.T) {
 	})
 }
 
-func TestPrivateInBatch(t *testing.T) {
-	t.Run("counts the user's submitted items of the batch made private", func(t *testing.T) {
-		st, _, _, users, items := twoUsers(t)
-		ctx := context.Background()
+func TestDropPrivateFromBatch(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("leaves out the items made private and lowers the item count", func(t *testing.T) {
+		st, _, clock, users, items := twoUsers(t)
+		otherBatch, _, err := st.SubmitBatch(ctx, users[1], testBatch, items[1])
+		if err != nil {
+			t.Fatal(err)
+		}
 		batchID, _, err := st.SubmitBatch(ctx, users[0], testBatch, items[0])
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n, err := st.PrivateInBatch(ctx, users[0], batchID); err != nil || n != 0 {
-			t.Errorf("PrivateInBatch = %d, %v; want 0", n, err)
-		}
 		if _, err := st.SetPrivate(ctx, users[0], items[0][1], true); err != nil {
 			t.Fatal(err)
 		}
-		if n, err := st.PrivateInBatch(ctx, users[0], batchID); err != nil || n != 1 {
-			t.Errorf("PrivateInBatch = %d, %v; want 1", n, err)
+		if _, err := st.SetPrivate(ctx, users[1], items[1][0], true); err != nil {
+			t.Fatal(err)
 		}
-		if n, err := st.PrivateInBatch(ctx, users[1], batchID); err != nil || n != 0 {
-			t.Errorf("PrivateInBatch of another user = %d, %v; want 0", n, err)
+		before := item(t, st, users[0], items[0][1])
+		clock.Advance(time.Minute)
+
+		dropped, remaining, err := st.DropPrivateFromBatch(ctx, users[0], batchID)
+		if err != nil || fmt.Sprint(dropped) != fmt.Sprint(items[0][1:]) || fmt.Sprint(remaining) != fmt.Sprint(items[0][:1]) {
+			t.Fatalf("DropPrivateFromBatch = %v, %v, %v; want [%s], [%s]", dropped, remaining, err, items[0][1], items[0][0])
+		}
+		after := item(t, st, users[0], items[0][1])
+		if after.Status != "extracted" || after.BatchID != nil || after.ChangeSeq <= before.ChangeSeq ||
+			!after.UpdatedAt.After(before.UpdatedAt) || after.Attempts != before.Attempts || !after.IsPrivate {
+			t.Errorf("dropped item = %s, batch %v, seq %d→%d, attempts %d", after.Status, after.BatchID, before.ChangeSeq, after.ChangeSeq, after.Attempts)
+		}
+		if kept := item(t, st, users[0], items[0][0]); kept.Status != "submitted" || kept.BatchID == nil || *kept.BatchID != batchID {
+			t.Errorf("kept item = %s, batch %v; want submitted with %s", kept.Status, kept.BatchID, batchID)
+		}
+		if b := batches(t, st, users[0]); b[0].Status != store.BatchPending || b[0].ItemCount != 1 {
+			t.Errorf("batch = %+v, want pending with 1 item", b[0])
+		}
+		// The other user's batch and private item are untouched (RG-90).
+		if it := item(t, st, users[1], items[1][0]); it.Status != "submitted" {
+			t.Errorf("the other user's item is %s, want submitted", it.Status)
+		}
+		if b := batches(t, st, users[1]); b[0].ID != otherBatch || b[0].ItemCount != 2 {
+			t.Errorf("the other user's batch = %+v, want 2 items", b[0])
+		}
+		if _, _, err := st.DropPrivateFromBatch(ctx, users[1], batchID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("DropPrivateFromBatch of another user's batch = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("writes nothing when no item was made private", func(t *testing.T) {
+		st, _, _, users, items := twoUsers(t)
+		batchID, _, err := st.SubmitBatch(ctx, users[0], testBatch, items[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq := store.SequenceForTest(t, st)
+		dropped, remaining, err := st.DropPrivateFromBatch(ctx, users[0], batchID)
+		if err != nil || len(dropped) != 0 || fmt.Sprint(remaining) != fmt.Sprint(items[0]) || store.SequenceForTest(t, st) != seq {
+			t.Errorf("DropPrivateFromBatch = %v, %v, %v; want nothing written, both remaining", dropped, remaining, err)
+		}
+	})
+
+	t.Run("fails a batch whose items were all made private", func(t *testing.T) {
+		st, _, _, users, items := twoUsers(t)
+		batchID, _, err := st.SubmitBatch(ctx, users[0], testBatch, items[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range items[0] {
+			if _, err := st.SetPrivate(ctx, users[0], id, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		dropped, remaining, err := st.DropPrivateFromBatch(ctx, users[0], batchID)
+		if err != nil || len(dropped) != 2 || len(remaining) != 0 {
+			t.Fatalf("DropPrivateFromBatch = %v, %v, %v; want 2 dropped, none remaining", dropped, remaining, err)
+		}
+		if b := batches(t, st, users[0]); b[0].Status != store.BatchFailed {
+			t.Errorf("batch is %s, want failed", b[0].Status)
+		}
+		for _, id := range items[0] {
+			if it := item(t, st, users[0], id); it.Status != "extracted" || it.BatchID != nil {
+				t.Errorf("item %s = %s, batch %v; want extracted without batch", id, it.Status, it.BatchID)
+			}
+		}
+	})
+
+	t.Run("refuses a batch that is not pending", func(t *testing.T) {
+		st, _, _, users, items := twoUsers(t)
+		batchID, _, err := st.SubmitBatch(ctx, users[0], testBatch, items[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.MarkBatchSent(ctx, users[0], batchID, "msgbatch_01"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SetPrivate(ctx, users[0], items[0][0], true); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.DropPrivateFromBatch(ctx, users[0], batchID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("DropPrivateFromBatch of a batch in progress = %v, want ErrNotFound", err)
+		}
+		if it := item(t, st, users[0], items[0][0]); it.Status != "submitted" {
+			t.Errorf("item is %s, want submitted: the batch is sent", it.Status)
 		}
 	})
 }

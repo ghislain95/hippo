@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/childproc"
 )
@@ -22,7 +23,8 @@ func RunChild(stdin io.Reader, stdout io.Writer) int {
 	if json.Unmarshal(line, &req) != nil || !req.valid() {
 		return childproc.ExitInput
 	}
-	watch := childproc.Guard(req.MemoryLimit, req.MemoryLimit/softLimitDen*softLimitNum)
+	hard, soft, every := guardOf(req)
+	watch := childproc.GuardEvery(hard, soft, every)
 	defer watch.Stop()
 
 	asset := os.NewFile(assetDescriptor, "asset")
@@ -48,4 +50,10 @@ func RunChild(stdin io.Reader, stdout io.Writer) int {
 		return exitOutput
 	}
 	return 0
+}
+
+// guardOf is the guard of the child for req: the memory limit of the request, the soft limit
+// at its share, and a sample every watchInterval.
+func guardOf(req request) (hard, soft uint64, every time.Duration) {
+	return req.MemoryLimit, req.MemoryLimit / softLimitDen * softLimitNum, watchInterval
 }

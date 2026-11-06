@@ -1048,14 +1048,62 @@ func TestPassSendOutcomes(t *testing.T) {
 }
 
 func TestPassPrivateAfterSubmit(t *testing.T) {
-	t.Run("An item made private after submission and before the send cancels the send", func(t *testing.T) {
+	t.Run("An item made private after submission and before the send is left out of the send", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		private := e.link(t, userID, "https://example.com/late-private-6b0e", ptr("NOTE-LATE-PRIVATE-6b0e"), store.Extraction{
+			Mode: "full", Title: ptr("TITLE-LATE-PRIVATE-6b0e"), ContentText: ptr("CONTENT-LATE-PRIVATE-6b0e"),
+		})
+		other := e.link(t, userID, "https://example.com/other", nil, full)
+		cfg := e.passConfig(t)
+		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) {
+			if it := e.item(t, user, private); it.Status != "submitted" {
+				t.Errorf("the item is %s at the hook, want submitted", it.Status)
+			}
+			if _, err := e.st.SetPrivate(ctx, user, private, true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+		})
+		e.run(t, cfg)
+
+		bodies := e.ai.Bodies()
+		if len(bodies) != 1 || fmt.Sprint(bodies[0].IDs()) != fmt.Sprint([]string{other}) {
+			t.Fatalf("sent %v in %d bodies, want one batch with only %s", e.sentIDs(), len(bodies), other)
+		}
+		for _, secret := range []string{private, "late-private-6b0e", "NOTE-LATE-PRIVATE", "TITLE-LATE-PRIVATE", "CONTENT-LATE-PRIVATE"} {
+			if bytes.Contains(bodies[0].Raw, []byte(secret)) {
+				t.Errorf("the body contains %q", secret)
+			}
+		}
+		if it := e.item(t, userID, private); it.Status != "extracted" || it.BatchID != nil || !it.IsPrivate {
+			t.Errorf("the private item is %s with batch %v, want extracted without batch", it.Status, it.BatchID)
+		}
+		b := e.batches(t, userID)
+		if len(b) != 1 || b[0].Status != store.BatchInProgress || b[0].ItemCount != 1 {
+			t.Fatalf("batches = %+v, want one in progress with 1 item", b)
+		}
+		if it := e.item(t, userID, other); it.Status != "submitted" || it.BatchID == nil || *it.BatchID != b[0].ID {
+			t.Errorf("the other item is %s with batch %v, want submitted with %s", it.Status, it.BatchID, b[0].ID)
+		}
+		e.wantLog(t, map[string]string{"user_id": userID, "outcome": "private_after_submit"})
+		e.wantLog(t, map[string]string{"user_id": userID, "outcome": "sent"})
+		for _, line := range e.logLines(t) {
+			if line["outcome"] == "private_after_submit" && (line["removed"] != float64(1) || line["remaining"] != float64(1)) {
+				t.Errorf("log line %v, want removed 1 and remaining 1", line)
+			}
+		}
+	})
+
+	t.Run("When every item of the batch is made private, nothing is sent", func(t *testing.T) {
 		e := newPassEnv(t)
 		userID := e.user(t, "owner")
 		ids := []string{e.link(t, userID, "https://example.com/a", nil, full), e.link(t, userID, "https://example.com/b", nil, full)}
 		cfg := e.passConfig(t)
 		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) {
-			if _, err := e.st.SetPrivate(ctx, user, ids[0], true); err != nil {
-				t.Errorf("SetPrivate: %v", err)
+			for _, id := range ids {
+				if _, err := e.st.SetPrivate(ctx, user, id, true); err != nil {
+					t.Errorf("SetPrivate: %v", err)
+				}
 			}
 		})
 		e.run(t, cfg)
@@ -1069,5 +1117,196 @@ func TestPassPrivateAfterSubmit(t *testing.T) {
 			t.Errorf("batches = %+v, want one failed", b)
 		}
 		e.wantLog(t, map[string]string{"user_id": userID, "outcome": "private_after_submit"})
+		if !e.hasCounts(t, 2, 0) {
+			t.Errorf("no private_after_submit line with removed 2 and remaining 0 in:\n%s", e.logs.String())
+		}
 	})
+
+	t.Run("An item checked Privé during a rewrite is left out too", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		ids := []string{
+			e.link(t, userID, "https://example.com/a", nil, full), e.link(t, userID, "https://example.com/b", nil, full),
+			e.link(t, userID, "https://example.com/c", nil, full),
+		}
+		cfg := e.passConfig(t)
+		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) {
+			if _, err := e.st.SetPrivate(ctx, user, ids[0], true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+		})
+		rewrites := 0
+		analysis.WithBeforeRewrite(&cfg, func(ctx context.Context, user, _ string) error {
+			rewrites++
+			if rewrites == 1 { // after the first round left ids[0] out
+				if _, err := e.st.SetPrivate(ctx, user, ids[1], true); err != nil {
+					t.Errorf("SetPrivate: %v", err)
+				}
+			}
+			return nil
+		})
+		e.run(t, cfg)
+		bodies := e.ai.Bodies()
+		if len(bodies) != 1 || fmt.Sprint(bodies[0].IDs()) != fmt.Sprint(ids[2:]) {
+			t.Fatalf("sent %v, want only %s", e.sentIDs(), ids[2])
+		}
+		for _, id := range ids[:2] {
+			if bytes.Contains(bodies[0].Raw, []byte(id)) {
+				t.Errorf("the body contains %s", id)
+			}
+			e.wantStatus(t, userID, id, "extracted")
+		}
+		if b := e.batches(t, userID); len(b) != 1 || b[0].Status != store.BatchInProgress || b[0].ItemCount != 1 {
+			t.Errorf("batches = %+v, want one in progress with 1 item", b)
+		}
+		if rewrites != 2 || !e.hasCounts(t, 1, 2) || !e.hasCounts(t, 1, 1) {
+			t.Errorf("%d rewrites, logs:\n%s; want two rounds of one item", rewrites, e.logs.String())
+		}
+	})
+
+	t.Run("Items checked Privé over many rounds are all left out, and the others are sent the same night", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		var ids []string
+		for i := range 9 {
+			ids = append(ids, e.link(t, userID, fmt.Sprintf("https://example.com/%d", i), nil, full))
+		}
+		// One item checked Privé after the submission, then one more before each rewrite: six
+		// rounds leave an item out each, then a seventh leaves nothing out.
+		const rounds = 6
+		next := 0
+		makePrivate := func(ctx context.Context, user string) {
+			if next >= rounds {
+				return
+			}
+			if _, err := e.st.SetPrivate(ctx, user, ids[next], true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+			next++
+		}
+		cfg := e.passConfig(t)
+		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) { makePrivate(ctx, user) })
+		analysis.WithBeforeRewrite(&cfg, func(ctx context.Context, user, _ string) error {
+			makePrivate(ctx, user)
+			return nil
+		})
+		e.run(t, cfg)
+
+		removed, remaining := ids[:rounds], ids[rounds:]
+		bodies := e.ai.Bodies()
+		if len(bodies) != 1 || fmt.Sprint(bodies[0].IDs()) != fmt.Sprint(remaining) {
+			t.Fatalf("sent %v, want exactly %v", e.sentIDs(), remaining)
+		}
+		for _, id := range removed {
+			if bytes.Contains(bodies[0].Raw, []byte(id)) {
+				t.Errorf("the body contains %s", id)
+			}
+			if it := e.item(t, userID, id); it.Status != "extracted" || it.BatchID != nil {
+				t.Errorf("item %s is %s with batch %v, want extracted without batch", id, it.Status, it.BatchID)
+			}
+		}
+		b := e.batches(t, userID)
+		if len(b) != 1 || b[0].Status != store.BatchInProgress || b[0].ItemCount != len(remaining) {
+			t.Fatalf("batches = %+v, want one in progress with %d items", b, len(remaining))
+		}
+		for _, id := range remaining {
+			if it := e.item(t, userID, id); it.Status != "submitted" || it.BatchID == nil || *it.BatchID != b[0].ID {
+				t.Errorf("item %s is %s with batch %v, want submitted with %s", id, it.Status, it.BatchID, b[0].ID)
+			}
+		}
+		for round := range rounds {
+			if !e.hasCounts(t, 1, len(ids)-round-1) {
+				t.Errorf("no private_after_submit line for round %d in:\n%s", round+1, e.logs.String())
+			}
+		}
+	})
+
+	t.Run("A pass stopped during a rewrite puts the items back", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		ids := []string{e.link(t, userID, "https://example.com/a", nil, full), e.link(t, userID, "https://example.com/b", nil, full)}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		cfg := e.passConfig(t)
+		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) {
+			if _, err := e.st.SetPrivate(ctx, user, ids[0], true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+		})
+		analysis.WithBeforeRewrite(&cfg, func(context.Context, string, string) error {
+			cancel() // the stop arrives during the rewrite
+			return nil
+		})
+		pass, err := analysis.NewPass(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = pass.Run(ctx) // stopped: its error is the context's
+		if e.ai.Calls() != 0 {
+			t.Errorf("%d calls, want none", e.ai.Calls())
+		}
+		for _, id := range ids {
+			e.wantStatus(t, userID, id, "extracted")
+		}
+		if b := e.batches(t, userID); len(b) != 1 || b[0].Status != store.BatchFailed {
+			t.Errorf("batches = %+v, want one failed", b)
+		}
+		e.wantLog(t, map[string]string{"user_id": userID, "outcome": "stopped"})
+	})
+
+	t.Run("A body that cannot be rewritten puts the items back", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		ids := []string{e.link(t, userID, "https://example.com/a", nil, full), e.link(t, userID, "https://example.com/b", nil, full)}
+		cfg := e.passConfig(t)
+		analysis.WithAfterSubmit(&cfg, func(ctx context.Context, user, _ string) {
+			if _, err := e.st.SetPrivate(ctx, user, ids[0], true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+		})
+		analysis.WithBeforeRewrite(&cfg, func(context.Context, string, string) error {
+			return errors.New("no space left on device")
+		})
+		e.run(t, cfg)
+		if e.ai.Calls() != 0 {
+			t.Errorf("%d calls, want none", e.ai.Calls())
+		}
+		for _, id := range ids {
+			e.wantStatus(t, userID, id, "extracted")
+		}
+		if b := e.batches(t, userID); len(b) != 1 || b[0].Status != store.BatchFailed {
+			t.Errorf("batches = %+v, want one failed", b)
+		}
+		e.wantLog(t, map[string]string{"user_id": userID, "outcome": "storage_unavailable"})
+	})
+
+	t.Run("An item checked Privé during the send stays submitted in its batch", func(t *testing.T) {
+		e := newPassEnv(t)
+		userID := e.user(t, "owner")
+		ids := []string{e.link(t, userID, "https://example.com/a", nil, full), e.link(t, userID, "https://example.com/b", nil, full)}
+		e.ai.OnCreate(func(ctx context.Context) {
+			if _, err := e.st.SetPrivate(ctx, userID, ids[0], true); err != nil {
+				t.Errorf("SetPrivate: %v", err)
+			}
+		})
+		e.run(t, e.passConfig(t))
+		b := e.batches(t, userID)
+		if len(b) != 1 || b[0].Status != store.BatchInProgress || b[0].ItemCount != 2 {
+			t.Fatalf("batches = %+v, want one in progress with 2 items", b)
+		}
+		if it := e.item(t, userID, ids[0]); !it.IsPrivate || it.Status != "submitted" || it.BatchID == nil || *it.BatchID != b[0].ID {
+			t.Errorf("item private %v, %s, batch %v; want private, submitted with %s", it.IsPrivate, it.Status, it.BatchID, b[0].ID)
+		}
+	})
+}
+
+// hasCounts tells whether a private_after_submit line carries removed and remaining.
+func (e *env) hasCounts(t *testing.T, removed, remaining int) bool {
+	t.Helper()
+	for _, line := range e.logLines(t) {
+		if line["outcome"] == "private_after_submit" && line["removed"] == float64(removed) && line["remaining"] == float64(remaining) {
+			return true
+		}
+	}
+	return false
 }

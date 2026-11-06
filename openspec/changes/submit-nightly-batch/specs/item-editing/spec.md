@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Changing the privacy flag never changes the processing status
-Checking or unchecking Privé SHALL leave the item's `status` and fiche as they are. Made public, an `extracted` item is back in the analysis queue, since the nightly batch takes the `extracted` items that are not private; an `analyzed` item keeps its fiche and is not reanalysed; a `failed` item stays `failed` until « Relancer ». Checked Privé, a `submitted` item stays `submitted`: its content has already left with the nightly batch, whose result it keeps (RG-12, RG-14, RG-35).
+Checking or unchecking Privé SHALL leave the item's `status` and fiche as they are. Made public, an `extracted` item is back in the analysis queue, since the nightly batch takes the `extracted` items that are not private; an `analyzed` item keeps its fiche and is not reanalysed; a `failed` item stays `failed` until « Relancer ». Checked Privé, a `submitted` item stays `submitted` and keeps its batch: if that batch has not left yet, the nightly pass takes the item out before the send, back to `extracted` without fiche (item-analysis); otherwise its content has already left, and it keeps that batch's result (RG-12, RG-14, RG-35).
 
 #### Scenario: A private extracted item made public is back in the analysis queue
 - **GIVEN** a private item of the user with `status` `extracted`

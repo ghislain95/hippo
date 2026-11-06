@@ -88,7 +88,7 @@ Every captured item now stops at `extracted`: nothing sends it to the AI, so no 
 - **AI cost:** yes. From the first night in production, the waiting non-private items are billed at the batch price, about $0.0035 to $0.025 per item. Until E3-02 records costs, the guard allows only one batch. No eval run is needed: the prompt and schemas do not change.
 - **Private items:**
   - never selected, refused again by the request builder, and proven by a test (RG-12);
-  - an item made private once `submitted` keeps the result, since its content has already left (RG-14 clarified);
+  - an item made private once `submitted` keeps the result, since its content has already left (RG-14 clarified) (2026-11-06, Ghislain: an item checked Privé before the batch actually leaves is taken out of it and not sent; see design D7.);
   - the image copy carries no location.
 - **Persisted data:** one migration adds `content_types` (seeded), `categories`, `batches` and three nullable columns on `items`. The starting categories are seeded per user. The only change to existing items is the `extracted` → `submitted` move.
 - **API contract:** none.

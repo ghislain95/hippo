@@ -21,17 +21,18 @@ import (
 
 // Modes of the test binary when a test runs it as a child.
 const (
-	envChild     = "env-child"    // writes its environment, one variable per line
-	echoChild    = "echo-child"   // copies its stdin to its stdout
-	fileChild    = "file-child"   // copies the file of descriptor 3 to its stdout
-	hangChild    = "hang-child"   // says it started on the FIFO given, then never answers
-	crashChild   = "crash-child"  // exits with an unexpected code
-	floodChild   = "flood-child"  // writes more than the parent reads
-	memoryChild  = "memory-child" // allocates beyond the hard limit of its guard
-	peakChild    = "peak-child"   // holds 16 MiB under its guard, then writes the peak it saw
-	stderrChild  = "stderr-child" // writes to stderr only
-	guardedLimit = 32 << 20       // the hard limit of memoryChild and peakChild
-	floodSize    = 1 << 20        // what floodChild writes
+	envChild     = "env-child"         // writes its environment, one variable per line
+	echoChild    = "echo-child"        // copies its stdin to its stdout
+	fileChild    = "file-child"        // copies the file of descriptor 3 to its stdout
+	hangChild    = "hang-child"        // says it started on the FIFO given, then never answers
+	crashChild   = "crash-child"       // exits with an unexpected code
+	floodChild   = "flood-child"       // writes more than the parent reads
+	memoryChild  = "memory-child"      // allocates beyond the hard limit of its guard
+	slowMemChild = "slow-memory-child" // the same, under a guard that samples every 10 ms
+	peakChild    = "peak-child"        // holds 16 MiB under its guard, then writes the peak it saw
+	stderrChild  = "stderr-child"      // writes to stderr only
+	guardedLimit = 32 << 20            // the hard limit of memoryChild and peakChild
+	floodSize    = 1 << 20             // what floodChild writes
 )
 
 // TestMain makes the test binary the child of the tests.
@@ -80,8 +81,12 @@ func runChildMode(mode string, args []string) {
 	case floodChild:
 		_, _ = os.Stdout.Write(bytes.Repeat([]byte("x"), floodSize))
 		syscall.Exit(0)
-	case memoryChild:
-		childproc.Guard(guardedLimit, guardedLimit*3/4)
+	case memoryChild, slowMemChild:
+		if mode == slowMemChild {
+			childproc.GuardEvery(guardedLimit, guardedLimit*3/4, 10*time.Millisecond)
+		} else {
+			childproc.Guard(guardedLimit, guardedLimit*3/4)
+		}
 		var held [][]byte
 		for range 64 { // 256 MiB at most, far beyond the limit
 			chunk := make([]byte, 4<<20)
@@ -220,6 +225,13 @@ func TestRun(t *testing.T) {
 
 	t.Run("memory over the limit exits 86", func(t *testing.T) {
 		res, err := childproc.Run(ctx, spec(memoryChild))
+		if !errors.Is(err, childproc.ErrMemory) || res.ExitCode != childproc.ExitMemory {
+			t.Errorf("exit %d, %v; want %d, ErrMemory", res.ExitCode, err, childproc.ExitMemory)
+		}
+	})
+
+	t.Run("memory over the limit exits 86 under a slower watch", func(t *testing.T) {
+		res, err := childproc.Run(ctx, spec(slowMemChild))
 		if !errors.Is(err, childproc.ErrMemory) || res.ExitCode != childproc.ExitMemory {
 			t.Errorf("exit %d, %v; want %d, ErrMemory", res.ExitCode, err, childproc.ExitMemory)
 		}

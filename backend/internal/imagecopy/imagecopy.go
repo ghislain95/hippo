@@ -50,6 +50,11 @@ const (
 	maxRequest = 4 << 10
 	// maxAnswer bounds the answer the parent reads.
 	maxAnswer = 4 << 10
+	// watchInterval is how often the child samples its memory: 10 ms rather than the 1 ms of
+	// childproc.Guard. Each sample stops the world for a moment; at 1 ms, a 48 Mpx HEIC took
+	// 13 to 16 s in the container (linux/arm64, --memory 384m) against 2.3 s at 10 ms
+	// (design.md D10, D15). A decoded image grows by large steps the ceiling already bounds.
+	watchInterval = 10 * time.Millisecond
 	// childWaitDelay bounds the wait for the pipes of a child killed at its time limit.
 	childWaitDelay = time.Second
 	// assetDescriptor and outputDescriptor are the descriptors of the stored file and of the
