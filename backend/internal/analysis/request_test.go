@@ -84,6 +84,9 @@ func TestRequest(t *testing.T) {
 		if len(p.ToolChoice) != 2 || p.ToolChoice["type"] != "tool" || p.ToolChoice["name"] != "classify_item" {
 			t.Errorf("tool_choice = %v, want the forced classify_item tool", p.ToolChoice)
 		}
+		// The cache point has the default 5-minute lifetime: the cost of a batch closed as
+		// unavailable prices the recorded cache writes as 5-minute ones (apply-batch-results
+		// design D8, « As built »). A 1-hour ttl needs batches to keep both durations apart.
 		if len(p.System) != 2 || p.System[0].Type != "text" || p.System[0].Text != want.Fixed || p.System[0].CacheControl != nil ||
 			p.System[1].Type != "text" || !strings.HasPrefix(p.System[1].Text, "<referentiel>") ||
 			len(p.System[1].CacheControl) != 1 || p.System[1].CacheControl["type"] != "ephemeral" {

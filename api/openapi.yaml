@@ -970,6 +970,14 @@ components:
       type: string
       description: "`proposed` by the AI and not yet accepted, or `active` (RG-53, RG-57)."
       enum: [active, proposed]
+    AnalysisError:
+      type: string
+      description: |
+        Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:
+        `invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);
+        `request_errored`: the AI service reported the request in error;
+        `too_long`: the response was cut by its output cap twice, the fiche is too long.
+      enum: [invalid_response, request_errored, too_long]
     CorrectedField:
       type: string
       description: A field the user corrected by hand (RG-60).
@@ -1140,8 +1148,10 @@ components:
         attempts:
           type: integer
         last_error:
-          type: [string, "null"]
-          description: Why the last analysis failed, shown with the Relancer button (RG-35, RG-36).
+          description: Why the last analysis failed, shown with the Relancer button (RG-35, RG-36); a code, never a message.
+          anyOf:
+            - $ref: "#/components/schemas/AnalysisError"
+            - type: "null"
         assets:
           type: array
           items:

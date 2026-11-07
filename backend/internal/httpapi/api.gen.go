@@ -22,6 +22,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AnalysisError.
+const (
+	InvalidResponse AnalysisError = "invalid_response"
+	RequestErrored  AnalysisError = "request_errored"
+	TooLong         AnalysisError = "too_long"
+)
+
+// Valid indicates whether the value is a known member of the AnalysisError enum.
+func (e AnalysisError) Valid() bool {
+	switch e {
+	case InvalidResponse:
+		return true
+	case RequestErrored:
+		return true
+	case TooLong:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AssetMimeType.
 const (
 	Imageheic AssetMimeType = "image/heic"
@@ -375,6 +396,12 @@ func (e ReadStatus) Valid() bool {
 		return false
 	}
 }
+
+// AnalysisError Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:
+// `invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);
+// `request_errored`: the AI service reported the request in error;
+// `too_long`: the response was cut by its output cap twice, the fiche is too long.
+type AnalysisError string
 
 // Asset An image of an item, stored on the NAS.
 type Asset struct {
@@ -867,8 +894,8 @@ type Item struct {
 	// Language Language of the original, ISO 639-1.
 	Language nullable.Nullable[string] `json:"language"`
 
-	// LastError Why the last analysis failed, shown with the Relancer button (RG-35, RG-36).
-	LastError nullable.Nullable[string] `json:"last_error"`
+	// LastError Why the last analysis failed, shown with the Relancer button (RG-35, RG-36); a code, never a message.
+	LastError nullable.Nullable[AnalysisError] `json:"last_error"`
 
 	// Model Model that wrote the fiche (RG-64).
 	Model         nullable.Nullable[string]    `json:"model"`

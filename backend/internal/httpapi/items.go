@@ -207,7 +207,7 @@ func itemFromStore(item store.Item) Item {
 		ReadStatus:       ReadStatus(item.ReadStatus),
 		ReadProgress:     float32(item.ReadProgress),
 		Attempts:         int(item.Attempts),
-		LastError:        nullableOf(item.LastError),
+		LastError:        nullableOf(enumOf[AnalysisError](item.LastError)),
 		Assets:           assetsFromStore(item.Assets),
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,

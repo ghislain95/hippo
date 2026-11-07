@@ -593,6 +593,14 @@ export interface components {
          */
         ProposalStatus: "active" | "proposed";
         /**
+         * @description Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:
+         *     `invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);
+         *     `request_errored`: the AI service reported the request in error;
+         *     `too_long`: the response was cut by its output cap twice, the fiche is too long.
+         * @enum {string}
+         */
+        AnalysisError: "invalid_response" | "request_errored" | "too_long";
+        /**
          * @description A field the user corrected by hand (RG-60).
          * @enum {string}
          */
@@ -687,8 +695,8 @@ export interface components {
             read_status: components["schemas"]["ReadStatus"];
             read_progress: number;
             attempts: number;
-            /** @description Why the last analysis failed, shown with the Relancer button (RG-35, RG-36). */
-            last_error: string | null;
+            /** @description Why the last analysis failed, shown with the Relancer button (RG-35, RG-36); a code, never a message. */
+            last_error: components["schemas"]["AnalysisError"] | null;
             assets: components["schemas"]["Asset"][];
             /** Format: date-time */
             created_at: string;

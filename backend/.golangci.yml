@@ -89,6 +89,13 @@ linters:
               desc: only internal/imagecopy decodes and scales images, in the child process that bounds them (E3-01)
             - pkg: github.com/gen2brain
               desc: only internal/imagecopy decodes HEIC, in the child process that bounds it (E3-01)
+        text-normalisation-only-in-naming:
+          files:
+            - "$all"
+            - "!**/internal/naming/**"
+          deny:
+            - pkg: golang.org/x/text
+              desc: only internal/naming normalises names (tags and category keys, RG-54, RG-58, apply-batch-results D7)
         pdf-generator-only-in-tests:
           files:
             - "$all"

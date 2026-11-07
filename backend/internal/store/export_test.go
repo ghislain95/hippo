@@ -207,31 +207,38 @@ func SeedVersion5ForTest(t testing.TB, path string) (userID string, itemIDs []st
 
 // ContentTypeRowForTest is a row of content_types as the migration wrote it (tests only).
 type ContentTypeRowForTest struct {
-	ID          int64
-	Key         string
-	Name        string
-	Status      string
-	HasTemplate int64
-	UpdatedAt   string
-	Deleted     bool
-	ChangeSeq   int64
+	ID             int64
+	Key            string
+	Name           string
+	Status         string
+	HasTemplate    int64
+	ProposalReason *string
+	UpdatedAt      string
+	Deleted        bool
+	ChangeSeq      int64
 }
 
 // ContentTypeRowsForTest reads every row of content_types, by id (tests only).
 func ContentTypeRowsForTest(t testing.TB, s *Store) []ContentTypeRowForTest {
 	t.Helper()
 	rows, err := s.db.QueryContext(t.Context(),
-		`SELECT id, key, name, status, has_template, updated_at, deleted_at IS NOT NULL, change_seq FROM content_types ORDER BY id`)
+		`SELECT id, key, name, status, has_template, proposal_reason, updated_at, deleted_at IS NOT NULL, change_seq
+		 FROM content_types ORDER BY id`)
 	if err != nil {
 		t.Fatalf("read content types: %v", err)
 	}
 	defer func() { _ = rows.Close() }() // read only
 	var types []ContentTypeRowForTest
 	for rows.Next() {
-		var row ContentTypeRowForTest
-		if err := rows.Scan(&row.ID, &row.Key, &row.Name, &row.Status, &row.HasTemplate, &row.UpdatedAt, &row.Deleted, &row.ChangeSeq); err != nil {
+		var (
+			row    ContentTypeRowForTest
+			reason sql.Null[string]
+		)
+		if err := rows.Scan(&row.ID, &row.Key, &row.Name, &row.Status, &row.HasTemplate, &reason, &row.UpdatedAt, &row.Deleted,
+			&row.ChangeSeq); err != nil {
 			t.Fatalf("read content types: %v", err)
 		}
+		row.ProposalReason = ptr(reason)
 		types = append(types, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -309,4 +316,212 @@ func CategoryRowsForTest(t testing.TB, s *Store, userID string) []CategoryRowFor
 		t.Fatalf("read categories: %v", err)
 	}
 	return categories
+}
+
+// Version6ForTest is what SeedVersion6ForTest stored.
+type Version6ForTest struct {
+	UserID, OtherUserID string
+	CategoryIDs         map[string]int64 // the starting tree of the user, by name
+	ItemIDs             []string         // an extracted link, then a submitted one
+	BatchID             string           // in progress, holding the submitted link
+}
+
+// SeedVersion6ForTest creates the database at path with the migrations up to 00006 only, and
+// stores by SQL, as E3-01 did, two users, the starting tree of the first (24 categories, no
+// normalised name), an extracted link and a link submitted with a batch in progress (tests of
+// 00007 only). extra runs further SQL on the version-6 base before it is closed.
+func SeedVersion6ForTest(t testing.TB, path string, extra ...string) Version6ForTest {
+	t.Helper()
+	ctx := t.Context()
+	db, err := sql.Open("sqlite", dsn(path))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }() // every write below is committed
+	provider, err := migrationProvider(db)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 6); err != nil {
+		t.Fatalf("migrate to version 6: %v", err)
+	}
+	seed := Version6ForTest{
+		UserID: "01JB8Z6Q4M1X2Y3Z4A5B6C7DB0", OtherUserID: "01JB8Z6Q4M1X2Y3Z4A5B6C7DB1",
+		CategoryIDs: map[string]int64{},
+		ItemIDs:     []string{"01JB8Z6Q4M1X2Y3Z4A5B6C7DB2", "01JB8Z6Q4M1X2Y3Z4A5B6C7DB3"},
+		BatchID:     "01JB8Z6Q4M1X2Y3Z4A5B6C7DB4",
+	}
+	const date = "2026-11-06T10:00:00.000Z"
+	exec := func(what, query string, args ...any) {
+		t.Helper()
+		if _, err := db.ExecContext(ctx, query, args...); err != nil {
+			t.Fatalf("seed %s: %v", what, err)
+		}
+	}
+	seq := int64(7) // the seven content types of 00006
+	next := func() int64 { seq++; return seq }
+	for _, userID := range []string{seed.UserID, seed.OtherUserID} {
+		exec("user", `INSERT INTO users (id, name, api_token_hash, created_at, categories_seeded_at) VALUES (?, ?, ?, ?, ?)`,
+			userID, "user "+userID, "hash "+userID, date, date)
+	}
+	// The schema of 00006_analysis.sql: categories have no name_key.
+	insertCategory := func(name string, description *string, parentID *int64) int64 {
+		var id int64
+		if err := db.QueryRowContext(ctx,
+			`INSERT INTO categories (user_id, name, description, parent_id, status, created_at, updated_at, change_seq)
+			 VALUES (?, ?, ?, ?, 'active', ?, ?, ?) RETURNING id`,
+			seed.UserID, name, description, parentID, date, date, next()).Scan(&id); err != nil {
+			t.Fatalf("seed category: %v", err)
+		}
+		return id
+	}
+	for _, root := range startingTree {
+		rootID := insertCategory(root.name, &root.description, nil)
+		seed.CategoryIDs[root.name] = rootID
+		for _, name := range root.subCategories {
+			seed.CategoryIDs[name] = insertCategory(name, nil, &rootID)
+		}
+	}
+	exec("batch", `INSERT INTO batches (id, user_id, anthropic_batch_id, status, model, prompt_version, envelope_version, item_count, created_at, sent_at)
+		VALUES (?, ?, 'msgbatch_v6', 'in_progress', 'claude-haiku-test', 3, 1, 1, ?, ?)`, seed.BatchID, seed.UserID, date, date)
+	exec("extracted link", `INSERT INTO items (id, user_id, kind, source, url, normalized_url, status, extraction_mode, title, created_at, updated_at, extracted_at, change_seq)
+		VALUES (?, ?, 'link', 'share', 'https://example.com/a', 'https://example.com/a', 'extracted', 'full', 'A page', ?, ?, ?, ?)`,
+		seed.ItemIDs[0], seed.UserID, date, date, date, next())
+	exec("submitted link", `INSERT INTO items (id, user_id, kind, source, url, normalized_url, status, extraction_mode, title, created_at, updated_at, extracted_at, batch_id, change_seq)
+		VALUES (?, ?, 'link', 'share', 'https://example.com/b', 'https://example.com/b', 'submitted', 'full', 'B page', ?, ?, ?, ?, ?)`,
+		seed.ItemIDs[1], seed.UserID, date, date, date, seed.BatchID, next())
+	exec("sequence", `UPDATE sync_sequence SET value = ? WHERE id = 1`, seq)
+	for _, query := range extra {
+		exec("extra", query)
+	}
+	return seed
+}
+
+// MigrateOnlyForTest applies every migration to the database at path, without what Open does
+// after them (the normalised names of the categories), and returns a connection to it, closed
+// when the test ends (tests of 00007 only).
+func MigrateOnlyForTest(t testing.TB, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", dsn(path))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := migrate(t.Context(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	return db
+}
+
+// CategoryKeysForTest reads the name_key of every category of a user, by id, "" for NULL, and
+// tells how many are NULL (tests only).
+func CategoryKeysForTest(t testing.TB, s *Store, userID string) (keys map[int64]string, nulls int) {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(), `SELECT id, name_key FROM categories WHERE user_id = ? ORDER BY id`, userID)
+	if err != nil {
+		t.Fatalf("read category keys: %v", err)
+	}
+	defer func() { _ = rows.Close() }() // read only
+	keys = map[int64]string{}
+	for rows.Next() {
+		var (
+			id  int64
+			key sql.Null[string]
+		)
+		if err := rows.Scan(&id, &key); err != nil {
+			t.Fatalf("read category keys: %v", err)
+		}
+		if !key.Valid {
+			nulls++
+		}
+		keys[id] = key.V
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read category keys: %v", err)
+	}
+	return keys, nulls
+}
+
+// TagRowForTest is a row of tags as stored (tests only).
+type TagRowForTest struct {
+	ID        int64
+	Name      string
+	Deleted   bool
+	ChangeSeq int64
+}
+
+// TagRowsForTest reads every tag of a user, deleted ones included, by id (tests only).
+func TagRowsForTest(t testing.TB, s *Store, userID string) []TagRowForTest {
+	t.Helper()
+	rows, err := s.db.QueryContext(t.Context(),
+		`SELECT id, name, deleted_at IS NOT NULL, change_seq FROM tags WHERE user_id = ? ORDER BY id`, userID)
+	if err != nil {
+		t.Fatalf("read tags: %v", err)
+	}
+	defer func() { _ = rows.Close() }() // read only
+	tags := []TagRowForTest{}
+	for rows.Next() {
+		var row TagRowForTest
+		if err := rows.Scan(&row.ID, &row.Name, &row.Deleted, &row.ChangeSeq); err != nil {
+			t.Fatalf("read tags: %v", err)
+		}
+		tags = append(tags, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read tags: %v", err)
+	}
+	return tags
+}
+
+// ItemTagRowsForTest counts the item_tags rows of a user (tests only).
+func ItemTagRowsForTest(t testing.TB, s *Store, userID string) int {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM item_tags WHERE user_id = ?`, userID).Scan(&count); err != nil {
+		t.Fatalf("count item tags: %v", err)
+	}
+	return count
+}
+
+// AnalysisColumnsForTest reads the columns of an item that store.Item does not carry (tests
+// only).
+func AnalysisColumnsForTest(t testing.TB, s *Store, userID, itemID string) (searchText string, incompleteRetried bool) {
+	t.Helper()
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT search_text, incomplete_retried FROM items WHERE user_id = ? AND id = ?`, userID, itemID).Scan(&searchText, &incompleteRetried); err != nil {
+		t.Fatalf("read analysis columns: %v", err)
+	}
+	return searchText, incompleteRetried
+}
+
+// BatchRowForTest is the closing state of a batch row (tests only).
+type BatchRowForTest struct {
+	Status               string
+	Input, Output        *int64
+	CacheCreation        *int64
+	CacheRead            *int64
+	CostUSD              *float64
+	EndedAt              *string
+	ResultsUnavailableAt *string
+	ResultsLinesRead     *int64
+}
+
+// BatchRowForTestOf reads the closing state of a batch of a user (tests only).
+func BatchRowForTestOf(t testing.TB, s *Store, userID, batchID string) BatchRowForTest {
+	t.Helper()
+	var (
+		row                                  BatchRowForTest
+		input, output, creation, read, lines sql.Null[int64]
+		cost                                 sql.Null[float64]
+		endedAt, unavailableAt               sql.Null[string]
+	)
+	if err := s.db.QueryRowContext(t.Context(),
+		`SELECT status, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cost_usd, ended_at,
+		   results_unavailable_at, results_lines_read FROM batches WHERE user_id = ? AND id = ?`, userID, batchID).Scan(
+		&row.Status, &input, &output, &creation, &read, &cost, &endedAt, &unavailableAt, &lines); err != nil {
+		t.Fatalf("read batch: %v", err)
+	}
+	row.Input, row.Output, row.CacheCreation, row.CacheRead = ptr(input), ptr(output), ptr(creation), ptr(read)
+	row.CostUSD, row.EndedAt, row.ResultsUnavailableAt, row.ResultsLinesRead = ptr(cost), ptr(endedAt), ptr(unavailableAt), ptr(lines)
+	return row
 }

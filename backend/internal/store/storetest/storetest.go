@@ -1,9 +1,10 @@
 // Package storetest opens real SQLite databases for tests: a fresh file per call, with every
 // migration applied. Tests never mock the store (ADR-0004, docs/dev/testing.md).
 //
-// It also writes, by SQL, the states no function of the store writes yet (an analysis result,
-// a deleted item or category, a proposed category, a batch's status and cost): each helper
-// names the story that will write it, and goes when that story ships. Only tests import it.
+// It also writes, by SQL, the states no function of the store writes yet (a deleted item,
+// category or tag, a category or a tag created by the user, a correction by hand, a batch in
+// any status, cost and versions): each helper names the story that will write it, and goes
+// when that story ships. Only tests import it.
 // Those helpers advance sync_sequence by SQL, outside the store's single sequence function: a
 // test-only exception to that rule, like the seeding of migration 00006.
 package storetest
@@ -11,11 +12,13 @@ package storetest
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ghislain95/hippo/backend/internal/naming"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
@@ -72,9 +75,11 @@ func ItemCount(t testing.TB, path, userID string) int {
 }
 
 // SetAnalysisState writes the status, analyzed_at and attempts of the item itemID of userID in
-// the database at path, by SQL: no function of the store writes an analysis yet (E3), and the
-// scenarios of the privacy switch need analysed and failed items (item-editing spec). A nil
-// analyzedAt is stored as NULL. It fails the test unless exactly one item was written.
+// the database at path, by SQL. The store writes them only through a batch's results
+// (WriteAnalysis, SettleItem); tests use this helper to set a starting state in one step: an
+// analysed or failed item for the privacy switch (item-editing spec), a submitted item that
+// already counts attempts for the threshold of RG-35. A nil analyzedAt is stored as NULL. It
+// fails the test unless exactly one item was written.
 func SetAnalysisState(t testing.TB, path, userID, itemID, status string, analyzedAt *time.Time, attempts int) {
 	t.Helper()
 	db := openForWrite(t, path)
@@ -152,7 +157,9 @@ func DeleteItem(t testing.TB, path, userID, itemID string) {
 }
 
 // SetIncompleteRetried marks the item itemID of userID as already sent once more after a cut
-// response (RG-36), by SQL, until E3-02 writes it.
+// response (RG-36), by SQL. The store writes the mark only when a cut response comes back
+// (SettleItem); tests use this helper to start from an item retried once, without playing a
+// first batch.
 func SetIncompleteRetried(t testing.TB, path, userID, itemID string) {
 	t.Helper()
 	writeSynced(t, path, "set incomplete retried", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
@@ -171,18 +178,19 @@ type NewCategory struct {
 	ProposalReason *string
 }
 
-// AddCategory inserts a category of userID by SQL and returns its id, until E3-03 writes a
-// proposed category and E4 a category created by the user. The parent must be a category of
-// the same user (composite foreign key); the depth is not checked (RG-51 is the store's, from
-// E3-03).
+// AddCategory inserts a category of userID by SQL, with its normalised name (name_key, RG-54),
+// and returns its id, until E4 writes a category created by the user. The parent must be a
+// category of the same user (composite foreign key); the depth is not checked (RG-51 is the
+// store's). A name whose key a non-deleted category already holds under the same parent fails
+// the test (unique index categories_user_parent_name).
 func AddCategory(t testing.TB, path, userID string, c NewCategory) int64 {
 	t.Helper()
 	var id int64
 	writeSynced(t, path, "add category", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
 		result, err := tx.ExecContext(context.Background(),
-			`INSERT INTO categories (user_id, name, description, parent_id, status, proposal_reason, created_at, updated_at, change_seq)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			userID, c.Name, c.Description, c.ParentID, c.Status, c.ProposalReason, date, date, seq)
+			`INSERT INTO categories (user_id, name, name_key, description, parent_id, status, proposal_reason, created_at, updated_at, change_seq)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			userID, c.Name, naming.CategoryKey(c.Name), c.Description, c.ParentID, c.Status, c.ProposalReason, date, date, seq)
 		if err != nil {
 			return nil, err
 		}
@@ -210,10 +218,15 @@ type Batch struct {
 	ItemCount        int
 	CostUSD          *float64
 	CreatedAt        time.Time
+	Model            string // claude-haiku-test when empty
+	PromptVersion    int    // 3 when 0
+	EnvelopeVersion  int    // 1 when 0
 }
 
-// InsertBatch inserts a batch of userID by SQL, in any status and with any cost, until E3-02
-// writes ended batches and their cost: the guards of the nightly pass read them (RG-81).
+// InsertBatch inserts a batch of userID by SQL, in any status, with any cost and any recorded
+// versions, until E3-07 lets a batch be sent with other versions than the running ones (the
+// envelope check of apply-batch-results, design D4) and the guards of the nightly pass read
+// costs no store function writes before a results file was read (RG-81).
 func InsertBatch(t testing.TB, path, userID string, b Batch) {
 	t.Helper()
 	db := openForWrite(t, path)
@@ -223,13 +236,114 @@ func InsertBatch(t testing.TB, path, userID string, b Batch) {
 		date := b.CreatedAt.UTC().Format(store.TimeLayout)
 		sentAt = &date
 	}
+	if b.Model == "" {
+		b.Model = "claude-haiku-test"
+	}
+	if b.PromptVersion == 0 {
+		b.PromptVersion = 3
+	}
+	if b.EnvelopeVersion == 0 {
+		b.EnvelopeVersion = 1
+	}
 	if _, err := db.ExecContext(context.Background(),
 		`INSERT INTO batches (id, user_id, anthropic_batch_id, status, model, prompt_version, envelope_version, item_count,
 		   cost_usd, created_at, sent_at)
-		 VALUES (?, ?, ?, ?, 'claude-haiku-test', 3, 1, ?, ?, ?, ?)`,
-		b.ID, userID, b.AnthropicBatchID, b.Status, b.ItemCount, b.CostUSD, b.CreatedAt.UTC().Format(store.TimeLayout), sentAt); err != nil {
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.ID, userID, b.AnthropicBatchID, b.Status, b.Model, b.PromptVersion, b.EnvelopeVersion, b.ItemCount, b.CostUSD,
+		b.CreatedAt.UTC().Format(store.TimeLayout), sentAt); err != nil {
 		t.Fatalf("insert batch: %v", err)
 	}
+}
+
+// SetBatchEnvelopeVersion writes the envelope version recorded with the batch batchID of
+// userID, by SQL, until a batch can be sent with another envelope version than the running
+// one: the check of design D4 (apply-batch-results) sends such a batch's items back.
+func SetBatchEnvelopeVersion(t testing.TB, path, userID, batchID string, version int) {
+	t.Helper()
+	db := openForWrite(t, path)
+	defer func() { _ = db.Close() }() // the write below is committed when Exec returns
+	result, err := db.ExecContext(context.Background(),
+		`UPDATE batches SET envelope_version = ? WHERE user_id = ? AND id = ?`, version, userID, batchID)
+	if err != nil {
+		t.Fatalf("set batch envelope version: %v", err)
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		t.Fatalf("set batch envelope version: %d rows written (%v), want 1", n, err)
+	}
+}
+
+// SetUserEdited writes the fields of the item itemID of userID corrected by hand (RG-60,
+// RG-61: content_type, category, tags), by SQL, until E4 writes a correction.
+func SetUserEdited(t testing.TB, path, userID, itemID string, fields ...string) {
+	t.Helper()
+	if fields == nil {
+		fields = []string{}
+	}
+	edited, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("set user edited: %v", err)
+	}
+	writeSynced(t, path, "set user edited", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		return tx.ExecContext(context.Background(),
+			`UPDATE items SET user_edited = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`,
+			string(edited), date, seq, userID, itemID)
+	})
+}
+
+// SetLastError writes the failure code of the last attempt of the item itemID of userID
+// (invalid_response, request_errored, too_long), by SQL: the scenarios of a success after
+// failed attempts need an item that failed with one batch and is submitted with the next,
+// which no store function writes until E3-07's « Relancer ».
+func SetLastError(t testing.TB, path, userID, itemID, code string) {
+	t.Helper()
+	writeSynced(t, path, "set last error", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		return tx.ExecContext(context.Background(),
+			`UPDATE items SET last_error = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`,
+			code, date, seq, userID, itemID)
+	})
+}
+
+// AddTag inserts a tag of userID by SQL and returns its id, until E4 writes a tag created by
+// the user. name must be the normalised form (RG-58).
+func AddTag(t testing.TB, path, userID, name string) int64 {
+	t.Helper()
+	var id int64
+	writeSynced(t, path, "add tag", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		result, err := tx.ExecContext(context.Background(),
+			`INSERT INTO tags (user_id, name, updated_at, change_seq) VALUES (?, ?, ?, ?)`, userID, name, date, seq)
+		if err != nil {
+			return nil, err
+		}
+		id, err = result.LastInsertId()
+		return result, err
+	})
+	return id
+}
+
+// AttachTag attaches the tag tagID to the item itemID, both of userID, by SQL, with a new
+// change_seq of the item, until E4 writes a correction of the tags: the référentiel counts the
+// items that carry a tag (RG-52) and a correction by hand keeps them (RG-61).
+func AttachTag(t testing.TB, path, userID, itemID string, tagID int64) {
+	t.Helper()
+	writeSynced(t, path, "attach tag", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		if _, err := tx.ExecContext(context.Background(),
+			`INSERT INTO item_tags (item_id, tag_id, user_id) VALUES (?, ?, ?)`, itemID, tagID, userID); err != nil {
+			return nil, err
+		}
+		return tx.ExecContext(context.Background(),
+			`UPDATE items SET updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`, date, seq, userID, itemID)
+	})
+}
+
+// DeleteTag marks the tag id of userID deleted, by SQL, until E4 writes a deletion or a merge
+// of tags (RG-74).
+func DeleteTag(t testing.TB, path, userID string, id int64) {
+	t.Helper()
+	writeSynced(t, path, "delete tag", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		return tx.ExecContext(context.Background(),
+			`UPDATE tags SET deleted_at = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
+			date, date, seq, userID, id)
+	})
 }
 
 // SetBatchState writes the status and cost of the batch batchID of userID by SQL, until E3-02
