@@ -60,7 +60,7 @@ Graph du **code** (le Markdown et `.claude/` en sont exclus par `.graphifyignore
 | Commandes `/ticket`, `/review`, `/migrate` (geomni) | Écartées | Couvertes par le workflow, `code-reviewer` et la CI des migrations |
 | Gherkin (Cucumber, godog) | Écarté | [ADR-0033](../adr/0033-strategie-de-test.md) |
 | Build iOS en CI | Différé | Runner macOS lent et Xcode requis ; à revoir si l'appli casse souvent à la compilation |
-| Types Go et TypeScript générés depuis les schémas de fiches | Différé | Avec le premier change qui écrit ou affiche une fiche (E3-02 ou E5-04) |
+| Types Go et TypeScript générés depuis les schémas de fiches | En place | Depuis le change `api-contract-v1` (25 octobre 2026) : `make generate` assemble `docs/prompt/schemas/fiches/` en `api/fiches.gen.json`, d'où sortent l'union `Fiche` et un type par template, en Go dans `internal/httpapi/api.gen.go` et en TypeScript dans `app/src/api/schema.gen.ts`. `httpapi` y décode la fiche enregistrée depuis E3-02 (`ficheOf`). La passe d'analyse n'a pas de type Go de fiche : elle valide la réponse contre le schéma assemblé et garde la fiche en JSON brut. L'appli s'en servira avec ses templates (E5-04) |
 | Tests de bout en bout de l'appli (Maestro) | Différé | À évaluer avec E5 |
 | rtk | Écarté | Retiré de geomni et wifisense : coût supérieur, sorties tronquées |
 

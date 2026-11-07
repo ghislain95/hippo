@@ -1,8 +1,10 @@
 package analysis_test
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,6 +83,79 @@ func TestPassLogs(t *testing.T) {
 		}
 		if strings.Contains(logs, srv.URL) {
 			t.Error("the logs contain the URL of the API")
+		}
+	})
+
+	t.Run("Result logs carry no content", func(t *testing.T) {
+		const (
+			title       = "TITLE-RESULT-SECRET-5a9e"
+			ficheText   = "FICHE-RESULT-SECRET-0c41"
+			tag         = "tag-result-secret-77d2"
+			category    = "CATEGORY-RESULT-SECRET-3b8f"
+			invalidText = "INVALID-RESULT-SECRET-e61a"
+			apiMessage  = "API-MESSAGE-RESULT-SECRET-94c0 near the request"
+			// The values of a valid response the store refuses to write (design D8).
+			refusedTitle    = "TITLE-REFUSED-SECRET-2d7c"
+			refusedFiche    = "FICHE-REFUSED-SECRET-8a03"
+			refusedTag      = "tag-refused-secret-51be"
+			refusedCategory = "CATEGORY-REFUSED-SECRET-c94f"
+		)
+		e := newResultsEnv(t)
+		b, ids := e.submitted(t, 4)
+		dev := e.categoryID(t, e.userID, "Dev")
+		distinctive := func(title, fiche, tag, category string) input {
+			return tipInput(dev).with("title", title).with("tags", []any{tag, "go"}).
+				with("fiche", map[string]any{"template": "tip", "tip": fiche, "steps": []any{fiche}, "materials": []any{}, "warnings": []any{}}).
+				with("category", map[string]any{"proposed": map[string]any{
+					"name": category, "parent_id": dev, "description": category, "reason": category,
+				}})
+		}
+		validIn := distinctive(title, ficheText, tag, category)
+		storetest.RefuseItemWrites(t, e.path, e.userID, ids[3], "analyzed")
+		// Invalid: no title, the validator would quote the values around it.
+		invalidIn := tipInput(dev).without("title").with("tags", []any{"go", invalidText})
+		file := jsonLine(t, ids[0], validIn) + "\n" + jsonLine(t, ids[1], invalidIn) + "\n" +
+			fmt.Sprintf(`{"custom_id":%q,"result":{"type":"errored","error":{"type":"error","error":`+
+				`{"type":"invalid_request_error","message":%q}}}}`, ids[2], apiMessage) + "\n" +
+			jsonLine(t, ids[3], distinctive(refusedTitle, refusedFiche, refusedTag, refusedCategory)) + "\n"
+		cfg := e.cfg
+		cfg.Analyzer = realClient(t, file)
+		cfg.Logger = slog.New(slog.NewJSONHandler(e.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		pass := newFollowPass(t, cfg)
+		if err := pass.Follow(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		e.wantStatus(t, e.userID, ids[0], "analyzed") // the values were applied, not only refused
+
+		logs := e.logs.String()
+		for _, s := range []string{
+			title, ficheText, tag, category, invalidText, apiMessage, "API-MESSAGE", "sk-ant-test-key",
+			refusedTitle, refusedFiche, refusedTag, refusedCategory, "REFUSED-SECRET",
+		} {
+			if strings.Contains(logs, s) {
+				t.Errorf("the logs contain %q", s)
+			}
+		}
+		line := e.lastFollowLine(t, b.ID)
+		want := map[string]any{
+			"outcome": "ended", "analyzed": float64(1), "invalid": float64(2), "errored": float64(1), "unknown": float64(0),
+			"input_tokens": float64(300), "output_tokens": float64(30),
+		}
+		for key, value := range want {
+			if line[key] != value {
+				t.Errorf("follow-up line %s = %v, want %v", key, line[key], value)
+			}
+		}
+		if cost, ok := line["cost_usd"].(float64); !ok || cost <= 0 {
+			t.Errorf("follow-up line cost_usd = %v, want the batch's cost", line["cost_usd"])
+		}
+		for _, want := range []map[string]string{
+			{"msg": "analysis follow-up item", "item_id": ids[0], "outcome": "analyzed"},
+			{"msg": "analysis follow-up item", "item_id": ids[1], "outcome": "invalid", "reason": "schema"},
+			{"msg": "analysis follow-up item", "item_id": ids[2], "outcome": "errored", "error_type": "invalid_request_error"},
+			{"msg": "analysis follow-up item", "item_id": ids[3], "outcome": "invalid", "error_type": "store", "level": "ERROR"},
+		} {
+			e.wantLog(t, want)
 		}
 	})
 }

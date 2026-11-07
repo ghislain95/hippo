@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/analysis"
 	"github.com/ghislain95/hippo/backend/internal/store"
@@ -227,13 +229,122 @@ func TestReferentiel(t *testing.T) {
 			t.Errorf("the référentiel names a deleted category:\n%s", ref)
 		}
 	})
+}
+
+// carry attaches the tag name of userID, created when new, to n new public notes of userID.
+func (e *env) carry(t *testing.T, userID, name string, n int, tags map[string]int64) []string {
+	t.Helper()
+	id, ok := tags[name]
+	if !ok {
+		id = storetest.AddTag(t, e.path, userID, name)
+		tags[name] = id
+	}
+	var items []string
+	for i := range n {
+		item := e.note(t, userID, fmt.Sprintf("Note %s %d", name, i))
+		storetest.AttachTag(t, e.path, userID, item, id)
+		items = append(items, item)
+	}
+	return items
+}
+
+func TestReferentielTags(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("The tags block is empty", func(t *testing.T) {
 		e := newEnv(t)
 		userID := e.user(t, "owner")
 		ref := e.referentielOf(t, userID)
 		if !strings.HasSuffix(ref, "\n</categories>\n<tags>\n</tags>\n</referentiel>") || !strings.HasPrefix(ref, "<referentiel>\n<types>\n") {
-			t.Errorf("référentiel does not end with an empty <tags> block then </referentiel>:\n%s", ref)
+			t.Errorf("a user without any tag has a non-empty <tags> block:\n%s", ref)
+		}
+	})
+
+	t.Run("Tags are listed most used first, then by name", func(t *testing.T) {
+		e := newEnv(t)
+		userID := e.user(t, "owner")
+		tags := map[string]int64{}
+		// Created in another order than the expected one, so that neither the id nor the
+		// creation order gives it.
+		e.carry(t, userID, "docker", 1, tags)
+		e.carry(t, userID, "go", 3, tags)
+		e.carry(t, userID, "ansible", 1, tags)
+		got := refBlock(t, e.referentielOf(t, userID), "tags")
+		if len(got) != 1 || got[0] != "go, ansible, docker" {
+			t.Errorf("<tags> = %q, want the single line go, ansible, docker", got)
+		}
+	})
+
+	t.Run("At most 300 tags are listed", func(t *testing.T) {
+		e := newEnv(t)
+		userID := e.user(t, "owner")
+		carriers := []string{e.note(t, userID, "Premier"), e.note(t, userID, "Second")}
+		for i := range 300 {
+			tag := storetest.AddTag(t, e.path, userID, fmt.Sprintf("tag-%03d", i))
+			for _, item := range carriers {
+				storetest.AttachTag(t, e.path, userID, item, tag)
+			}
+		}
+		storetest.AttachTag(t, e.path, userID, carriers[0], storetest.AddTag(t, e.path, userID, "zzz-rare"))
+		got := refBlock(t, e.referentielOf(t, userID), "tags")
+		if len(got) != 1 {
+			t.Fatalf("<tags> holds %d lines, want 1", len(got))
+		}
+		names := strings.Split(got[0], ", ")
+		if len(names) != 300 || slices.Contains(names, "zzz-rare") {
+			t.Errorf("<tags> lists %d names (zzz-rare: %v), want 300 without zzz-rare", len(names), slices.Contains(names, "zzz-rare"))
+		}
+	})
+
+	t.Run("A tag carried only by private items is not listed", func(t *testing.T) {
+		e := newEnv(t)
+		userID := e.user(t, "owner")
+		tags := map[string]int64{}
+		private := e.carry(t, userID, "sante", 1, tags)
+		storetest.SetAnalysisState(t, e.path, userID, private[0], "analyzed", ptr(time.Now()), 0)
+		if _, err := e.st.SetPrivate(ctx, userID, private[0], true); err != nil {
+			t.Fatalf("SetPrivate: %v", err)
+		}
+		e.carry(t, userID, "go", 1, tags)
+		got := refBlock(t, e.referentielOf(t, userID), "tags")
+		if len(got) != 1 || got[0] != "go" {
+			t.Errorf("<tags> = %q, want go and not sante", got)
+		}
+	})
+
+	t.Run("A tag carried only by deleted items is not listed", func(t *testing.T) {
+		e := newEnv(t)
+		userID := e.user(t, "owner")
+		tags := map[string]int64{}
+		deleted := e.carry(t, userID, "ancien", 1, tags)
+		storetest.DeleteItem(t, e.path, userID, deleted[0])
+		e.carry(t, userID, "go", 1, tags)
+		if got := refBlock(t, e.referentielOf(t, userID), "tags"); len(got) != 1 || strings.Contains(got[0], "ancien") {
+			t.Errorf("<tags> = %q, want go only", got)
+		}
+	})
+
+	t.Run("A deleted tag is not listed", func(t *testing.T) {
+		e := newEnv(t)
+		userID := e.user(t, "owner")
+		tags := map[string]int64{}
+		e.carry(t, userID, "golang", 1, tags)
+		storetest.DeleteTag(t, e.path, userID, tags["golang"])
+		if got := refBlock(t, e.referentielOf(t, userID), "tags"); len(got) != 0 {
+			t.Errorf("<tags> = %q, want an empty block", got)
+		}
+	})
+
+	t.Run("Another user's tags are never listed", func(t *testing.T) {
+		e := newEnv(t)
+		first, second := e.user(t, "first"), e.user(t, "second")
+		e.carry(t, second, "jardin-secret", 1, map[string]int64{})
+		e.carry(t, first, "go", 1, map[string]int64{})
+		if ref := e.referentielOf(t, first); strings.Contains(ref, "jardin-secret") {
+			t.Errorf("the first user's référentiel names the second user's tag:\n%s", ref)
+		}
+		if got := refBlock(t, e.referentielOf(t, second), "tags"); len(got) != 1 || got[0] != "jardin-secret" {
+			t.Errorf("the second user's <tags> = %q, want their own tag", got)
 		}
 	})
 }
@@ -251,12 +362,20 @@ func TestReferentielFormat(t *testing.T) {
 		{ID: 5, Name: "Orpheline", ParentID: &gone, Status: "active"},
 		{ID: 6, Name: "Vide", Description: ptr(""), Status: "proposed"},
 	}
-	got := analysis.Referentiel(types, categories)
+	got := analysis.Referentiel(types, categories, nil)
 	want := "<referentiel>\n<types>\ntech_article | Article technique\npodcast | Podcast audio | proposed\n</types>\n" +
 		"<categories>\n3 | Dev | active | Sur deux lignes\n4 | Dev › Java Spring | active |\n6 | Vide | proposed |\n</categories>\n" +
 		"<tags>\n</tags>\n</referentiel>"
 
 	t.Run("a proposed type ends with its status, and a line break never splits a line", func(t *testing.T) {
+		if got != want {
+			t.Errorf("Referentiel =\n%s\nwant\n%s", got, want)
+		}
+	})
+
+	t.Run("the tags are one line joined by commas, in the order given", func(t *testing.T) {
+		got := analysis.Referentiel(nil, nil, []string{"go", "ansible", "docker"})
+		want := "<referentiel>\n<types>\n</types>\n<categories>\n</categories>\n<tags>\ngo, ansible, docker\n</tags>\n</referentiel>"
 		if got != want {
 			t.Errorf("Referentiel =\n%s\nwant\n%s", got, want)
 		}

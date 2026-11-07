@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -37,4 +38,21 @@ func (s *Store) ContentTypes(ctx context.Context) ([]ContentType, error) {
 		return nil, fmt.Errorf("list content types: %w", err)
 	}
 	return types, nil
+}
+
+// insertProposedType inserts a type proposed by the AI inside tx, without template, with its
+// own change_seq, and returns its id (RG-57). Shared by every user (ADR-0022; design D15, a V1
+// limit). The caller checked that no type holds the key.
+func insertProposedType(ctx context.Context, tx *sql.Tx, p ProposedType, date string) (int64, error) {
+	seq, err := nextChangeSeq(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := tx.QueryRowContext(ctx,
+		`INSERT INTO content_types (key, name, status, has_template, proposal_reason, updated_at, change_seq)
+		 VALUES (?, ?, 'proposed', 0, ?, ?, ?) RETURNING id`, p.Key, p.Name, p.Reason, date, seq).Scan(&id); err != nil {
+		return 0, fmt.Errorf("insert proposed type: %w", err)
+	}
+	return id, nil
 }

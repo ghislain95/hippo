@@ -85,6 +85,7 @@ stateDiagram-v2
     submitted --> extracted : erreur, tentatives < 3
     submitted --> extracted : coché Privé avant le départ du batch
     submitted --> extracted : batch refusé par le service, sans tentative comptée
+    submitted --> extracted : requête expirée ou annulée, sans résultat lisible, batch indisponible ou autre version d'enveloppe, sans tentative comptée
     submitted --> failed : erreur, 3e tentative
     failed --> extracted : « Relancer »
     analyzed --> extracted : réanalyse demandée
@@ -125,7 +126,7 @@ stateDiagram-v2
 - **RG-10** — L'option **Privé** est proposée à chaque capture, **décochée par défaut**.
 - **RG-11** — Un élément privé est stocké, cherchable et lisible comme les autres.
 - **RG-12** — Un élément privé n'est **jamais** envoyé à l'IA : ni dans le batch, ni en analyse immédiate. Aucune exception, y compris en cas d'erreur de configuration.
-- **RG-13** — Un élément privé n'a pas de fiche générée. Il apparaît dans **À trier** jusqu'à ce que l'utilisateur lui donne une catégorie.
+- **RG-13** — Un élément privé n'a pas de fiche générée et apparaît dans **À trier** jusqu'à ce que l'utilisateur lui donne une catégorie. Exception : un élément coché Privé après le départ de son batch garde le résultat de ce batch, fiche et classement compris (RG-14). *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-14** — Décocher « Privé » sur un élément existant le remet dans la file d'analyse s'il n'a pas encore de fiche. Un élément déjà analysé garde sa fiche, sans réanalyse : la réanalyse se demande à la main. Un élément en échec attend « Relancer » (RG-35). Cocher « Privé » sur un élément déjà analysé conserve sa fiche mais empêche toute réanalyse. Un élément déjà parti dans le batch de la nuit garde le résultat de ce batch. Coché Privé avant le départ effectif du batch, il en est retiré et n'est pas envoyé : il reste dans la file, sans fiche ; les autres éléments du batch partent la même nuit. *(Précisée le 5 novembre 2026 : un élément analysé dont on décoche « Privé » n'est pas réanalysé. Précisée le 6 novembre 2026 avec Ghislain : un élément coché Privé pendant l'envoi du batch de la nuit.)*
 - **RG-15** — Une capture en doublon (RG-04) cochée « Privé » rend privé l'élément existant, comme le ferait la fiche (RG-14). Une capture en doublon non cochée ne rend jamais public un élément privé. *(Ajoutée le 27 octobre 2026.)*
 
@@ -148,7 +149,7 @@ stateDiagram-v2
 - **RG-32** — Un batch contient au maximum 200 éléments. Le surplus attend la nuit suivante, les plus anciens en premier. Le corps d'un batch ne dépasse pas non plus 200 Mio ; le surplus attend de la même façon, les plus anciens en premier. *(Complétée le 6 novembre 2026 avec Ghislain : limite de 200 Mio.)*
 - **RG-33** — L'**analyse immédiate** d'un élément est possible à la demande, au plein tarif. Elle respecte RG-12 et RG-81. Elle est refusée tant que l'extraction n'est pas terminée (`queued`) et quand l'élément fait déjà partie du batch de la nuit (`submitted`), pour ne pas payer deux fois. *(Complétée le 25 octobre 2026.)*
 - **RG-34** — L'analyse produit, pour chaque élément : un type de contenu, une catégorie, 2 à 5 tags, un titre, une fiche au format du type, la langue de l'original, la fraîcheur, et un indicateur de contenu pauvre.
-- **RG-35** — Une réponse de l'IA qui ne respecte pas le schéma attendu est rejetée entièrement : rien n'est écrit, l'élément compte une tentative. Après 3 tentatives, il passe en `failed` et apparaît dans À trier et dans Réglages avec un bouton « Relancer ».
+- **RG-35** — Une réponse de l'IA qui ne respecte pas le schéma attendu est rejetée entièrement : rien n'est écrit, l'élément compte une tentative. Une requête que le service signale en erreur compte aussi une tentative. Une réponse valide que le serveur n'arrive pas à enregistrer compte aussi une tentative. Une requête que le service n'a pas traitée (expirée, annulée), un élément resté sans résultat lisible, ou dont le batch n'est plus disponible, revient dans la file sans compter de tentative. Après 3 tentatives, il passe en `failed` et apparaît dans À trier et dans Réglages avec un bouton « Relancer ». *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-36** — **Fiche incomplète.** Si l'IA atteint son plafond de sortie, sa réponse est coupée et inutilisable : rien n'est enregistré, et l'élément est remis dans la file **une seule fois**, avec un plafond doublé, pour la nuit suivante. S'il s'agit d'une réanalyse, la fiche précédente reste en place en attendant. Si la réponse est encore coupée, l'élément passe en `failed` avec la raison « fiche trop longue » ; le contenu extrait reste conservé. *(Modifiée le 25 octobre 2026 : auparavant, la fiche coupée était enregistrée et marquée incomplète.)*
 - **RG-37** — **Contenu pauvre.** Quand l'IA signale un contenu insuffisant, la fiche contient seulement ce qui est connu ; l'appli affiche « contenu partiel » et propose d'ouvrir l'original. L'IA ne doit **jamais inventer** d'information pour compléter.
 - **RG-38** — **Copie de l'image.** L'IA ne reçoit pas le fichier d'une image mais sa **copie** : redressée, réduite à 1 568 px au plus sur son grand côté (jamais agrandie), réencodée en JPEG sans aucune métadonnée (position GPS, appareil). Le fichier gardé sur le NAS reste intact. Une photo HEIC est convertie. Une image trop grande ou illisible est envoyée sans l'image, et la fiche est marquée contenu partiel (RG-37). *(Ajoutée le 6 novembre 2026 avec Ghislain.)*
@@ -166,13 +167,13 @@ stateDiagram-v2
 
 - **RG-50** — Chaque élément a **une seule catégorie**, celle de son sujet principal. Ce qui est transversal passe par les tags.
 - **RG-51** — L'arborescence des catégories a **2 niveaux maximum** (catégorie racine, sous-catégorie). *Point ouvert : un 3e niveau pourra être envisagé si le classement le demande.*
-- **RG-52** — L'IA reçoit l'arborescence complète (catégories actives **et** proposées, avec leurs descriptions), la liste des types et les tags existants. Elle range **en priorité dans l'existant**.
+- **RG-52** — L'IA reçoit l'arborescence complète (catégories actives **et** proposées, avec leurs descriptions), la liste des types et les tags existants portés par au moins un élément non privé et non supprimé. Elle range **en priorité dans l'existant**. *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-53** — Si aucune catégorie ne convient, l'IA **propose** une nouvelle catégorie, avec un nom, un parent éventuel, une description et une justification d'une ligne. La catégorie est créée avec le statut `proposed` et l'élément y est rangé immédiatement.
-- **RG-54** — Avant de créer une proposition, le backend vérifie qu'aucune catégorie (active ou proposée) n'a déjà le même nom normalisé sous le même parent ; si c'est le cas, il réutilise l'existante.
+- **RG-54** — Avant de créer une proposition, le backend corrige son parent (RG-55), puis vérifie qu'aucune catégorie (active ou proposée, non supprimée) n'a déjà le même nom normalisé sous ce parent ; si c'est le cas, il réutilise l'existante. Le nom normalisé est le nom en minuscules, sans accent, les espaces intérieurs réduits à un seul, ceux des bords retirés : « Ménage » et « menage » sont le même nom, « Java & Spring » et « Java et Spring » non. *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-55** — Une proposition dont le parent est invalide (inexistant, ou déjà sous-catégorie) est rattachée au parent valide le plus proche, à défaut à la racine. Une proposition n'est jamais rejetée pour ce motif.
 - **RG-56** — **L'IA ne peut jamais** renommer, déplacer, fusionner ni supprimer une catégorie, un type ou un tag existant. Toute évolution de l'existant passe par l'utilisateur.
-- **RG-57** — Même logique pour les **types de contenu** : l'IA choisit parmi les types existants ou en propose un nouveau (`proposed`). Un type proposé s'affiche avec le template générique tant qu'il n'a pas de template dédié.
-- **RG-58** — **Tags** : 2 à 5 par élément, réutilisés en priorité. Le backend normalise tout tag reçu (minuscules, sans accent, espaces et `_` remplacés par des tirets, 40 caractères maximum) et ignore les doublons.
+- **RG-57** — Même logique pour les **types de contenu** : l'IA choisit parmi les types existants ou en propose un nouveau (`proposed`). Un type proposé s'affiche avec le template générique tant qu'il n'a pas de template dédié. Un type proposé dont la clé existe déjà est rangé sous ce type, avec sa fiche générique, comme après une fusion (RG-72). *(Précisée le 7 novembre 2026 avec Ghislain.)*
+- **RG-58** — **Tags** : 2 à 5 par élément, réutilisés en priorité. Avant de vérifier la réponse, le backend normalise tout tag reçu (minuscules, sans accent, espaces et `_` remplacés par des tirets, 40 caractères maximum) et ignore les doublons. Une suite d'espaces, de `_` ou de tirets devient un seul tiret, et aucun tiret ne reste au début ni à la fin du tag. S'il reste moins de 2 tags distincts, la réponse est rejetée (RG-35). Un tag qui garde un autre caractère que des lettres minuscules sans accent, des chiffres et des tirets (`c++`, `cœur`) rend aussi la réponse invalide. *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-59** — Une sous-catégorie hérite de la couleur de sa catégorie racine, sauf couleur définie explicitement.
 
 ### Corrections et réanalyse
@@ -201,7 +202,7 @@ stateDiagram-v2
 
 ### Coûts
 
-- **RG-80** — Chaque batch enregistre les tokens consommés et son coût calculé.
+- **RG-80** — Chaque batch enregistre les tokens consommés et son coût calculé. Un batch dont les résultats ne sont plus disponibles enregistre les tokens déjà lus, zéro sinon. *(Précisée le 7 novembre 2026 avec Ghislain.)*
 - **RG-81** — **Budget mensuel.** Si le coût cumulé du mois atteint le budget (5 $ par défaut), plus aucune analyse n'est lancée jusqu'au 1er du mois suivant, ni batch ni analyse immédiate. Réglages affiche une alerte ; les éléments restent en file.
 - **RG-82** — Le coût du mois en cours est visible dans Réglages.
 

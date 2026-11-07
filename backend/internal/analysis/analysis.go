@@ -20,6 +20,14 @@
 // one send through the Analyzer, never retried. The Anthropic SDK hides behind Analyzer, in
 // internal/analysis/anthropic (ADR-0005); tests use analysistest.
 //
+// The results of a batch (results.go, apply-batch-results design D1 to D8) are read one line
+// at a time once the service reports the batch ended: each response is validated in a fixed
+// order (stop reason, one classify_item call, tags normalised, the bundled schema, then the
+// type, template and category in the store's transaction) and rejected whole on the first
+// failure (RG-35); each line is settled in its own transaction, only while its item is still
+// submitted in that batch; the batch is closed once, with the tokens of every succeeded line
+// and their cost at the batch price (BatchCost, RG-80). Reading a batch builds no request.
+//
 // No item content reaches a log nor an error: only ids, counts and reason classes (RG-92,
 // ADR-0027).
 package analysis
@@ -88,8 +96,9 @@ type ImageCopier interface {
 	Copy(ctx context.Context, asset, out *os.File) (imagecopy.Result, error)
 }
 
-// Catalog reads the types and the categories of the référentiel (store.Store).
+// Catalog reads the types, the categories and the tags of the référentiel (store.Store).
 type Catalog interface {
 	ContentTypes(ctx context.Context) ([]store.ContentType, error)
 	Categories(ctx context.Context, userID string) ([]store.Category, error)
+	ReferentielTags(ctx context.Context, userID string, limit int) ([]string, error)
 }

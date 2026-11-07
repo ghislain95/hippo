@@ -69,7 +69,7 @@ func insertAsset(ctx context.Context, tx *sql.Tx, userID, itemID string, in NewA
 const assetColumns = `id, item_id, user_id, path, mime_type, width, height, size_bytes, created_at`
 
 // assetsOfItem returns the assets of the item itemID of userID, oldest first; none for another
-// user's item. Every item read back carries them (withAssets).
+// user's item. Every item read back carries them (withAssetsAndTags).
 func assetsOfItem(ctx context.Context, db querier, userID, itemID string) ([]Asset, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT `+assetColumns+` FROM assets WHERE user_id = ? AND item_id = ? ORDER BY id`, userID, itemID)

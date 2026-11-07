@@ -46,3 +46,17 @@ func WithAfterSubmit(cfg *PassConfig, hook func(ctx context.Context, userID, bat
 func WithBeforeRewrite(cfg *PassConfig, hook func(ctx context.Context, userID, batchID string) error) {
 	cfg.beforeRewrite = hook
 }
+
+// FollowReport is what following one batch did (results.go).
+type FollowReport = followReport
+
+// ItemReport is the outcome of one line of a batch's results.
+type ItemReport = itemReport
+
+// FollowBatch follows the batch b of userID once with p, holding the pass mutex as Pass.Follow
+// will (apply-batch-results design D1).
+func FollowBatch(ctx context.Context, p *Pass, userID string, b store.Batch) FollowReport {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.followBatch(ctx, userID, b)
+}

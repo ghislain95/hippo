@@ -248,19 +248,26 @@ func submittedItems(ctx context.Context, tx *sql.Tx, userID, batchID string) ([]
 // PendingBatches returns the pending batches of userID, oldest first: the ones whose send has
 // an unknown outcome, to reconcile (design.md D8).
 func (s *Store) PendingBatches(ctx context.Context, userID string) ([]Batch, error) {
-	return s.batches(ctx, userID, true)
+	return s.batches(ctx, batchSelect+` AND status = 'pending'`+batchOrder, userID)
 }
 
 // Batches returns every batch of userID, oldest first.
 func (s *Store) Batches(ctx context.Context, userID string) ([]Batch, error) {
-	return s.batches(ctx, userID, false)
+	return s.batches(ctx, batchSelect+batchOrder, userID)
 }
 
-// batches reads the batches of userID (RG-90), the pending ones only when pendingOnly.
-func (s *Store) batches(ctx context.Context, userID string, pendingOnly bool) ([]Batch, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, anthropic_batch_id, status, model, prompt_version, envelope_version, item_count, cost_usd, created_at, sent_at
-		 FROM batches WHERE user_id = ? AND (? = 0 OR status = 'pending') ORDER BY created_at, id`, userID, boolInt(pendingOnly))
+// batchSelect and batchOrder frame the constant queries of batches: the batches of a user
+// (RG-90), oldest first.
+const (
+	batchSelect = `SELECT id, anthropic_batch_id, status, model, prompt_version, envelope_version, item_count, cost_usd,
+		created_at, sent_at FROM batches WHERE user_id = ?`
+	batchOrder = ` ORDER BY created_at, id`
+)
+
+// batches reads the batches of userID by query, a constant built from batchSelect and
+// batchOrder.
+func (s *Store) batches(ctx context.Context, query, userID string) ([]Batch, error) {
+	rows, err := s.db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list batches: %w", err)
 	}

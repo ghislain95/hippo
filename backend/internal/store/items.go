@@ -77,7 +77,17 @@ type Item struct {
 	// BatchID is the batch the item was last submitted with (batches.id), nil before its first
 	// batch and after a batch that was not sent.
 	BatchID *string
-	Assets  []Asset // never nil
+	// TypeKey is the key of the item's content type, nil until analysed or sorted.
+	TypeKey *string
+	// CategoryID is the item's category, nil for À trier.
+	CategoryID *int64
+	// TagIDs are the ids of the item's non-deleted tags, ascending; never nil.
+	TagIDs []int64
+	// FicheJSON is the stored fiche, nil until analysed.
+	FicheJSON json.RawMessage
+	// EnvelopeVersion is the envelope version of the batch that wrote the fiche (RG-64).
+	EnvelopeVersion *int64
+	Assets          []Asset // never nil
 }
 
 // CaptureItem stores a capture of userID, in one write transaction (RG-04, RG-08, RG-90):
@@ -314,25 +324,30 @@ type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
-const itemColumns = `id, user_id, kind, source, title, url, site_name, user_note, is_private, status,
-	extraction_mode, content_truncated, reading_minutes, content_ok, content_issue, language, freshness, model,
-	prompt_version, schema_version, user_edited, annotations, is_pinned, read_status, read_progress, attempts,
-	last_error, created_at, updated_at, extracted_at, analyzed_at, read_at, change_seq, batch_id`
+// itemColumns are read from itemsFrom: the items as i, with the key of their content type
+// (content_types is shared by every user, ADR-0022).
+const itemColumns = `i.id, i.user_id, i.kind, i.source, i.title, i.url, i.site_name, i.user_note, i.is_private, i.status,
+	i.extraction_mode, i.content_truncated, i.reading_minutes, i.content_ok, i.content_issue, i.language, i.freshness, i.model,
+	i.prompt_version, i.schema_version, i.user_edited, i.annotations, i.is_pinned, i.read_status, i.read_progress, i.attempts,
+	i.last_error, i.created_at, i.updated_at, i.extracted_at, i.analyzed_at, i.read_at, i.change_seq, i.batch_id,
+	ct.key, i.category_id, i.fiche_json, i.envelope_version`
+
+const itemsFrom = ` FROM items i LEFT JOIN content_types ct ON ct.id = i.type_id`
 
 func itemByID(ctx context.Context, db querier, userID, id string) (Item, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT `+itemColumns+` FROM items WHERE user_id = ? AND id = ? AND deleted_at IS NULL`, userID, id)
-	return withAssets(ctx, db, row)
+		`SELECT `+itemColumns+itemsFrom+` WHERE i.user_id = ? AND i.id = ? AND i.deleted_at IS NULL`, userID, id)
+	return withAssetsAndTags(ctx, db, row)
 }
 
 // itemByClientID returns the item a capture of userID with clientID resolved to. Both tables
 // are filtered by userID, so a client id never leads to another user's item (RG-90).
 func itemByClientID(ctx context.Context, db querier, userID, clientID string) (Item, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT `+itemColumns+` FROM items
-		 WHERE user_id = ? AND deleted_at IS NULL
-		   AND id = (SELECT item_id FROM capture_ids WHERE user_id = ? AND client_id = ?)`, userID, userID, clientID)
-	return withAssets(ctx, db, row)
+		`SELECT `+itemColumns+itemsFrom+`
+		 WHERE i.user_id = ? AND i.deleted_at IS NULL
+		   AND i.id = (SELECT item_id FROM capture_ids WHERE user_id = ? AND client_id = ?)`, userID, userID, clientID)
+	return withAssetsAndTags(ctx, db, row)
 }
 
 // itemByNormalizedURL returns the item of userID with this normalised URL (RG-04). The
@@ -340,17 +355,21 @@ func itemByClientID(ctx context.Context, db querier, userID, clientID string) (I
 // items must keep both aligned if it filters deleted_at here.
 func itemByNormalizedURL(ctx context.Context, db querier, userID, normalizedURL string) (Item, error) {
 	row := db.QueryRowContext(ctx,
-		`SELECT `+itemColumns+` FROM items WHERE user_id = ? AND normalized_url = ?`, userID, normalizedURL)
-	return withAssets(ctx, db, row)
+		`SELECT `+itemColumns+itemsFrom+` WHERE i.user_id = ? AND i.normalized_url = ?`, userID, normalizedURL)
+	return withAssetsAndTags(ctx, db, row)
 }
 
-// withAssets reads the item of row and its assets, so that every item read back carries them.
-func withAssets(ctx context.Context, db querier, row *sql.Row) (Item, error) {
+// withAssetsAndTags reads the item of row, its assets and its tags, so that every item read back
+// carries them.
+func withAssetsAndTags(ctx context.Context, db querier, row *sql.Row) (Item, error) {
 	item, err := scanItem(row)
 	if err != nil {
 		return Item{}, err
 	}
 	if item.Assets, err = assetsOfItem(ctx, db, item.UserID, item.ID); err != nil {
+		return Item{}, fmt.Errorf("read item %s: %w", item.ID, err)
+	}
+	if item.TagIDs, err = tagsOfItem(ctx, db, item.UserID, item.ID); err != nil {
 		return Item{}, fmt.Errorf("read item %s: %w", item.ID, err)
 	}
 	return item, nil
@@ -366,13 +385,15 @@ func scanItem(row *sql.Row) (Item, error) {
 		contentOK                                    sql.Null[bool]
 		userEdited, createdAt, updatedAt             string
 		extractedAt, analyzedAt, readAt              sql.Null[string]
-		batchID                                      sql.Null[string]
+		batchID, typeKey, fiche                      sql.Null[string]
+		categoryID, envelopeVersion                  sql.Null[int64]
 	)
 	err := row.Scan(&item.ID, &item.UserID, &item.Kind, &item.Source, &item.Title, &url, &siteName, &userNote,
 		&item.IsPrivate, &item.Status, &extractionMode, &item.ContentTruncated, &readingMinutes,
 		&contentOK, &contentIssue, &language, &freshness, &model, &promptVersion, &schemaVersion, &userEdited,
 		&annotations, &item.IsPinned, &item.ReadStatus, &item.ReadProgress, &item.Attempts, &lastError,
-		&createdAt, &updatedAt, &extractedAt, &analyzedAt, &readAt, &item.ChangeSeq, &batchID)
+		&createdAt, &updatedAt, &extractedAt, &analyzedAt, &readAt, &item.ChangeSeq, &batchID,
+		&typeKey, &categoryID, &fiche, &envelopeVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Item{}, ErrNotFound
 	}
@@ -385,6 +406,10 @@ func scanItem(row *sql.Row) (Item, error) {
 	item.Freshness, item.Model, item.Annotations, item.LastError = ptr(freshness), ptr(model), ptr(annotations), ptr(lastError)
 	item.ReadingMinutes, item.PromptVersion, item.SchemaVersion = ptr(readingMinutes), ptr(promptVersion), ptr(schemaVersion)
 	item.ContentOK, item.BatchID = ptr(contentOK), ptr(batchID)
+	item.TypeKey, item.CategoryID, item.EnvelopeVersion = ptr(typeKey), ptr(categoryID), ptr(envelopeVersion)
+	if fiche.Valid {
+		item.FicheJSON = json.RawMessage(fiche.V)
+	}
 
 	if err := json.Unmarshal([]byte(userEdited), &item.UserEdited); err != nil {
 		return Item{}, fmt.Errorf("read item %s: user_edited: %w", item.ID, err)

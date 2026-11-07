@@ -64,6 +64,20 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	// apply-batch-results, item-analysis « The token prices are configured », log side.
+	t.Run("The prices default to the Haiku 4.5 prices", func(t *testing.T) {
+		env := map[string]string{
+			"API_TOKEN": "test-token-0123456789abcdef012345",
+			"HTTP_ADDR": "127.0.0.1:" + freePort(t),
+			"DATA_DIR":  t.TempDir(),
+		}
+		logs := runUntilHealthy(t, env)
+		want := `"msg":"analysis prices","model":"claude-haiku-4-5","input_usd_per_mtok":1,"output_usd_per_mtok":5`
+		if !strings.Contains(logs, want) {
+			t.Errorf("logs lack %s:\n%s", want, logs)
+		}
+	})
+
 	t.Run("starts with an API key and never logs it", func(t *testing.T) {
 		// A new base holds no pending batch and no waiting item: neither the reconciliation at
 		// start-up nor a pass reaches the network.
@@ -160,6 +174,31 @@ func TestRun(t *testing.T) {
 			t.Error("healthcheck on a closed port: want an error")
 		}
 	})
+}
+
+// runUntilHealthy runs the server with env until it answers its healthcheck, stops it, and
+// returns its logs.
+func runUntilHealthy(t *testing.T, env map[string]string) string {
+	t.Helper()
+	getenv := func(name string) string { return env[name] }
+	ctx, cancel := context.WithCancel(context.Background())
+	logs := &bytes.Buffer{}
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, nil, getenv, logs) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for healthcheck(context.Background(), getenv) != nil {
+		if time.Now().After(deadline) {
+			cancel()
+			err := <-done
+			t.Fatalf("server never became healthy (run: %v):\n%s", err, logs)
+		}
+		time.Sleep(20 * time.Millisecond) // polling a real server: no event to wait on
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return logs.String()
 }
 
 func TestOpenAssets(t *testing.T) {

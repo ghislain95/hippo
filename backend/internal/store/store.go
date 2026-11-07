@@ -32,6 +32,8 @@ type Store struct {
 	db  *sql.DB
 	now func() time.Time
 	ids *idSource
+	// categoryKeysFilled is the number of normalised category names Open filled (design D9).
+	categoryKeysFilled int
 }
 
 // idSource makes ULIDs that increase within a millisecond. The monotonic entropy is not safe
@@ -75,12 +77,21 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if err := migrate(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	st := &Store{db: db, now: time.Now, ids: &idSource{entropy: ulid.Monotonic(rand.Reader, 0)}}
+	filled, err := fillCategoryKeys(ctx, db)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	st := &Store{db: db, now: time.Now, ids: &idSource{entropy: ulid.Monotonic(rand.Reader, 0)}, categoryKeysFilled: filled}
 	for _, opt := range opts {
 		opt(st)
 	}
 	return st, nil
 }
+
+// CategoryKeysFilled is the number of categories whose normalised name Open filled, for the
+// start-up log: the 24 starting categories of each user at the first start after migration
+// 00007, then 0.
+func (s *Store) CategoryKeysFilled() int { return s.categoryKeysFilled }
 
 // dsn enables WAL, foreign keys and a busy timeout on every connection, and starts write
 // transactions with BEGIN IMMEDIATE so that two writers wait instead of failing.

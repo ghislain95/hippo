@@ -120,6 +120,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 			logger.Error("close database", slog.String("error", err.Error()))
 		}
 	}()
+	if filled := st.CategoryKeysFilled(); filled > 0 {
+		logger.Info("category names normalised", slog.Int("count", filled))
+	}
 
 	assets, err := openAssets(filepath.Join(cfg.DataDir, assetsDirectory), logger)
 	if err != nil {
@@ -188,6 +191,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		Model:         cfg.AnalysisModel,
 		Prompt:        analysisPrompt,
 		BudgetUSD:     cfg.MonthlyBudgetUSD,
+		Prices:        analysis.Prices(cfg.Prices),
 		Schedule:      cfg.BatchSchedule,
 		Location:      paris,
 		Assets:        assets,

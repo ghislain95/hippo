@@ -14,11 +14,15 @@ import (
 // pathSeparator joins the name of a sub-category to its root's in the référentiel.
 const pathSeparator = " › "
 
+// maxReferentielTags is the number of tags the référentiel lists at most (RG-52,
+// system-prompt.md).
+const maxReferentielTags = 300
+
 // oneLine replaces the line breaks of a value written on one line of the prompt by spaces.
 var oneLine = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
-// LoadReferentiel reads the content types and the categories of userID and returns their
-// référentiel. It is built once per batch, so that every request of the batch carries the same
+// LoadReferentiel reads the content types, the categories and the tags of userID and returns
+// their référentiel. It is built once per batch, so that every request of the batch carries the same
 // bytes (RG-52, prompt cache).
 func LoadReferentiel(ctx context.Context, catalog Catalog, userID string) (string, error) {
 	types, err := catalog.ContentTypes(ctx)
@@ -29,22 +33,29 @@ func LoadReferentiel(ctx context.Context, catalog Catalog, userID string) (strin
 	if err != nil {
 		return "", fmt.Errorf("build référentiel: %w", err)
 	}
-	return Referentiel(types, categories), nil
+	// Only tags carried by a public, non-deleted item: a tag of a private item never reaches
+	// the AI (RG-12, decision 5 of apply-batch-results).
+	tags, err := catalog.ReferentielTags(ctx, userID, maxReferentielTags)
+	if err != nil {
+		return "", fmt.Errorf("build référentiel: %w", err)
+	}
+	return Referentiel(types, categories, tags), nil
 }
 
 // Referentiel writes the <referentiel> block of the system prompt (docs/prompt/system-prompt.md,
-// RG-52) from the types and the categories that are not deleted:
+// RG-52) from the types and the categories that are not deleted, and the tags in their order:
 //
 //   - <types>: one "key | name" line per type by id, " | proposed" added for a proposed type;
 //   - <categories>: one "id | path | status | description" line per category, the roots by id,
 //     each followed by its sub-categories by id, the path joining names with " › "; a line
 //     without description ends with "|". A sub-category whose root is not listed (deleted) is
 //     not listed either;
-//   - <tags>: empty until the tags exist (E3-04).
+//   - <tags>: one line of the tag names joined by ", ", in the order given (most carried first,
+//     then by name: store.ReferentielTags); an empty block when there is none.
 //
 // A line break inside a name or a description becomes a space: one entry stays one line. The
 // text ends with </referentiel>, without a line break.
-func Referentiel(types []store.ContentType, categories []store.Category) string {
+func Referentiel(types []store.ContentType, categories []store.Category, tags []string) string {
 	var b strings.Builder
 	b.WriteString("<referentiel>\n<types>\n")
 	for _, t := range slices.SortedFunc(slices.Values(types), func(x, y store.ContentType) int { return cmp.Compare(x.ID, y.ID) }) {
@@ -70,7 +81,17 @@ func Referentiel(types []store.ContentType, categories []store.Category) string 
 			}
 		}
 	}
-	b.WriteString("</categories>\n<tags>\n</tags>\n</referentiel>")
+	b.WriteString("</categories>\n<tags>\n")
+	if len(tags) > 0 {
+		for i, tag := range tags {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(oneLine.Replace(tag))
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("</tags>\n</referentiel>")
 	return b.String()
 }
 

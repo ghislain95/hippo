@@ -220,9 +220,9 @@ func outcome(ctx context.Context, err error) error {
 	var apiErr *sdk.Error
 	if errors.As(err, &apiErr) {
 		if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-			return &analysis.RejectedError{Status: apiErr.StatusCode, Type: string(apiErr.Type())}
+			return &analysis.RejectedError{Status: apiErr.StatusCode, Type: ErrorTypeClass(string(apiErr.Type()))}
 		}
-		return fmt.Errorf("%w: %w", errUnknown, &analysis.ServerError{Status: apiErr.StatusCode, Type: string(apiErr.Type())})
+		return fmt.Errorf("%w: %w", errUnknown, &analysis.ServerError{Status: apiErr.StatusCode, Type: ErrorTypeClass(string(apiErr.Type()))})
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return fmt.Errorf("%w: %w", errUnknown, ctxErr)
