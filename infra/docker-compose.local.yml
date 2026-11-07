@@ -4,6 +4,13 @@
 # Variables: infra/.env if present (read by Compose from this folder), else the shell.
 name: hippo-local
 
+# Docker log rotation, same values as docker-compose.yml.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   hippo:
     build:
@@ -29,6 +36,7 @@ services:
     # ADR-0038: the nightly batch runs an image copy child of up to 256 MiB beside the service.
     mem_limit: 384m
     restart: unless-stopped
+    logging: *logging
     healthcheck:
       test: ["CMD", "/hippo", "healthcheck"]
       interval: 10s

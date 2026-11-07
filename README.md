@@ -67,6 +67,7 @@ hippo/
 | [`docs/backlog.md`](docs/backlog.md) | Epics et user stories avec critères d'acceptation, dans l'ordre | Pour savoir quoi faire ensuite |
 | [`docs/prompt/`](docs/prompt/README.md) | Prompt, schémas JSON des fiches, jeu de test | Avant de toucher à l'analyse |
 | [`docs/dev/`](docs/dev/workflow.md) | Workflow de développement, tests, conventions, git, outils des agents | Pour développer |
+| [`docs/runbook-nas.md`](docs/runbook-nas.md) | Installation de Hippo sur le NAS, HTTPS par Tailscale, mise à jour, retour arrière | Pour déployer ou mettre à jour sur le NAS |
 
 **En cas de contradiction** : le [document métier](docs/metier.md) fait foi pour le comportement, les [ADR](docs/adr/README.md) pour les choix techniques, les [schémas](docs/prompt/schemas/) pour le format des fiches. La spec est mise à jour pour s'y aligner.
 
@@ -117,7 +118,7 @@ curl -fsS http://127.0.0.1:8080/healthz      # {"status":"ok","version":"…"}
 make down
 ```
 
-Sur le NAS : `infra/docker-compose.yml` (sidecar Tailscale, image `ghcr.io/ghislain95/hippo`), mis à jour par `docker compose pull && docker compose up -d`.
+Sur le NAS : `infra/docker-compose.yml` (sidecar Tailscale, image `ghcr.io/ghislain95/hippo` épinglée par `HIPPO_IMAGE_TAG`). Installation, mise à jour et retour arrière pas à pas : [runbook NAS](docs/runbook-nas.md).
 
 ### Appli
 
