@@ -104,19 +104,20 @@ Identifiants ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) :
 | category_id | INTEGER, nullable | Catégorie ; null = À trier ; ajouté par E3-01, écrit à partir d'E3-02 |
 | title | TEXT | Titre affiché : avant analyse, titre provisoire (nom d'hôte d'un lien, première ligne d'une note, note de capture ou date d'une image, [RG-26](metier.md#extraction)), puis titre d'origine ou écrit par l'IA |
 | fiche_json | TEXT (JSON), nullable | Fiche générée, au format du type |
-| search_text | TEXT | Fiche aplatie en texte, pour la recherche |
+| search_text | TEXT | Fiche aplatie en texte, pour la recherche ([texte de recherche](#écriture-dune-réponse-valide)) |
 | content_ok | INTEGER (0/1), nullable | 0 = contenu pauvre (RG-37) |
 | content_issue | TEXT, nullable | Ce qui manque, selon l'IA |
 | incomplete_retried | INTEGER (0/1) | La seconde tentative avec le plafond doublé a déjà eu lieu (RG-36) |
 | language | TEXT, nullable | Langue de l'original |
 | freshness | TEXT, nullable | `dated` ou `timeless` |
-| model, prompt_version, schema_version | TEXT, INTEGER, INTEGER | Traçabilité (RG-64) |
+| model, prompt_version, schema_version | TEXT, INTEGER, INTEGER | Traçabilité (RG-64) ; le modèle et la version du prompt viennent du batch, la version du schéma de la fiche du schéma assemblé |
+| envelope_version | INTEGER, nullable | Version de l'enveloppe de la réponse, recopiée du batch à l'écriture du résultat (RG-64) ; ajoutée par E3-02 |
 | user_edited | TEXT (JSON) | Liste des champs corrigés à la main (RG-60) |
 | annotations | TEXT, nullable | Annotations de l'utilisateur |
 | is_pinned | INTEGER (0/1) | Épingle |
 | read_status | TEXT | `to_read`, `in_progress`, `read` |
 | read_progress | REAL | 0 à 1 |
-| attempts, last_error | INTEGER, TEXT | Suivi des échecs |
+| attempts, last_error | INTEGER, TEXT | Tentatives comptées (RG-35) ; **code d'échec** de la dernière tentative : `invalid_response`, `request_errored`, `too_long` ou `storage_failed`, jamais un message ([issues](#issue-de-chaque-ligne)) |
 | batch_id | TEXT (ULID), nullable | Batch de la nuit qui porte l'élément (`batches.id`), écrit à l'envoi ; ajouté par E3-01 |
 | created_at, updated_at, extracted_at, analyzed_at, read_at, deleted_at | TEXT | Horodatage |
 | change_seq | INTEGER | Séquence de modification, pour la synchronisation |
@@ -128,6 +129,7 @@ La table `items` naît avec E2-01 (migration `00002_items.sql`). Elle évolue ai
 | Unicité de `(user_id, normalized_url)`, index partiel hors valeurs nulles | E2-02 (migration `00003_capture_ids.sql`) | Un lien n'existe qu'une fois par utilisateur (RG-04). Les liens capturés avant E2-02 gardent `normalized_url` nul et ne sont jamais reconnus comme doublons : aucune base réelle n'existait avant E6, donc aucun remplissage (une migration n'est que du SQL, [ADR-0032](adr/0032-migrations-goose.md), et RG-05 ne s'écrit pas en SQL) |
 | Suppression de `client_id` et de son index | E2-02 (migration `00003_capture_ids.sql`) | Les identifiants de capture passent dans `capture_ids`, seule référence des rejeux ; les valeurs existantes y sont copiées avant la suppression |
 | `type_id`, `category_id`, `batch_id`, index `items_user_status` sur `(user_id, status, id)` et `items_batch` sur `batch_id` (partiel, hors valeurs nulles) | E3-01 (migration `00006_analysis.sql`) | Les colonnes référencent `content_types`, `categories`, `batches` ; ajoutées par `ALTER TABLE items ADD COLUMN … REFERENCES …`, nulles pour les éléments existants. Le premier index sert la sélection du batch, le second le retour des éléments d'un batch |
+| `envelope_version` | E3-02 (migration `00007_results.sql`) | La version de l'enveloppe qui a produit la fiche (RG-64), recopiée du batch comme le modèle et la version du prompt. Nulle pour les éléments existants et tant qu'un élément n'est pas analysé |
 
 **capture_ids** — l'identifiant de chaque capture reçue (RG-08), créée par E2-02 (migration `00003_capture_ids.sql`).
 
@@ -182,11 +184,13 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 | status | TEXT | `active` ou `proposed` |
 | proposal_reason | TEXT, nullable | Justification donnée par l'IA |
 | color | TEXT, nullable | Couleur d'accent ; héritée du parent si null (RG-59) |
+| name_key | TEXT, nullable | **Nom normalisé** (RG-54), écrit par Go seulement (`naming.CategoryKey`) ; ajouté par E3-03 (migration `00007_results.sql`). Non synchronisé |
 | created_at, updated_at, deleted_at, change_seq | TEXT, INTEGER | Horodatage et séquence de modification |
 
-- Clé étrangère `(parent_id, user_id)` vers `categories (id, user_id)` (index unique `categories_id_user`) : le parent est une catégorie du même utilisateur (RG-90). Une catégorie n'est pas son propre parent (`CHECK`). La profondeur de 2 niveaux est tenue par le store : en E3-01, seul l'amorçage écrit des catégories ; E3-03 ajoute la vérification commune.
+- Clé étrangère `(parent_id, user_id)` vers `categories (id, user_id)` (index unique `categories_id_user`) : le parent est une catégorie du même utilisateur (RG-90). Une catégorie n'est pas son propre parent (`CHECK`). La profondeur de 2 niveaux est tenue par le store : l'amorçage n'écrit que des racines et leurs sous-catégories, et une proposition (E3-03) a toujours pour parent une racine, une fois son parent corrigé (RG-55).
 - **Catégories de départ** : chaque utilisateur reçoit l'arborescence de [métier §6](metier.md#6-catégories-de-départ), écrite en Go par le store (pas par la migration) : 9 racines avec leur description, 15 sous-catégories sans description (l'IA lit leur chemin, `Dev › Java & Spring`), toutes `active`, couleur nulle, une valeur de `change_seq` par ligne. `categories_seeded_at` est posé dans la même transaction : une seule fois par utilisateur, même s'il supprime ensuite toutes ses catégories. Un utilisateur créé avant E3-01 les reçoit au démarrage suivant.
-- Unicité de `(user_id, parent_id, nom normalisé)` : prévue, l'index arrive avec E3-03, qui écrit les propositions.
+- Unicité du nom normalisé sous un parent (RG-54) : index unique partiel `categories_user_parent_name` sur `(user_id, COALESCE(parent_id, 0), name_key)`, `WHERE deleted_at IS NULL AND name_key IS NOT NULL` (E3-03, migration `00007_results.sql`). `COALESCE` parce que SQLite tient deux `NULL` pour distincts : sans lui, deux racines du même nom passeraient. Une catégorie supprimée n'interdit jamais une nouvelle du même nom.
+- **Remplissage de `name_key`** : `lower()` de SQLite ne plie que l'ASCII et ne retire aucun accent, et une migration n'est que du SQL ([ADR-0032](adr/0032-migrations-goose.md)). `store.Open` remplit donc, après les migrations, le `name_key` de chaque catégorie qui n'en a pas (supprimées comprises), en une transaction, utilisateur par utilisateur, sans avancer `change_seq` ; le nombre est logué au démarrage (`category names normalised`). Deux catégories d'un utilisateur de même nom normalisé sous le même parent arrêtent le démarrage avec une erreur qui nomme leurs deux ids (impossible en V1, où seul l'amorçage écrivait des catégories). Toute insertion de catégorie, amorçage compris, écrit ensuite `name_key`.
 
 **content_types** — partagés entre utilisateurs ([ADR-0022](adr/0022-preparation-multi-utilisateur.md)), créée par E3-01 (migration `00006_analysis.sql`). La migration insère les 7 types de départ, ids 1 à 7 dans l'ordre de [métier §7](metier.md#7-types-de-contenu) : `tech_article`, `tutorial`, `tip`, `recipe`, `place`, `resource`, `note`, tous `active` avec `has_template` à 1. Elle avance `sync_sequence` en SQL d'une valeur par ligne : seule exception à la fonction unique du store ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)). Seule table lue sans `user_id` : elle est partagée par conception, ce n'est pas une table d'un utilisateur.
 
@@ -198,6 +202,9 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 | proposal_reason | TEXT, nullable | Justification donnée par l'IA |
 | updated_at, deleted_at, change_seq | TEXT, INTEGER | Synchronisés vers l'appli ; un type fusionné laisse une trace `deleted_at` (RG-72) |
 
+- Un type proposé (E3-03, RG-57) est créé `proposed`, `has_template` à 0, avec sa justification ; sa fiche est `generic`.
+- **Limite connue de la V1 : les types proposés sont partagés.** Un type proposé à partir de l'élément d'un utilisateur, avec sa clé, son nom et sa justification, est visible de tous les utilisateurs, et chacun peut l'accepter ou le fusionner (RG-72, E4). Accepté pour la V1, qui n'a qu'un utilisateur (décidé avec Ghislain le 7 novembre 2026, change `apply-batch-results`). Un nouvel ADR qui amende [ADR-0022](adr/0022-preparation-multi-utilisateur.md) est exigé avant la création d'un second utilisateur.
+
 **batches** — un batch de la nuit, créé par E3-01 (migration `00006_analysis.sql`). Non synchronisé vers l'appli. Rôle des statuts : [Envoi du batch de la nuit](#envoi-du-batch-de-la-nuit).
 
 | Champ | Type | Rôle |
@@ -205,20 +212,43 @@ Clé primaire : `(user_id, client_id)`. Une capture fusionnée dans un doublon y
 | id | TEXT (ULID) | Identifiant du batch chez Hippo, créé avant l'envoi |
 | user_id | TEXT | Propriétaire |
 | anthropic_batch_id | TEXT, nullable, unique | Identifiant donné par Anthropic ; nul tant que l'envoi n'est pas confirmé |
-| status | TEXT | `pending` (éléments soumis, envoi pas encore confirmé), `in_progress` (accepté par Anthropic), `ended` (résultats disponibles, E3-02), `failed` (refusé, jamais arrivé ou annulé avant l'envoi) |
+| status | TEXT | `pending` (éléments soumis, envoi pas encore confirmé), `in_progress` (accepté par Anthropic), `ended` (terminé : résultats appliqués, ou indisponibles, coût enregistré ; E3-02), `failed` (refusé, jamais arrivé ou annulé avant l'envoi) |
 | model, prompt_version, envelope_version | TEXT, INTEGER, INTEGER | Modèle, version du prompt et version de l'enveloppe de la réponse (RG-64) |
 | item_count | INTEGER | Éléments soumis, de 1 à 200 (`CHECK`). Après le retrait d'éléments cochés Privé avant l'envoi, le nombre d'éléments encore dans le batch ; un batch passé en `failed` faute d'élément restant garde le dernier nombre écrit (celui d'origine si tous ses éléments ont été retirés d'un coup) |
-| input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens | INTEGER, nullable | Tokens consommés, écrits par E3-02 (RG-80) |
-| cost_usd | REAL, nullable | Coût calculé, écrit par E3-02 ; compté dans le mois de `created_at` (RG-81) |
+| input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens | INTEGER, nullable | Tokens consommés, sommés sur toutes les lignes `succeeded` des résultats et écrits à la fermeture du batch (RG-80, E3-02). `cache_creation_input_tokens` additionne les écritures en cache de 5 minutes et d'1 heure |
+| cost_usd | REAL, nullable | Coût calculé ([formule](#tokens-et-coût)), écrit une seule fois à la fermeture du batch (E3-02) ; compté dans le mois de `created_at` (RG-81) |
 | created_at | TEXT | Création, juste avant l'envoi |
 | sent_at | TEXT, nullable | Acceptation par Anthropic |
-| ended_at | TEXT, nullable | Fin du batch (E3-02) |
+| ended_at | TEXT, nullable | Fin du batch donnée par Anthropic, sinon l'heure de sa fermeture par Hippo (E3-02) |
+| results_unavailable_at | TEXT, nullable | Fermeture d'un batch dont Anthropic ne sert plus les résultats (**résultats indisponibles**) ; ajouté par E3-02 (migration `00007_results.sql`) |
+| results_lines_read | INTEGER, nullable | Nombre de lignes de la lecture coupée la plus complète, dont les sommes de tokens sont gardées dans la ligne ; ajouté par E3-02 (migration `00007_results.sql`) |
 
-Index `batches_user_created` sur `(user_id, created_at)`, pour le coût du mois. Table `STRICT`.
+Index `batches_user_created` sur `(user_id, created_at)`, pour le coût du mois. Table `STRICT`. Aucun statut n'est ajouté par E3-02 : changer le `CHECK` de `status` demanderait de reconstruire la table, que `items.batch_id` référence ; un batch aux résultats indisponibles est `ended` avec `results_unavailable_at`.
+
+**tags** — les tags d'un utilisateur, créée par E3-04 (migration `00007_results.sql`). Synchronisée vers l'appli.
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| id | INTEGER | Identifiant |
+| user_id | TEXT | Propriétaire |
+| name | TEXT | Forme normalisée seulement (RG-58), de 1 à 40 caractères (`CHECK`, garde-fou derrière `naming.Tag`) |
+| updated_at, deleted_at, change_seq | TEXT, INTEGER | Synchronisation ; un tag fusionné laisse une trace `deleted_at` (RG-74) |
+
+- Index uniques `tags_id_user` sur `(id, user_id)`, cible de la clé composée de `item_tags`, et `tags_user_name` sur `(user_id, name)`, partiel `WHERE deleted_at IS NULL` : un tag supprimé n'interdit pas un nouveau tag du même nom. Index `tags_user_change_seq` sur `(user_id, change_seq)`. Table `STRICT`.
+
+**item_tags** — les tags portés par un élément, créée par E3-04 (migration `00007_results.sql`).
+
+| Champ | Type | Rôle |
+| --- | --- | --- |
+| item_id | TEXT (ULID) | Élément |
+| tag_id | INTEGER | Tag |
+| user_id | TEXT | Propriétaire, le même que celui de l'élément et du tag |
+
+- Clé primaire `(item_id, tag_id)`. Clés étrangères `(item_id, user_id)` vers `items (id, user_id)` et `(tag_id, user_id)` vers `tags (id, user_id)` : un élément ne porte que des tags de son utilisateur, même par erreur de code (RG-90). Index `item_tags_tag` sur `tag_id`. Table `STRICT`, `WITHOUT ROWID`.
+- La table n'est pas synchronisée seule : les tags d'un élément voyagent dans `Item` (`tag_ids`), et toute écriture de `item_tags` avance le `change_seq` de l'élément dans la même transaction.
 
 **Autres tables**
 
-- **tags** (`id` entier, `user_id`, `name` unique par utilisateur, `updated_at`, `deleted_at`, `change_seq` ; un tag fusionné laisse une trace) et **item_tags** (`item_id`, `tag_id`).
 - **analysis_calls** : les analyses immédiates, de même forme que `batches`, pour le calcul du budget (E3-08).
 - **settings** : réglages clé-valeur par utilisateur, dont `last_review_at`.
 - **sync_sequence** : une seule ligne (`id = 1`), la valeur courante de la séquence de modification. Elle n'avance que par une seule fonction du store, dans la transaction de l'écriture ([conventions du backend](dev/conventions-backend.md#stockage-sqlite)).
@@ -233,8 +263,8 @@ Un élément passe par cinq étapes ; seule l'étape 3 appelle l'IA, une fois pa
 1. **Capture** — `POST /api/items` crée l'élément en `queued` et répond tout de suite (RG-01 à RG-06).
 2. **Extraction** — en arrière-plan, juste après : page web via go-readability, texte d'un PDF, titre, chaîne, durée et description d'une vidéo YouTube (sans transcription en V1), rien pour une image ou une note. Repli sur les métadonnées `og:*` (ou le titre du PDF) en cas d'échec ; l'élément passe toujours à `extracted` (RG-20 à RG-28). Détail ci-dessous, [Extraction d'un élément](#extraction-dun-élément).
 3. **Envoi du batch** — une fois par nuit, à l'heure de Paris (`BATCH_SCHEDULE`, 2 h par défaut), les éléments `extracted` **non privés** de chaque utilisateur partent dans un seul batch, 200 au maximum et 200 Mio au plus, après les gardes (clé d'API, batch sans coût, budget) (RG-30 à RG-32, RG-81). Les images partent en copie réduite et sans métadonnées (RG-38). Statut `submitted`. Détail ci-dessous, [Envoi du batch de la nuit](#envoi-du-batch-de-la-nuit).
-4. **Suivi** — interrogation toutes les 15 minutes jusqu'à la fin du batch (24 h au maximum), y compris après un redémarrage.
-5. **Résultats** — validation puis écriture, création des propositions, normalisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie (RG-34 à RG-37, RG-53 à RG-58). Statut `analyzed`.
+4. **Suivi** — l'état de chaque batch en cours est demandé à Anthropic au démarrage, toutes les 15 minutes, et juste avant les gardes de la passe de nuit, jusqu'à la fin du batch (24 h au maximum). Des résultats qu'Anthropic ne sert plus ferment le batch. Détail ci-dessous, [Suivi du batch et résultats](#suivi-du-batch-et-résultats).
+5. **Résultats** — lecture ligne par ligne, validation puis écriture, création des propositions, normalisation et réutilisation des tags, gestion des échecs et des réponses coupées par le plafond de sortie, coût du batch (RG-34 à RG-37, RG-53 à RG-58, RG-80). Statut `analyzed`, `extracted` ou `failed`. Même section.
 
 L'**analyse immédiate** (`POST /api/items/{id}/analyze`) envoie la même requête en appel direct.
 
@@ -361,8 +391,8 @@ Mise en œuvre de RG-12, RG-14, RG-30 à RG-32, RG-38 et RG-81 par E3-01 (change
 
 **Gardes, dans cet ordre, avant toute lecture de contenu**
 
-1. **Clé d'API** : sans `ANTHROPIC_API_KEY`, rien n'est envoyé ni réconcilié (`no_api_key`, une ligne par passe). Le service démarre quand même.
-2. **Batch sans coût** : après la réconciliation de ses batchs `pending`, un utilisateur qui a un batch `pending`, `in_progress`, ou `ended` sans coût enregistré n'envoie rien (`cost_pending`). Un batch `failed` ne bloque jamais. Tant qu'E3-02 n'enregistre pas les coûts, un seul batch part : les suivants attendent.
+1. **Clé d'API** : sans `ANTHROPIC_API_KEY`, rien n'est envoyé, réconcilié ni suivi (`no_api_key`, une ligne par passe). Le service démarre quand même.
+2. **Batch sans coût** : après la réconciliation de ses batchs `pending` puis le [suivi](#suivi-du-batch-et-résultats) de ses batchs en cours, un utilisateur qui a encore un batch `pending`, `in_progress`, ou `ended` sans coût enregistré n'envoie rien (`cost_pending`). Un batch `failed` ne bloque jamais. Le suivi ferme chaque batch avec son coût, y compris quand ses résultats ne sont plus disponibles : la garde ne bloque que tant qu'Anthropic traite le batch, ou tant que son état ne peut pas être demandé (clé révoquée, panne du service). Un batch terminé à 1 h 56 est appliqué avant la garde de 2 h (RG-30).
 3. **Budget (RG-81)** : somme des `cost_usd` des batchs de l'utilisateur créés dans le mois en cours, de minuit le 1er à minuit le 1er du mois suivant, heure de Paris. Atteint (`>=`, donc un budget de 0 n'envoie jamais) : rien n'est envoyé (`budget_reached`). Un batch compte dans le mois de son envoi, même s'il finit le mois suivant.
 
 Chaque refus logue l'utilisateur, la raison et le nombre d'éléments en attente. Aucune image n'est décodée pour une passe qui n'enverra rien.
@@ -400,7 +430,7 @@ Les écritures après l'envoi passent par un contexte non annulable, borné à 1
 
 **Réconciliation**
 
-- Au démarrage, en arrière-plan, et avant la passe de chaque utilisateur qui a un batch `pending`, quand une clé d'API existe. La passe et la réconciliation ne tournent jamais en même temps.
+- Au démarrage, en arrière-plan, et avant la passe de chaque utilisateur qui a un batch `pending`, quand une clé d'API existe. La passe, la réconciliation et le suivi ne tournent jamais en même temps.
 - La liste des batchs de la clé est lue, du plus récent au plus ancien : 100 par page, 10 pages au plus, 2 minutes au plus.
 - Pour chaque batch `pending`, du plus ancien au plus récent, un candidat est un batch créé entre 10 minutes avant et 20 minutes après lui, avec le même nombre de requêtes, et dont l'identifiant n'est pas déjà enregistré. Un seul candidat : il est adopté (`in_progress`). Aucun ou plusieurs : le batch passe en `failed`, ses éléments reviennent à `extracted`, et un avertissement `possible_double_send` est logué.
 - Une liste en échec ou incomplète laisse le batch `pending` : la garde « batch sans coût » bloque l'utilisateur jusqu'à une réconciliation réussie.
@@ -439,6 +469,100 @@ Mesuré le 6 novembre 2026 dans le conteneur linux/arm64 limité à 384 Mo : un 
 
 Le plafond de 50 Mpx tient sous la limite de 256 Mio. La limite du conteneur passe à 384 Mo pour faire place à cet enfant ([ADR-0038](adr/0038-limite-memoire-384-mo.md)).
 
+### Suivi du batch et résultats
+
+Mise en œuvre de RG-12 à RG-14, RG-30, RG-35 à RG-37, RG-50 à RG-59, RG-61, RG-64, RG-79 à RG-81 et RG-90 par E3-02 à E3-05 (change `apply-batch-results`, novembre 2026). Packages `internal/analysis` (suivi, validation, coût), `internal/analysis/anthropic` (état du batch et lecteur des résultats), `internal/store` (écritures), `internal/naming` (normalisations).
+
+#### Suivi (étape 4)
+
+- **Quand** : au démarrage, après la réconciliation ; puis toutes les 15 minutes (`analysis.FollowInterval`), l'attente suivante ne commençant qu'à la fin du suivi en cours (aucun suivi en file) ; et dans la passe de nuit, pour chaque utilisateur, après la réconciliation de ses batchs `pending` et avant la garde « batch sans coût ». Le suivi prend le même verrou que la passe et la réconciliation.
+- Sans clé d'API, rien n'est suivi et rien n'est logué à chaque passage.
+- **Batchs suivis**, par utilisateur (RG-90) : ceux `in_progress`, du plus ancien au plus récent, et ceux `ended` sans coût (aucun écrivain n'en laisse depuis E3-02). Rien à suivre : aucun appel.
+- **État du batch**, demandé à Anthropic (1 minute au plus, nouvelles tentatives du SDK comprises) :
+
+| Réponse | Effet |
+| --- | --- |
+| En cours ou en annulation | Rien n'est écrit (`in_progress`) |
+| Terminé | Lecture et application des résultats, 10 minutes au plus |
+| Inconnu (404) ou archivé | Fermeture du batch, résultats indisponibles (ci-dessous) |
+| Toute autre erreur (401, 5xx, délai) | Rien n'est écrit (`poll_failed`) ; nouvel essai à l'occasion suivante |
+
+- Une clé révoquée ou fausse donne `poll_failed` toutes les 15 minutes, et le batch bloque l'utilisateur jusqu'à ce que la clé soit corrigée ; visible dans les logs seulement jusqu'à l'alerte de Réglages (E3-08).
+- Un batch à suivre sans `anthropic_batch_id` (aucun écrivain n'en laisse) ne peut pas être demandé : il est fermé comme aux résultats indisponibles.
+- Le suivi n'envoie rien et ne construit aucune requête (RG-12) : il ne lit que l'état et les résultats.
+
+#### Lecture des résultats
+
+- Le fichier des résultats est lu **une ligne à la fois**, par le lecteur de Hippo et non par le flux du SDK, qui s'arrête à la première ligne illisible. Une ligne fait **4 Mio au plus** (4 194 304 octets) : une sortie de 8 000 tokens fait environ 32 Ko. La mémoire est bornée à une ligne et sa forme décodée.
+- **Ligne illisible** : pas du JSON, sans `custom_id`, d'un type de résultat inconnu, `succeeded` sans message, ou plus de 4 Mio. Elle est sautée et comptée, la lecture continue ; son élément reste sans résultat. Une ligne vide n'est pas une ligne.
+- Un résultat dont le `custom_id` n'est pas un élément `submitted` de ce batch et de cet utilisateur est ignoré et compté (`unknown`). Une ligne répétée n'est appliquée qu'une fois.
+- **Contrôle de l'enveloppe**, une fois par batch, avant la première ligne : la version de l'enveloppe enregistrée dans le batch est comparée à celle du binaire. Différente (un redéploiement entre l'envoi et les résultats), chaque réponse `succeeded` remet son élément dans la file sans tentative comptée.
+- **Lecture coupée** (coupure, délai, arrêt du service) : les sommes de tokens lues et le nombre de lignes sont enregistrés dans le batch quand cette lecture est allée plus loin que la précédente (`results_lines_read`) ; `read_failed` est logué ; la lecture suivante reprend depuis le début. Rien n'est appliqué deux fois, rien n'est perdu.
+- **Écriture refusée par la base** (contrainte, disque plein, ligne abîmée), hors contexte fini : une réponse valide que la base refuse d'écrire est réglée une fois avec une tentative et le code `storage_failed` (RG-35), `failed` à la troisième tentative ; la ligne est logguée en erreur (`error_type=store`). Sans ce repli, un échec reproductible sur une ligne ferait échouer chaque lecture au même endroit : le batch ne fermerait jamais et bloquerait toutes les nuits suivantes. Si ce réglage échoue aussi (base indisponible), ou si l'écriture de toute autre issue échoue, la lecture est coupée comme ci-dessus et retentée au suivi suivant. Une panne persistante de la base donne donc une ligne d'erreur toutes les 15 minutes, et la garde « batch sans coût » bloque les nuits tant qu'elle dure.
+
+#### Issue de chaque ligne
+
+| Ligne | Élément ensuite |
+| --- | --- |
+| `succeeded`, enveloppe du batch différente de celle du binaire | `extracted`, `batch_id` nul, tentatives et `last_error` inchangés |
+| `succeeded`, `stop_reason = max_tokens`, première fois | `extracted`, `batch_id` nul, `incomplete_retried` à 1, sans tentative ; plafond de 8 000 la nuit suivante (RG-36) |
+| `succeeded`, `stop_reason = max_tokens`, déjà retentée | `failed`, `last_error = too_long` (« fiche trop longue »), sans tentative ; contenu extrait gardé (RG-36) |
+| `succeeded`, autre `stop_reason`, ou validation en échec | Une tentative, `last_error = invalid_response` ; `extracted` avec `batch_id` nul, ou `failed` à la 3e tentative (RG-35) |
+| `succeeded`, réponse valide | `analyzed` ([écriture](#écriture-dune-réponse-valide)) |
+| `succeeded`, réponse valide que la base refuse d'écrire | Une tentative, `last_error = storage_failed` ; `extracted` avec `batch_id` nul, ou `failed` à la 3e tentative (RG-35) |
+| `errored` | Une tentative, `last_error = request_errored` ; `extracted`, ou `failed` à la 3e tentative (RG-35) |
+| `expired`, `canceled` | `extracted`, `batch_id` nul, sans tentative (RG-35) |
+| Ligne illisible, ou aucune ligne pour l'élément | `extracted`, `batch_id` nul, sans tentative, à la fermeture du batch (RG-35) |
+
+- Chaque issue s'écrit en une transaction `BEGIN IMMEDIATE` qui relit l'élément pour l'utilisateur, et n'écrit que s'il est encore `submitted` dans ce batch et non supprimé : c'est la clé d'idempotence. Un élément supprimé depuis l'envoi ne reçoit rien (RG-79), et aucune proposition ni aucun tag n'est créé pour lui. Chaque écriture avance `updated_at` et `change_seq` ([ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)).
+- Une remise en file ne remet jamais `attempts` à zéro. Un élément `failed` garde son `batch_id` (trace de la dernière tentative) ; un élément `extracted` l'a nul.
+- Un élément coché Privé après le départ de son batch en reçoit le résultat (RG-13, RG-14). Revenu à `extracted` (réponse coupée, requête non traitée), il ne repart pas : il est privé (RG-12).
+- `last_error` ne contient qu'un **code d'échec**, jamais le message de l'API ni celui du validateur, qui peuvent citer la requête ou la fiche.
+
+#### Validation
+
+L'ordre de validation d'une réponse, ses classes de motif et ce qui est rejeté sont dans [`prompt/README.md`](prompt/README.md#validation-dune-réponse). Les étapes qui ne lisent pas la base tournent dans `internal/analysis`, avant la transaction ; celles qui la lisent (type, template, catégorie) dans la transaction d'écriture. La première étape en échec rejette la réponse entière : rien n'est écrit, ni fiche, ni proposition, ni tag (RG-35). Le schéma assemblé est compilé une fois au démarrage ; un schéma de fiche sans `x-schema-version` arrête le démarrage.
+
+**Déploiement d'un changement de schéma** : un schéma de fiche modifié sans changement de la version de l'enveloppe, déployé pendant qu'un batch est en cours, valide ses réponses contre le nouveau schéma, qui peut les rejeter avec une tentative. On déploie donc un tel changement quand aucun batch n'est en cours : la dernière ligne `analysis follow-up` du batch de la nuit donne `outcome=ended` ou `results_unavailable`.
+
+#### Écriture d'une réponse valide
+
+Une transaction par élément (`store.WriteAnalysis`), dans cet ordre :
+
+1. **Type** (RG-57) : un type existant choisi par sa clé ; un type proposé dont la clé existe déjà range l'élément sous ce type, sans le modifier, avec sa fiche générique (RG-72) ; sinon le type est créé `proposed`, sans template, partagé par tous les utilisateurs ([limite de la V1](#modèle-de-données), `content_types`).
+2. **Catégorie** (RG-53 à RG-55, RG-59) : une catégorie de l'utilisateur choisie par son id ; une catégorie proposée a d'abord son parent corrigé (RG-55), puis est rapprochée par **nom normalisé** des catégories non supprimées de l'utilisateur sous ce parent (RG-54) ; sans correspondance, elle est créée `proposed`, sans couleur propre (héritée du parent, RG-59), et l'élément y est rangé.
+3. **Tags** (RG-58) : chaque tag normalisé reprend le tag non supprimé de l'utilisateur de ce nom, sinon un tag est créé. Les tags de l'élément sont remplacés par ce jeu.
+4. **Corrections manuelles** (RG-61) : un champ listé dans `user_edited` (type, catégorie, tags) est validé, mais garde sa valeur et ne crée rien.
+5. **Élément** : statut `analyzed`, type, catégorie, titre, fiche (telle que reçue, compactée), texte de recherche, langue, fraîcheur, contenu pauvre et ce qui manque (RG-37), modèle, version du prompt et version de l'enveloppe **du batch**, version du schéma de la fiche (RG-64), `analyzed_at` ; `attempts`, `last_error` et `incomplete_retried` remis à zéro ; nouveau `change_seq`.
+
+- Rien de ce qui existe ne change : aucune catégorie, aucun type, aucun tag n'est renommé, déplacé, fusionné ni supprimé (RG-56). Une catégorie, un type ou un tag réutilisé l'est tel quel.
+- Deux éléments d'un même batch qui proposent la même catégorie, le même type ou le même nouveau tag n'en créent qu'un : les transactions se suivent, la seconde trouve la ligne de la première ; les index uniques rendent un doublon impossible.
+- **Texte de recherche** (`search_text`, [ADR-0007](adr/0007-fiche-json-source-de-verite.md)) : chaque chaîne de la fiche, dans l'ordre du document, une par ligne ; sauf la valeur du membre `template` de la racine et celle d'un membre `language` d'un objet imbriqué (le langage d'un bloc de code). Ni les clés, ni les nombres, booléens et `null`. Le code est gardé : une commande doit se retrouver (RG-41). L'index plein texte qui le lit arrive avec E4.
+
+#### Tags du référentiel
+
+Le bloc `<tags>` du référentiel (RG-52, format dans [`prompt/system-prompt.md`](prompt/system-prompt.md)) liste les tags non supprimés de l'utilisateur portés par au moins un élément non privé et non supprimé (RG-12), du plus porté au moins porté puis par nom, 300 au plus, séparés par `, `. Il est construit une fois par batch avec le reste du référentiel : chaque requête reste identique octet pour octet (cache de prompt).
+
+#### Fermeture du batch
+
+- **Résultats lus en entier** : en une transaction filtrée par `user_id`, chaque élément encore `submitted` dans ce batch et non supprimé revient à `extracted` sans tentative ; les sommes de tokens de cette lecture complète et le coût sont écrits ; le batch passe `ended`, avec la date de fin d'Anthropic.
+- **Résultats indisponibles** (batch inconnu d'Anthropic, archivé, ou au-delà de la conservation de 29 jours) : même fermeture, avec les tokens de la lecture coupée la plus complète, zéro sinon, leur coût, et `results_unavailable_at` (RG-80). Le budget peut être sous-compté d'une nuit au plus.
+- Le coût n'est écrit qu'une fois (`cost_usd IS NULL`). Un batch déjà fermé entre-temps ne change pas (`not_in_progress`).
+
+#### Tokens et coût
+
+- Les tokens de **chaque** ligne `succeeded` comptent, quelle que soit son issue (appliquée, rejetée, coupée, élément supprimé, `custom_id` inconnu). Les requêtes `errored`, `expired` et `canceled` ne sont pas facturées et n'ajoutent rien.
+- Coût d'un batch, en dollars : `0,5 × ((entrée + 1,25 × écriture en cache 5 min + 2 × écriture en cache 1 h + 0,1 × lecture en cache) × prix d'entrée + sortie × prix de sortie) / 1 000 000`. La remise batch (moitié prix) et les rapports du cache sont des constantes du code ; ils se cumulent (page de tarifs d'Anthropic, relue le 7 novembre 2026). Le coût se calcule sur la répartition des deux durées d'écriture, avant leur somme dans `cache_creation_input_tokens`.
+- Une lecture coupée n'enregistre que la somme des deux durées : le coût d'un batch aux résultats indisponibles compte ses écritures en cache comme des écritures de 5 minutes, la seule durée que posent les requêtes.
+- **Prix** : `ANALYSIS_INPUT_PRICE_USD_PER_MTOK` et `ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK`, prix standard de `ANALYSIS_MODEL` par million de tokens, 1 et 5 par défaut (Haiku 4.5) ; une valeur qui n'est pas un décimal fini et positif arrête le démarrage avec une erreur qui nomme la variable. Le démarrage logue le modèle et les deux prix (`analysis prices`). Les variables sont dans `infra/.env.example` ; on les change avec le modèle ou ses tarifs.
+- Un batch compte dans le mois de sa création, même s'il finit le mois suivant (RG-81).
+
+#### Logs
+
+- Une ligne par batch suivi (`analysis follow-up`) : `user_id`, `batch_id`, `anthropic_batch_id`, `outcome` (`in_progress`, `ended`, `results_unavailable`, `poll_failed`, `read_failed`, `not_in_progress`), compteurs (`analyzed`, `invalid`, `cut`, `too_long`, `errored`, `requeued`, `failed`, `deleted`, `unknown`, `unreadable_lines`, `without_result`), sommes de tokens, `cost_usd`, `duration_ms`. Pour `poll_failed` et `read_failed`, seulement le statut HTTP et la classe d'erreur ; quand la classe est `store`, la ligne porte aussi `error`, le texte de l'erreur de la base, qui ne cite que des identifiants et des colonnes. Un réglage de la lecture coupée qui échoue donne une ligne à part, `analysis follow-up: record the cut read`, au niveau erreur avec `error_type=store` et ce seul texte. Une réponse réglée en `storage_failed` est comptée dans `invalid`. Niveau : info pour `ended` et `in_progress`, avertissement pour les autres, erreur quand une écriture de la base a échoué.
+- Une ligne par élément, au niveau debug (`analysis follow-up item`) : `item_id`, `outcome`, `reason` (classe de motif de la validation) ou `error_type` (type d'erreur de l'API, borné à `[a-z_]`, 64 caractères au plus, `other` sinon). Pour le repli `storage_failed`, la ligne sort au niveau erreur, avec `error_type=store` et `error`.
+- Jamais une réponse, une fiche, un titre, un nom de tag ou de catégorie, un message du validateur ni le message d'erreur de l'API ; un test le vérifie.
+
 ## API REST
 
 Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md), [ADR-0035](adr/0035-contrat-identifiants-et-synchronisation.md)) ; il porte aussi le catalogue des types d'erreur. Toutes les routes sont sous `/api` et exigent `Authorization: Bearer <token>`, sauf `/healthz`. JSON en `snake_case`, erreurs au format problem+json, pagination par curseur. Une route déclarée mais pas encore implémentée répond `501`. Le corps JSON d'une opération implémentée est strict : un membre non déclaré ou des données après la valeur répondent `400` ; un corps JSON de plus de 1 Mio répond `413` ([conventions du backend](dev/conventions-backend.md#contrat-dapi)). Le tableau ci-dessous résume le contrat ; en cas d'écart, le contrat gagne.
@@ -469,6 +593,8 @@ Le contrat fait foi : `api/openapi.yaml` ([ADR-0017](adr/0017-contrat-openapi.md
 | GET | /api/export | Archive Markdown |
 | GET | /api/stats | Éléments par statut, file, échecs, coût du mois |
 | GET | /healthz | État du service, sans authentification |
+
+**Élément répondu** (E3-02, change `apply-batch-results`, novembre 2026) — l'`Item` que renvoient les deux opérations implémentées qui en répondent un, `createItem` (doublon, capture rejouée) et `updateItem`, porte la clé du type de contenu, l'id de la catégorie, les ids des tags non supprimés par ordre croissant et la fiche d'un élément analysé ; avant l'analyse, `content_type` et `category_id` sont `null`, `tag_ids` vaut `[]` et le membre `fiche` est absent. `last_error` est `null` ou un **code d'échec** du schéma `AnalysisError` : `invalid_response` (réponse invalide, RG-35), `request_errored` (requête en erreur chez le service, RG-35), `too_long` (fiche trop longue, RG-36), `storage_failed` (réponse valide que la base a refusé d'écrire, RG-35). Une fiche enregistrée qui ne se décode pas, ou un code hors de cette liste, répond `500` sans rien citer de la fiche.
 
 **Capture d'une image** (E2-04) — `POST /api/items` en `multipart/form-data` :
 
@@ -538,6 +664,8 @@ services:
       - ANALYSIS_MODEL=claude-haiku-4-5
       - BATCH_SCHEDULE=0 2 * * *
       - BACKUP_SCHEDULE=0 3 * * *
+      - ANALYSIS_INPUT_PRICE_USD_PER_MTOK=1
+      - ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK=5
       - MONTHLY_BUDGET_USD=5
       - TZ=Europe/Paris
     volumes:
@@ -550,7 +678,7 @@ services:
 
 À 20 éléments par jour, la V1 coûte environ 2 à 4 $ par mois selon la part de contenus techniques ([ADR-0021](adr/0021-garde-fous-couts.md)).
 
-Tarifs de Haiku 4.5 relevés en octobre 2026 : 1 $ / 5 $ par million de tokens (entrée / sortie), moitié prix via l'API Batch. À garder en configuration et à vérifier sur la page de tarifs d'Anthropic.
+Tarifs de Haiku 4.5 relevés le 7 novembre 2026 : 1 $ / 5 $ par million de tokens (entrée / sortie), moitié prix via l'API Batch. Ils sont en configuration, à vérifier sur la page de tarifs d'Anthropic quand le modèle change ([prix et formule du coût](#tokens-et-coût)).
 
 | Cas | Hypothèse | Coût par élément (batch) |
 | --- | --- | --- |

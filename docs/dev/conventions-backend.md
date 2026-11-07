@@ -20,11 +20,13 @@ backend/
 │   ├── childproc/          lancement et bornes des processus enfants (seul à lancer un sous-processus)
 │   ├── imagecopy/          copie d'une image pour l'IA, dans l'enfant `hippo copy-image`
 │   ├── schedule/           horaire quotidien à l'heure de Paris (BATCH_SCHEDULE)
-│   ├── analysis/           passe d'analyse : gardes, sélection, requêtes, soumission, réconciliation
+│   ├── naming/             normalisation des tags et des noms de catégorie ; feuille
+│   ├── analysis/           passe d'analyse : gardes, sélection, requêtes, soumission, réconciliation,
+│   │                       suivi des batchs, validation et application des résultats, coût
 │   │   ├── anthropic/      client de l'API Anthropic derrière analysis.Analyzer (seul importeur du SDK)
-│   │   ├── analysistest/   fausse Analyzer des tests
+│   │   ├── analysistest/   fausse Analyzer des tests (envois, états de batch, fichiers de résultats)
 │   │   ├── prompt/         partie fixe du prompt (prompt.gen.json, généré), embarquée
-│   │   └── schema/         schéma classify_item assemblé (généré), embarqué
+│   │   └── schema/         schéma classify_item assemblé (généré), embarqué ; validateur compilé au démarrage
 │   └── <domaine>/          un package par domaine métier, créé par le change qui l'introduit
 └── testdata/               fixtures (pages enregistrées, réponses de l'IA, jeu de test)
 ```
@@ -43,6 +45,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Un domaine ne connaît pas HTTP (pas d'import de `net/http`, sauf `extraction` qui télécharge des pages) ni le code généré.
 - `store` ne connaît ni HTTP ni les domaines au-dessus de lui.
 - Seul `internal/analysis/anthropic` importe `anthropic-sdk-go` ; il implémente l'interface `analysis.Analyzer`, branchée par `cmd/hippo` ([ADR-0005](../adr/0005-haiku-batch.md)). Règle `depguard` `anthropic-only-in-analysis`.
+- Seul `internal/naming` importe `golang.org/x/text` (normalisation Unicode, pour retirer les accents des tags et des noms de catégorie, RG-54, RG-58) : règle `depguard` `text-normalisation-only-in-naming` (E3-02 à E3-05). `naming` est une feuille : il n'importe que la librairie standard et `golang.org/x/text/unicode/norm`.
 - Seul `internal/imagecopy` importe les décodeurs d'images `golang.org/x/image` et `github.com/gen2brain` (HEIC), exécutés dans le processus enfant qui les borne : règle `depguard` `image-decoding-only-in-imagecopy` (E3-01).
 - Ces règles sont vérifiées par `depguard` dans `backend/.golangci.yml` : une violation casse le lint.
 - `assetfs` est une feuille, importée seulement par `httpapi` et `cmd/hippo` (le domaine `capture` déclare l'interface dont il a besoin) : elle ne connaît ni HTTP, ni la base, ni aucun autre package Hippo. Deux règles `depguard` le vérifient : `assetfs-is-a-leaf` pour ce qu'elle importe, et celle du domaine `capture`, qui lui interdit d'importer `assetfs` (E2-04).
@@ -117,7 +120,12 @@ Seul `internal/extraction` contacte des sites (E2-05). Le comportement est dans 
 - **PDF dans l'enfant** : la requête porte `format: pdf` et `deadline_ms` ; le PDF n'est pas sur l'entrée standard mais sur le **descripteur 3** (`exec.Cmd.ExtraFiles`), ouvert en lecture seule, le seul que l'enfant hérite (Go ouvre les autres en close-on-exec). Aucun chemin ne traverse la frontière du processus. L'enfant lit le PDF dans une goroutine et répond à `deadline_ms` (80 % de `ReadTimeout`) avec ce qu'il a lu ; il ne recopie jamais un message d'erreur de la librairie PDF (il cite des octets du fichier) : il le traduit en raison (`encrypted`, `damaged`…). Le parent n'accepte ces raisons que pour `format: pdf`.
 - **Arrêt** : le worker a son propre contexte, annulé par `cmd/hippo`, qui attend sa fin avant de fermer la base. Les écritures après un téléchargement passent par `context.WithoutCancel`, bornées à 10 s.
 
-**Client Anthropic** (`internal/analysis/anthropic`, E3-01) : seul autre client HTTP sortant. Transport propre (jamais `http.DefaultClient`), pas de proxy, aucune redirection suivie, `x-api-key` posé par le client, aucune variable d'environnement lue par le SDK (`option.WithoutEnvironmentDefaults`). Une création de batch n'est jamais retentée. Ni l'erreur du SDK ni celle du transport (elles affichent l'URL ou la réponse) n'atteignent un log : seuls le statut HTTP et le type d'erreur de l'API. Comportement : [spec](../spec-v1.md#envoi-du-batch-de-la-nuit).
+**Client Anthropic** (`internal/analysis/anthropic`, E3-01, étendu par E3-02) : seul autre client HTTP sortant. Transport propre (jamais `http.DefaultClient`), pas de proxy, aucune redirection suivie, `x-api-key` posé par le client, aucune variable d'environnement lue par le SDK (`option.WithoutEnvironmentDefaults`). Une création de batch n'est jamais retentée ; l'état d'un batch et ses résultats, des lectures, gardent les nouvelles tentatives par défaut du SDK.
+
+- **Résultats lus par le lecteur de Hippo** (`anthropic.ResultReader`), jamais par `ResultsStreaming` du SDK, qui s'arrête à la première ligne qu'il ne décode pas. Le corps est demandé brut (`Accept: application/x-jsonl`) et lu par un `bufio.Reader` de 64 Kio, **4 Mio par ligne au plus** (`MaxResultLine`) ; au-delà, le reste de la ligne est sauté et la ligne est illisible. Seuls les champs utiles sont décodés, dans des types de Hippo (`analysis.Result`) : le package `analysis` ne voit jamais un type du SDK.
+- Un 404, ou un batch archivé, est `analysis.ErrResultsUnavailable`, y compris quand le corps d'erreur n'est pas le JSON de l'API (le statut de la réponse brute est relu).
+- **Le message d'erreur de l'API n'est jamais gardé**, ni en log ni en base : il peut citer la requête. Seuls le statut HTTP et le type d'erreur sont gardés, le type passé par `anthropic.ErrorTypeClass` (gardé s'il est de la forme `[a-z_]`, 64 caractères au plus, `other` sinon). Une erreur de lecture du corps est réduite à sa classe (arrêt, délai, coupure), car une erreur de transport affiche l'URL.
+- Ni l'erreur du SDK ni celle du transport n'atteignent un log. Comportement : [spec, envoi](../spec-v1.md#envoi-du-batch-de-la-nuit) et [spec, suivi](../spec-v1.md#suivi-du-batch-et-résultats).
 
 ## Processus enfants
 

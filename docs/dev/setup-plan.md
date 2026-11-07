@@ -34,7 +34,7 @@ Ces points ne sont couverts ni par la doc ni par tes réponses. Pour chacun, ma 
 **Retiré ou reporté**
 
 - Pas de build iOS en CI (runner macOS lent, Xcode requis) : le development build se compile sur le Mac.
-- Pas de types Go et TypeScript générés depuis les schémas de fiches (ADR-0006 les prévoit) : ils arrivent avec le premier change qui écrit ou affiche une fiche (E3-02 ou E5-04). Le setup pose seulement l'assemblage et la validation.
+- Pas de types Go et TypeScript générés depuis les schémas de fiches (ADR-0006 les prévoit) : ils arrivent avec le premier change qui écrit ou affiche une fiche (E3-02 ou E5-04). Le setup pose seulement l'assemblage et la validation. *(Note du 7 novembre 2026 : ces types sont générés depuis le change `api-contract-v1`, le 25 octobre 2026, à partir de `api/fiches.gen.json` ; état à jour dans [agent-toolbox.md](agent-toolbox.md#différés-et-écartés).)*
 - Pas de seuil de couverture bloquant : la couverture est mesurée et affichée.
 
 ## 3. Commits et fichiers

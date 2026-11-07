@@ -14,7 +14,7 @@ Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HT
 
 - Aucun port ouvert sur la box ; aucun secret dans un fichier versionné.
 - `mem_limit: 384m` (ADR-0038, amende ADR-0019 : copie des images du batch de nuit), `restart: unless-stopped`, healthcheck par `hippo healthcheck` (l'image distroless n'a pas de `curl`).
-- Toute nouvelle variable est documentée dans `.env.example` dans le même commit.
+- Toute nouvelle variable est documentée dans `.env.example` dans le même commit, et ajoutée à l'`environment` du service `hippo` des deux compose, avec son défaut : ils listent les variables une à une (pas d'`env_file`), et une variable de `infra/.env` absente de cette liste n'atteint pas le conteneur. Exemple : les deux prix de l'analyse, `ANALYSIS_INPUT_PRICE_USD_PER_MTOK` et `ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK` (E3-02).
 
 ## Commandes (depuis la racine du dépôt)
 

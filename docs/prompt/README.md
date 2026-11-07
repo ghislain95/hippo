@@ -48,14 +48,34 @@ Les fichiers de schéma utilisent des `$ref` entre fichiers pour rester lisibles
 
 ## Validation d'une réponse
 
-Dans cet ordre ; le premier échec rejette toute la réponse (RG-35) :
+Chaque réponse `succeeded` d'un batch est validée dans l'ordre ci-dessous ([ADR-0006](../adr/0006-sortie-structuree.md)). Le premier échec rejette toute la réponse : rien n'est écrit, ni fiche, ni proposition, ni tag. L'élément compte une tentative (`last_error = invalid_response`) et passe en `failed` à la troisième (RG-35). Chaque étape a une classe de motif, entre parenthèses : c'est tout ce qui est journalisé. Ni la réponse ni le message du validateur ne sont journalisés ou stockés (change `apply-batch-results`, design D5).
 
-1. La réponse contient exactement un appel à `classify_item`.
-2. L'entrée de l'outil est valide selon le schéma assemblé.
-3. `fiche.template` est cohérent avec le type : égal à `type.key` pour un type existant qui a un template, `generic` pour un type proposé ou sans template.
-4. `type.key` existe ; `category.id` existe et appartient à l'utilisateur.
-5. Une proposition de catégorie passe par le dédoublonnage (RG-54) et la correction du parent (RG-55) : ce ne sont pas des motifs de rejet.
-6. Les tags sont normalisés (RG-58).
+Deux cas précèdent la validation et ne sont pas des rejets :
+
+- **Version d'enveloppe** : un batch envoyé avec une autre version de l'enveloppe que celle du binaire remet ses éléments dans la file, sans tentative comptée (`envelope_version`).
+- **Réponse coupée** : `stop_reason = "max_tokens"`. Elle n'est ni validée ni enregistrée ; l'élément est retenté une fois avec un plafond de 8 000, puis passe en échec « fiche trop longue » (RG-36, voir « Structure d'une requête »).
+
+Sans la base (`internal/analysis`) :
+
+1. `stop_reason` vaut `tool_use` ; toute autre valeur est un rejet (`stop_reason`).
+2. La réponse contient exactement un appel d'outil, nommé `classify_item`, quels que soient les blocs de texte (`tool_calls`).
+3. L'entrée de l'outil est un seul objet JSON, sans membre en double dans un objet, à aucune profondeur (`schema`). Le schéma ne verrait que la dernière valeur d'un membre répété, alors que la fiche est enregistrée telle que reçue. Les objets d'un tableau peuvent partager leurs membres (les ingrédients d'une recette).
+4. Les tags sont normalisés **avant** le schéma (RG-58) : chacun par `naming.Tag`, les résultats vides retirés, les doublons retirés en gardant le premier. Moins de 2 tags distincts restants : rejet (`too_few_tags`). Des `tags` qui ne sont pas un tableau de chaînes sont laissés au schéma.
+5. L'entrée, tags remplacés, est valide selon le schéma assemblé (`schema`). Un tag encore hors de la forme permise (`c++`) rend la réponse invalide.
+6. Les champs typés sont lus et la version du schéma de la fiche est prise dans `x-schema-version` de `fiche_<template>` (`schema`).
+
+Dans la transaction d'écriture (`store.WriteAnalysis`), avant toute écriture :
+
+7. **Type** (`unknown_type`). `type.key` : un type non supprimé de cette clé. `type.proposed` dont la clé existe déjà : l'élément est rangé sous ce type, qui n'est pas modifié (RG-56, RG-57). Sinon le type est créé `proposed`. Une clé portée seulement par un type supprimé est refusée en attendant la fusion des types (E4).
+8. **Template** (`template`). `fiche.template` vaut `type.key` pour un type existant choisi par sa clé qui a un template, `generic` sinon : type sans template, type proposé, ou type proposé dont la clé existe déjà (sa fiche générique est gardée, comme après une fusion, RG-57, RG-72).
+9. **Catégorie** (`unknown_category`). `category.id` est une catégorie non supprimée de l'utilisateur (RG-90).
+
+Puis, la réponse étant valide, une catégorie proposée est rangée en deux temps, qui ne rejettent jamais :
+
+10. **Correction du parent** (RG-55), d'abord. Parent absent, inconnu, supprimé ou d'un autre utilisateur : racine. Parent sous-catégorie : sa racine si elle n'est pas supprimée, sinon racine. La profondeur (RG-51) tient donc toujours.
+11. **Rapprochement** (RG-54), ensuite. Une catégorie non supprimée de l'utilisateur, sous le parent corrigé, de même nom normalisé, est réutilisée telle quelle (RG-56). Nom normalisé : minuscules, accents retirés, espaces intérieurs réduits à un, bords rognés ; « Ménage » = « menage », « Java & Spring » ≠ « Java et Spring ». Sinon la catégorie est créée `proposed`, sans couleur propre (RG-59).
+
+Un champ corrigé à la main (`user_edited`) est validé comme les autres : une réponse invalide sur ce champ reste rejetée. Il ne crée simplement rien et garde sa valeur (RG-61).
 
 ## Ce que le backend calcule lui-même
 
