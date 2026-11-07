@@ -185,6 +185,8 @@ RG-12, RG-14, RG-30, RG-31, RG-32, RG-38, RG-81 · ADR-0005, ADR-0006, ADR-0038
 
 ### E3-02 — Suivre le batch et appliquer les résultats · M
 
+✅ Terminé le 7 novembre 2026 par le change `apply-batch-results` ([archive](../openspec/changes/archive/2026-11-07-apply-batch-results/proposal.md)), avec E3-03, E3-04 et E3-05. Précise RG-13, RG-35, RG-52, RG-54, RG-57, RG-58 et RG-80. Le batch est suivi au démarrage, toutes les 15 minutes et avant les gardes de la passe ; ses résultats sont lus ligne à ligne, validés puis écrits ; une requête expirée ou annulée revient en file sans tentative ; un batch illisible coûte les tokens lus ; une réponse valide que la base refuse compte une tentative (`storage_failed`). Le coût de chaque batch est enregistré : la garde « batch sans coût » ne bloque plus les nuits suivantes. Prix en configuration (`ANALYSIS_INPUT_PRICE_USD_PER_MTOK`, `ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK`). Un test réel payant (trois notes fictives, moins d'un centime) est proposé dans le design, non lancé : accord de Ghislain avant de poser la clé sur le NAS.
+
 RG-34, RG-35 · ADR-0006, ADR-0007
 - Le batch est interrogé toutes les 15 minutes jusqu'à sa fin.
 - Chaque résultat est validé selon [`prompt/README.md`](prompt/README.md#validation-dune-réponse) puis écrit : type, catégorie, tags, titre, fiche, langue, fraîcheur, `content_ok`, modèle, versions, `search_text`, `analyzed_at`.
@@ -193,6 +195,8 @@ RG-34, RG-35 · ADR-0006, ADR-0007
 - Un redémarrage du backend pendant un batch reprend le suivi sans perte.
 
 ### E3-03 — Créer les propositions de catégories et de types · M
+
+✅ Terminé le 7 novembre 2026 par le change `apply-batch-results` ([archive](../openspec/changes/archive/2026-11-07-apply-batch-results/proposal.md)). Parent corrigé avant le rapprochement par nom normalisé (minuscules, sans accent, espaces repliés) ; un type proposé dont la clé existe est rangé sous ce type, fiche générique gardée. Limite V1 : les types proposés sont partagés entre utilisateurs (ADR à écrire avant un second utilisateur).
 
 RG-53 à RG-57 · ADR-0009
 - Une catégorie proposée est créée en `proposed` et l'élément y est rangé.
@@ -203,10 +207,14 @@ RG-53 à RG-57 · ADR-0009
 
 ### E3-04 — Normaliser et rattacher les tags · M
 
+✅ Terminé le 7 novembre 2026 par le change `apply-batch-results` ([archive](../openspec/changes/archive/2026-11-07-apply-batch-results/proposal.md)). Tags normalisés avant la vérification du schéma ; le référentiel ne liste que les tags d'éléments non privés et non supprimés (RG-12). Dépendance `golang.org/x/text` passée en directe.
+
 RG-58
 - Les tags reçus sont normalisés, dédoublonnés et rattachés ; les tags existants sont réutilisés.
 
 ### E3-05 — Retenter une réponse coupée · S
+
+✅ Terminé le 7 novembre 2026 par le change `apply-batch-results` ([archive](../openspec/changes/archive/2026-11-07-apply-batch-results/proposal.md)).
 
 RG-36 (modifiée le 25 octobre 2026)
 - `stop_reason = max_tokens` : rien n'est enregistré, l'élément revient à `extracted` pour une seule nouvelle tentative la nuit suivante avec un plafond de 8 000 tokens ; s'il s'agit d'une réanalyse, la fiche précédente reste en place.
