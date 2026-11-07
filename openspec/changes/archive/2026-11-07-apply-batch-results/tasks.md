@@ -61,4 +61,4 @@ Before starting: `graphify check-update .`, read RG-12 to RG-14, RG-30, RG-33 to
 - [x] 7.2 `code-reviewer` pass on the uncommitted diff (RG-12: no request built by the follow-up; RG-90: every new statement filtered by `user_id`, `item_tags` composite keys; RG-35/RG-61 mandatory tests present; no content, validator or API message in logs nor in `last_error`; SDK only in `analysis/anthropic`, `x/text` only in `naming`); fix findings.
 - [x] 7.3 `/opsx:verify` on `apply-batch-results`: every scenario has its test, design deviations written back into design.md.
 - [x] 7.4 `/opsx:archive` and the post-archive steps of docs/dev/workflow.md (backlog E3-02 to E3-05 marked done, doc impact, Purpose of `item-analysis` and `classification` updated, `graphify update .`).
-- [ ] 7.5 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md).
+- [x] 7.5 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md).
