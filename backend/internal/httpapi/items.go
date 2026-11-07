@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -49,14 +50,18 @@ func (h *handlers) CreateItem(ctx context.Context, request CreateItemRequestObje
 	if err != nil {
 		return createItemError(err)
 	}
-	return createItemResult(result), nil
+	return createItemResult(result)
 }
 
-func createItemResult(result capture.Result) CreateItemResponseObject {
-	if result.Created {
-		return CreateItem201JSONResponse(itemFromStore(result.Item))
+func createItemResult(result capture.Result) (CreateItemResponseObject, error) {
+	item, err := itemFromStore(result.Item)
+	if err != nil {
+		return nil, fmt.Errorf("create item: %w", err)
 	}
-	return CreateItem200JSONResponse(itemFromStore(result.Item))
+	if result.Created {
+		return CreateItem201JSONResponse(item), nil
+	}
+	return CreateItem200JSONResponse(item), nil
 }
 
 // createImageItem reads a multipart image capture and hands it to the domain. Until then, the
@@ -114,7 +119,7 @@ func (h *handlers) createImageItem(ctx context.Context, reader *multipart.Reader
 	if err != nil {
 		return createItemError(err)
 	}
-	return createItemResult(result), nil
+	return createItemResult(result)
 }
 
 // formRefusal is the problem of a refused multipart body. A read failure is logged by its
@@ -170,13 +175,32 @@ func createItemError(err error) (CreateItemResponseObject, error) {
 	}
 }
 
+// errStoredItem is a stored value the contract cannot answer: a fiche that does not decode
+// into the Fiche union, or a code of last_error outside AnalysisError. Every stored fiche was
+// validated against the same schemas, and only the analysis writes last_error: a broken
+// invariant, answered as an internal error (apply-batch-results design D13).
+var errStoredItem = errors.New("stored item does not match the contract")
+
 // itemFromStore maps a stored item to the Item of the contract. Every nullable member is set
 // explicitly: an unset nullable.Nullable would encode as its zero value, not as null. Arrays
-// are empty, never null. Content type, category, tags and fiche have no column yet.
-func itemFromStore(item store.Item) Item {
+// are empty, never null; the fiche member is absent until the item is analysed. The error,
+// errStoredItem, names the item and the member, never its value.
+func itemFromStore(item store.Item) (Item, error) {
 	userEdited := make([]CorrectedField, 0, len(item.UserEdited))
 	for _, field := range item.UserEdited {
 		userEdited = append(userEdited, CorrectedField(field))
+	}
+	fiche, err := ficheOf(item.FicheJSON)
+	if err != nil {
+		return Item{}, fmt.Errorf("item %s: fiche: %w", item.ID, err)
+	}
+	lastError := enumOf[AnalysisError](item.LastError)
+	if lastError != nil && !lastError.Valid() {
+		return Item{}, fmt.Errorf("item %s: last_error: %w", item.ID, errStoredItem)
+	}
+	tagIDs := item.TagIDs
+	if tagIDs == nil {
+		tagIDs = []int64{}
 	}
 	return Item{
 		Id:               item.ID,
@@ -191,9 +215,10 @@ func itemFromStore(item store.Item) Item {
 		ExtractionMode:   nullableOf(enumOf[ExtractionMode](item.ExtractionMode)),
 		ContentTruncated: item.ContentTruncated,
 		ReadingMinutes:   nullableOf(intOf(item.ReadingMinutes)),
-		ContentType:      nullable.NewNullNullable[ContentTypeKey](),
-		CategoryId:       nullable.NewNullNullable[int64](),
-		TagIds:           []int64{},
+		ContentType:      nullableOf(item.TypeKey),
+		CategoryId:       nullableOf(item.CategoryID),
+		TagIds:           tagIDs,
+		Fiche:            fiche,
 		ContentOk:        nullableOf(item.ContentOK),
 		ContentIssue:     nullableOf(item.ContentIssue),
 		Language:         nullableOf(item.Language),
@@ -207,14 +232,30 @@ func itemFromStore(item store.Item) Item {
 		ReadStatus:       ReadStatus(item.ReadStatus),
 		ReadProgress:     float32(item.ReadProgress),
 		Attempts:         int(item.Attempts),
-		LastError:        nullableOf(enumOf[AnalysisError](item.LastError)),
+		LastError:        nullableOf(lastError),
 		Assets:           assetsFromStore(item.Assets),
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 		ExtractedAt:      nullableOf(item.ExtractedAt),
 		AnalyzedAt:       nullableOf(item.AnalyzedAt),
 		ReadAt:           nullableOf(item.ReadAt),
+	}, nil
+}
+
+// ficheOf decodes a stored fiche into the Fiche union: nil when the item has none, errStoredItem
+// when it is not a fiche of a known template.
+func ficheOf(raw json.RawMessage) (*Fiche, error) {
+	if len(raw) == 0 {
+		return nil, nil
 	}
+	var fiche Fiche
+	if err := json.Unmarshal(raw, &fiche); err != nil {
+		return nil, errStoredItem // the decoder's error may quote the fiche
+	}
+	if _, err := fiche.ValueByDiscriminator(); err != nil {
+		return nil, errStoredItem
+	}
+	return &fiche, nil
 }
 
 // assetsFromStore maps the assets of an item; an item without asset has an empty array.

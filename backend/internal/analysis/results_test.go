@@ -412,6 +412,55 @@ func TestResultValidation(t *testing.T) {
 			t.Errorf("counts %+v, want one invalid and failed", report.Counts)
 		}
 	})
+
+	// A repeated member is validated once, by its last value, while the stored fiche would keep
+	// both: the input is refused at step 3 (review of tranche B).
+	t.Run("an input with a repeated member is rejected", func(t *testing.T) {
+		e := newResultsEnv(t)
+		b, ids := e.submitted(t, 3)
+		raw := string(tipInput(e.categoryID(t, e.userID, "Dev")).raw(t))
+		replace := func(id, old, with string) analysis.Result {
+			t.Helper()
+			if !strings.Contains(raw, old) {
+				t.Fatalf("%q not in %s", old, raw)
+			}
+			return succeeded(id, analysis.ToolCall{Name: "classify_item", Input: json.RawMessage(strings.Replace(raw, old, with, 1))})
+		}
+		report := e.apply(t, b,
+			replace(ids[0], `"title":`, `"title":"Doublon","title":`),
+			replace(ids[1], `"tip":"Une astuce fictive."`, `"tip":"<script>","tip":"Une astuce fictive."`),
+			replace(ids[2], `"key":"tip"`, `"key":"tip","key":"tip"`),
+		)
+		for i, id := range ids {
+			e.wantRejected(t, id, 1)
+			if report.Items[i].Reason != "schema" {
+				t.Errorf("reason %q, want schema", report.Items[i].Reason)
+			}
+		}
+	})
+
+	t.Run("objects of an array may hold the same members", func(t *testing.T) {
+		e := newResultsEnv(t)
+		b, ids := e.submitted(t, 1)
+		in := tipInput(e.categoryID(t, e.userID, "Dev")).
+			with("type", map[string]any{"key": "recipe"}).with("fiche", exampleFiche(t, "recipe"))
+		e.apply(t, b, valid(t, ids[0], in))
+		e.wantStatus(t, e.userID, ids[0], "analyzed")
+	})
+
+	t.Run("a result of an unknown kind is an unreadable line", func(t *testing.T) {
+		e := newResultsEnv(t)
+		b, ids := e.submitted(t, 1)
+		line := valid(t, ids[0], tipInput(e.categoryID(t, e.userID, "Dev")))
+		line.Kind = "partial"
+		report := e.apply(t, b, line)
+		if it := e.item(t, e.userID, ids[0]); it.Status != "extracted" || it.Attempts != 0 {
+			t.Errorf("item %s with %d attempts, want extracted without attempt", it.Status, it.Attempts)
+		}
+		if report.Counts.UnreadableLines != 1 || report.Counts.WithoutResult != 1 || report.Tokens.Input != 0 {
+			t.Errorf("report %+v, tokens %+v; want one unreadable line, its tokens not counted", report.Counts, report.Tokens)
+		}
+	})
 }
 
 func TestResultTags(t *testing.T) {

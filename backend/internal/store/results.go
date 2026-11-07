@@ -22,6 +22,9 @@ const (
 	LastErrorRequestErrored = "request_errored"
 	// LastErrorTooLong: the response was cut by its output cap after its retry (RG-36).
 	LastErrorTooLong = "too_long"
+	// LastErrorStorageFailed: the AI's response was valid but the store could not write it
+	// (apply-batch-results design D8, decided with Ghislain on 2026-11-07).
+	LastErrorStorageFailed = "storage_failed"
 )
 
 // Outcome is what a result line asks of its item when it writes no analysis (design D4).
@@ -39,6 +42,10 @@ const (
 	OutcomeInvalid Outcome = "invalid"
 	// OutcomeErrored: the service reported the request in error: one attempt, request_errored.
 	OutcomeErrored Outcome = "errored"
+	// OutcomeStorageFailed: a valid response that WriteAnalysis could not write: one attempt,
+	// storage_failed, so that a write refused at every read fails the item after three nights
+	// instead of keeping its batch open.
+	OutcomeStorageFailed Outcome = "storage_failed"
 )
 
 // Settlement is the state SettleItem or WriteAnalysis left the item in.
@@ -178,7 +185,7 @@ func lockSubmitted(ctx context.Context, tx *sql.Tx, userID, batchID, itemID stri
 // updated_at and change_seq. An extracted item has no batch; a failed one keeps it.
 func (s *Store) SettleItem(ctx context.Context, userID, batchID, itemID string, outcome Outcome) (Settlement, error) {
 	switch outcome {
-	case OutcomeRequeue, OutcomeCut, OutcomeInvalid, OutcomeErrored:
+	case OutcomeRequeue, OutcomeCut, OutcomeInvalid, OutcomeErrored, OutcomeStorageFailed:
 	default:
 		return "", fmt.Errorf("settle item %s: unknown outcome %q", itemID, outcome)
 	}
@@ -229,10 +236,13 @@ func (s *Store) settle(ctx context.Context, tx *sql.Tx, userID, batchID, itemID 
 		result, err = tx.ExecContext(ctx,
 			`UPDATE items SET status = 'extracted', batch_id = NULL, incomplete_retried = 1, updated_at = ?, change_seq = ?`+where,
 			append([]any{date, seq}, key...)...)
-	default: // OutcomeInvalid, OutcomeErrored: one attempt (RG-35)
+	default: // OutcomeInvalid, OutcomeErrored, OutcomeStorageFailed: one attempt (RG-35)
 		code := LastErrorInvalidResponse
-		if outcome == OutcomeErrored {
+		switch outcome {
+		case OutcomeErrored:
 			code = LastErrorRequestErrored
+		case OutcomeStorageFailed:
+			code = LastErrorStorageFailed
 		}
 		if item.attempts+1 >= MaxAttempts {
 			settled = SettledFailed

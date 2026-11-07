@@ -596,10 +596,11 @@ export interface components {
          * @description Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:
          *     `invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);
          *     `request_errored`: the AI service reported the request in error;
-         *     `too_long`: the response was cut by its output cap twice, the fiche is too long.
+         *     `too_long`: the response was cut by its output cap twice, the fiche is too long;
+         *     `storage_failed`: the AI's response was valid but the server could not store it.
          * @enum {string}
          */
-        AnalysisError: "invalid_response" | "request_errored" | "too_long";
+        AnalysisError: "invalid_response" | "request_errored" | "too_long" | "storage_failed";
         /**
          * @description A field the user corrected by hand (RG-60).
          * @enum {string}

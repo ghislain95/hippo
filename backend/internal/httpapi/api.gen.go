@@ -26,6 +26,7 @@ import (
 const (
 	InvalidResponse AnalysisError = "invalid_response"
 	RequestErrored  AnalysisError = "request_errored"
+	StorageFailed   AnalysisError = "storage_failed"
 	TooLong         AnalysisError = "too_long"
 )
 
@@ -35,6 +36,8 @@ func (e AnalysisError) Valid() bool {
 	case InvalidResponse:
 		return true
 	case RequestErrored:
+		return true
+	case StorageFailed:
 		return true
 	case TooLong:
 		return true
@@ -400,7 +403,8 @@ func (e ReadStatus) Valid() bool {
 // AnalysisError Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:
 // `invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);
 // `request_errored`: the AI service reported the request in error;
-// `too_long`: the response was cut by its output cap twice, the fiche is too long.
+// `too_long`: the response was cut by its output cap twice, the fiche is too long;
+// `storage_failed`: the AI's response was valid but the server could not store it.
 type AnalysisError string
 
 // Asset An image of an item, stored on the NAS.

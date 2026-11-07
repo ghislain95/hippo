@@ -141,3 +141,93 @@ func TestAnalysisHelpers(t *testing.T) {
 		}
 	})
 }
+
+func TestRefuseItemWrites(t *testing.T) {
+	ctx := context.Background()
+	st, path := storetest.OpenWithPath(t)
+	userID, err := st.EnsureSingleUser(ctx, "hash")
+	if err != nil {
+		t.Fatalf("EnsureSingleUser: %v", err)
+	}
+	capture := func(rawURL string) string {
+		t.Helper()
+		item, _, err := st.CaptureItem(ctx, userID, store.NewItem{
+			Kind: "link", Source: "share", Status: "queued", Title: "example.com", URL: &rawURL,
+		}, nil)
+		if err != nil {
+			t.Fatalf("CaptureItem: %v", err)
+		}
+		return item.ID
+	}
+
+	t.Run("refuses every update of the item, and only of that item", func(t *testing.T) {
+		refused, other := capture("https://example.com/refused"), capture("https://example.com/other")
+		storetest.RefuseItemWrites(t, path, userID, refused, "")
+		if _, err := st.SetPrivate(ctx, userID, refused, true); err == nil {
+			t.Error("SetPrivate of the refused item succeeded")
+		}
+		if _, err := st.SetPrivate(ctx, userID, other, true); err != nil {
+			t.Errorf("SetPrivate of another item: %v", err)
+		}
+	})
+
+	t.Run("refuses only the updates of the item of that user", func(t *testing.T) {
+		id := capture("https://example.com/other-user")
+		otherID, err := st.CreateUser(ctx, "other", "hash-other")
+		if err != nil {
+			t.Fatal(err)
+		}
+		storetest.RefuseItemWrites(t, path, otherID, id, "")
+		if _, err := st.SetPrivate(ctx, userID, id, true); err != nil {
+			t.Errorf("SetPrivate of the owner's item, refused for another user: %v", err)
+		}
+	})
+
+	t.Run("with a status, refuses only the updates to that status", func(t *testing.T) {
+		id := capture("https://example.com/status")
+		storetest.RefuseItemWrites(t, path, userID, id, "analyzed")
+		if _, err := st.SetPrivate(ctx, userID, id, true); err != nil {
+			t.Errorf("SetPrivate, which keeps the status: %v", err)
+		}
+	})
+}
+
+func TestRefuseBatchWrites(t *testing.T) {
+	t.Run("refuses every update of the batch", func(t *testing.T) {
+		ctx := context.Background()
+		st, path := storetest.OpenWithPath(t)
+		userID, err := st.EnsureSingleUser(ctx, "hash")
+		if err != nil {
+			t.Fatalf("EnsureSingleUser: %v", err)
+		}
+		const batchID = "01JB8Z6Q4M1X2Y3Z4A5B6C7DB0"
+		storetest.InsertBatch(t, path, userID, storetest.Batch{
+			ID: batchID, Status: "in_progress", AnthropicBatchID: new("msgbatch_refused"), ItemCount: 1, CreatedAt: time.Now(),
+		})
+		storetest.RefuseBatchWrites(t, path, userID, batchID)
+		if _, err := st.RecordCutRead(ctx, userID, batchID, store.BatchTokens{Input: 1}, 1); err == nil {
+			t.Error("RecordCutRead of the refused batch succeeded")
+		}
+	})
+}
+
+func TestSetFicheJSON(t *testing.T) {
+	t.Run("writes the stored fiche as it is", func(t *testing.T) {
+		ctx := context.Background()
+		st, path := storetest.OpenWithPath(t)
+		userID, err := st.EnsureSingleUser(ctx, "hash")
+		if err != nil {
+			t.Fatalf("EnsureSingleUser: %v", err)
+		}
+		u := "https://example.com/fiche"
+		item, _, err := st.CaptureItem(ctx, userID, store.NewItem{Kind: "link", Source: "share", Status: "queued", Title: "t", URL: &u}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storetest.SetFicheJSON(t, path, userID, item.ID, `{"template":"tip"`)
+		got, err := st.Item(ctx, userID, item.ID)
+		if err != nil || string(got.FicheJSON) != `{"template":"tip"` || got.ChangeSeq <= item.ChangeSeq {
+			t.Errorf("fiche %q, change_seq %d (was %d), %v; want the raw fiche written", got.FicheJSON, got.ChangeSeq, item.ChangeSeq, err)
+		}
+	})
+}

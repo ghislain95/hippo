@@ -162,7 +162,11 @@ func TestSettleItem(t *testing.T) {
 	for _, tc := range []struct {
 		outcome store.Outcome
 		code    string
-	}{{store.OutcomeInvalid, store.LastErrorInvalidResponse}, {store.OutcomeErrored, store.LastErrorRequestErrored}} {
+	}{
+		{store.OutcomeInvalid, store.LastErrorInvalidResponse},
+		{store.OutcomeErrored, store.LastErrorRequestErrored},
+		{store.OutcomeStorageFailed, store.LastErrorStorageFailed},
+	} {
 		t.Run(fmt.Sprintf("an %s outcome counts an attempt and clears the batch", tc.outcome), func(t *testing.T) {
 			e := newResultsEnv(t)
 			batchID, ids := e.submitted(t, e.users[0], 1)
@@ -216,7 +220,9 @@ func TestSettleItem(t *testing.T) {
 		}
 		resubmitted := e.item(t, e.users[0], ids[0])
 
-		for _, outcome := range []store.Outcome{store.OutcomeRequeue, store.OutcomeInvalid, store.OutcomeCut, store.OutcomeErrored} {
+		for _, outcome := range []store.Outcome{
+			store.OutcomeRequeue, store.OutcomeInvalid, store.OutcomeCut, store.OutcomeErrored, store.OutcomeStorageFailed,
+		} {
 			if got := e.settle(t, e.users[0], batchID, ids[0], outcome); got != store.SettledNotSubmitted {
 				t.Errorf("%s: settlement = %s, want not_submitted", outcome, got)
 			}

@@ -271,6 +271,24 @@ A request the AI service reports `errored` SHALL write nothing and count one att
 - **WHEN** the batch is applied
 - **THEN** the item is `failed` with `attempts` 3 and `last_error` `request_errored`
 
+### Requirement: A valid response the store cannot write counts an attempt
+When the store refuses to write a valid response for another reason than the end of the read, the item SHALL be settled once with one attempt and `last_error` `storage_failed`, back to `extracted` without batch or `failed` at its third attempt, so that the batch can close; when that settling fails too, the read SHALL be cut and retried at the next follow-up (RG-35, decided with Ghislain on 2026-11-07).
+
+#### Scenario: A valid response the store refuses counts an attempt
+- **GIVEN** a `submitted` item with `attempts` 0 whose valid response the store refuses to write
+- **WHEN** the batch is applied
+- **THEN** the item is `extracted` without batch, with `attempts` 1 and `last_error` `storage_failed`, and the batch is ended with its cost
+
+#### Scenario: The third refused write fails the item
+- **GIVEN** a `submitted` item with `attempts` 2 whose valid response the store refuses to write
+- **WHEN** the batch is applied
+- **THEN** the item is `failed` with `attempts` 3 and `last_error` `storage_failed`
+
+#### Scenario: A store that refuses every write cuts the read
+- **GIVEN** a `submitted` item whose valid response the store refuses to write, and a store that also refuses to settle it
+- **WHEN** the batch is applied
+- **THEN** the item stays `submitted`, the batch stays without cost, and the next follow-up reads the batch again
+
 ### Requirement: Requests the service did not process go back to the queue
 A request reported `expired` or `canceled`, an item of the batch without any result once every line was read, and every `succeeded` request of a batch recorded with an envelope version other than the backend's SHALL send the item back to `extracted` without batch, with its `attempts` and `last_error` unchanged (RG-35).
 

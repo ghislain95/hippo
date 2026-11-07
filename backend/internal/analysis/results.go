@@ -56,6 +56,10 @@ const (
 	reasonTooFewTags = "too_few_tags"
 	reasonSchema     = "schema"
 	reasonEnvelope   = "envelope_version"
+
+	// errorTypeStore is the error type of a write of the store that failed (design D8, As built
+	// tranche C).
+	errorTypeStore = "store"
 )
 
 // minTags is the number of distinct tags a response holds at least, once normalised (RG-58).
@@ -76,6 +80,9 @@ type followReport struct {
 	// Err is an error of the store or of the read, logged by its class; never a message of the
 	// AI service.
 	Err error
+	// RecordErr is the error of the store when the tokens of a cut read could not be recorded:
+	// logged on its own, with the error type store, never joined to the read's error.
+	RecordErr error
 	// Items are the outcomes of the lines applied, in order, for the debug lines.
 	Items []itemReport
 }
@@ -87,9 +94,13 @@ type followCounts struct {
 }
 
 // itemReport is the outcome of one line: the item id, the outcome class, and the reason class
-// of an invalid response or the API error type of an errored request.
+// of an invalid response or the API error type of an errored request. Err is the error of a
+// valid response the store could not write, settled with store.OutcomeStorageFailed instead
+// (logged as the invalid class with ErrorType store, design.md D8); it names ids and columns
+// at most.
 type itemReport struct {
 	ItemID, Outcome, Reason, ErrorType string
+	Err                                error
 }
 
 // followBatch follows the batch b of userID once (design D1, D8): a batch still processing is
@@ -141,16 +152,21 @@ func (p *Pass) followBatch(ctx context.Context, userID string, b store.Batch) fo
 		// A cut read: the tokens read so far are kept when this read went further than the
 		// recorded one; the next occasion reads again from the start (design D8).
 		report.Outcome = followReadFailed
-		if report.Err != nil {
-			report.ErrorType = "store" // a write failed: report.Err is its error
-		} else {
+		switch {
+		case report.Err == nil:
 			report.Err = err
 			queryFailure(&report, err)
+		case errors.Is(report.Err, context.DeadlineExceeded):
+			report.ErrorType = "timeout" // a write cut by the bound of the read
+		case errors.Is(report.Err, context.Canceled):
+			report.ErrorType = "stopped"
+		default:
+			report.ErrorType = errorTypeStore // a write failed: report.Err is its error
 		}
 		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 		defer cancel()
 		if _, rerr := p.cfg.Store.RecordCutRead(wctx, userID, b.ID, batchTokens(report.Tokens), lines); rerr != nil {
-			report.Err = errors.Join(err, rerr)
+			report.RecordErr = rerr
 		}
 		return report
 	}
@@ -162,7 +178,7 @@ func (p *Pass) followBatch(ctx context.Context, userID string, b store.Batch) fo
 	case errors.Is(err, store.ErrNotFound):
 		report.Outcome = followNotInProgress
 	case err != nil:
-		report.Outcome, report.Err = followReadFailed, err
+		report.Outcome, report.Err, report.ErrorType = followReadFailed, err, errorTypeStore
 	default:
 		report.Outcome, report.CostUSD, report.Counts.WithoutResult = followEnded, closed.CostUSD, closed.Requeued
 	}
@@ -183,7 +199,7 @@ func (p *Pass) closeUnavailable(ctx context.Context, userID string, b store.Batc
 	case errors.Is(err, store.ErrNotFound):
 		report.Outcome = followNotInProgress
 	case err != nil:
-		report.Outcome, report.Err = followReadFailed, err
+		report.Outcome, report.Err, report.ErrorType = followReadFailed, err, errorTypeStore
 	default:
 		report.Outcome, report.CostUSD = followUnavailable, closed.CostUSD
 		report.Tokens, report.Counts.WithoutResult = usageOf(closed.Tokens), closed.Requeued
@@ -225,8 +241,15 @@ func (p *Pass) applyResults(ctx context.Context, userID string, b store.Batch, r
 			return lines, fmt.Errorf("read results: %w", err)
 		}
 		lines++
-		if result.Kind == ResultSucceeded {
+		switch result.Kind {
+		case ResultSucceeded:
 			report.Tokens = report.Tokens.Add(result.Usage)
+		case ResultErrored, ResultExpired, ResultCanceled:
+		default:
+			// The reader refuses any other kind; a line of another kind is unreadable all the
+			// same, its item settled by the closing.
+			report.Counts.UnreadableLines++
+			continue
 		}
 		item, err := p.applyResult(ctx, userID, b.ID, sameEnvelope, result)
 		if err != nil {
@@ -292,8 +315,10 @@ func (p *Pass) applyResult(ctx context.Context, userID, batchID string, sameEnve
 		return settle(store.OutcomeErrored, itemErrored)
 	case ResultExpired, ResultCanceled:
 		return settle(store.OutcomeRequeue, itemRequeued)
+	case ResultSucceeded:
+	default:
+		return appliedItem{}, fmt.Errorf("result of item %s: unknown kind", r.CustomID) // applyResults never passes one
 	}
-	// succeeded
 	if !sameEnvelope {
 		// Validated against another envelope than the one it was asked with: sent again
 		// without an attempt counted (design D4).
@@ -310,7 +335,20 @@ func (p *Pass) applyResult(ctx context.Context, userID, batchID string, sameEnve
 	}
 	written, err := p.cfg.Store.WriteAnalysis(ctx, userID, batchID, r.CustomID, a)
 	if err != nil {
-		return appliedItem{}, err
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return appliedItem{}, err // a cut read: read again at the next occasion
+		}
+		// A write that fails for another reason may fail again at every read, which would
+		// leave the batch open and block the next nights for good: the item is settled once
+		// with one attempt and storage_failed, so that it fails after its third attempt and the
+		// batch closes. When that write fails too (the store is down), the read is cut (design
+		// D8, As built tranche C).
+		settled, serr := settle(store.OutcomeStorageFailed, itemInvalid)
+		if serr != nil {
+			return appliedItem{}, errors.Join(err, serr)
+		}
+		settled.ErrorType, settled.Err = errorTypeStore, err
+		return settled, nil
 	}
 	item.Reason, item.failed = written.Reason, written.Settlement == store.SettledFailed
 	item.Outcome = settledClass(written.Settlement, itemAnalyzed)
@@ -345,9 +383,11 @@ func (p *Pass) validate(r Result) (store.Analysis, string) {
 		return store.Analysis{}, reasonToolCalls
 	}
 	input := r.ToolCalls[0].Input
-	// 3. A JSON object, its tags normalised before the schema (RG-58, decision 2).
+	// 3. A JSON object without a repeated member, its tags normalised before the schema (RG-58,
+	// decision 2). A repeated member would be validated once, by its last value, while the
+	// stored fiche keeps both.
 	answer, ok := decodeObject(input)
-	if !ok {
+	if !ok || hasDuplicateKeys(input) {
 		return store.Analysis{}, reasonSchema
 	}
 	tags, isStrings := normaliseTags(answer["tags"])
@@ -386,6 +426,54 @@ func decodeObject(raw json.RawMessage) (map[string]any, bool) {
 	}
 	object, ok := v.(map[string]any)
 	return object, ok
+}
+
+// hasDuplicateKeys tells whether an object of raw, at any depth, holds the same member twice.
+// raw is one valid JSON value (decodeObject read it).
+func hasDuplicateKeys(raw json.RawMessage) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	// One frame per open object or array: the keys seen, nil for an array; expectKey tells
+	// whether the next token of an object is a key.
+	type frame struct {
+		keys      map[string]bool
+		expectKey bool
+	}
+	var stack []*frame
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return false // io.EOF: the value ended; any other error was refused by decodeObject
+		}
+		var top *frame
+		if len(stack) > 0 {
+			top = stack[len(stack)-1]
+		}
+		if top != nil && top.keys != nil && top.expectKey {
+			if key, ok := tok.(string); ok {
+				if top.keys[key] {
+					return true
+				}
+				top.keys[key] = true
+				top.expectKey = false
+				continue
+			}
+		}
+		switch tok {
+		case json.Delim('{'):
+			stack = append(stack, &frame{keys: map[string]bool{}, expectKey: true})
+			continue
+		case json.Delim('['):
+			stack = append(stack, &frame{})
+			continue
+		case json.Delim('}'), json.Delim(']'):
+			stack = stack[:len(stack)-1]
+		}
+		// A value ended: in an object, a key comes next.
+		if len(stack) > 0 && stack[len(stack)-1].keys != nil {
+			stack[len(stack)-1].expectKey = true
+		}
+	}
 }
 
 // normaliseTags normalises the tags of an answer when they are an array of strings: each by

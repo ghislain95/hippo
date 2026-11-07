@@ -229,15 +229,6 @@ func TestReferentiel(t *testing.T) {
 			t.Errorf("the référentiel names a deleted category:\n%s", ref)
 		}
 	})
-
-	t.Run("The tags block is empty", func(t *testing.T) {
-		e := newEnv(t)
-		userID := e.user(t, "owner")
-		ref := e.referentielOf(t, userID)
-		if !strings.HasSuffix(ref, "\n</categories>\n<tags>\n</tags>\n</referentiel>") || !strings.HasPrefix(ref, "<referentiel>\n<types>\n") {
-			t.Errorf("référentiel does not end with an empty <tags> block then </referentiel>:\n%s", ref)
-		}
-	})
 }
 
 // carry attaches the tag name of userID, created when new, to n new public notes of userID.
@@ -264,7 +255,7 @@ func TestReferentielTags(t *testing.T) {
 		e := newEnv(t)
 		userID := e.user(t, "owner")
 		ref := e.referentielOf(t, userID)
-		if !strings.HasSuffix(ref, "\n</categories>\n<tags>\n</tags>\n</referentiel>") {
+		if !strings.HasSuffix(ref, "\n</categories>\n<tags>\n</tags>\n</referentiel>") || !strings.HasPrefix(ref, "<referentiel>\n<types>\n") {
 			t.Errorf("a user without any tag has a non-empty <tags> block:\n%s", ref)
 		}
 	})

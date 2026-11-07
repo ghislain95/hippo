@@ -70,6 +70,29 @@ func (c *Client) Results(ctx context.Context, anthropicID string) (analysis.Resu
 	return NewResultReader(raw.Body), nil
 }
 
+// maxErrorType is the length of an API error type kept as it is (ErrorTypeClass).
+const maxErrorType = 64
+
+// ErrorTypeClass returns an API error type as it is logged and kept: the type when it is 1 to
+// 64 lower-case ASCII letters and underscores, as every type of the API is
+// (invalid_request_error, overloaded_error…), empty when the answer has none (a gateway's
+// page), and other otherwise. The type comes from the answer of the service: bounded, it never
+// carries a quoted request nor an unbounded string into a log line or the database.
+func ErrorTypeClass(errorType string) string {
+	if errorType == "" {
+		return ""
+	}
+	if len(errorType) > maxErrorType {
+		return "other"
+	}
+	for i := range len(errorType) {
+		if c := errorType[i]; (c < 'a' || c > 'z') && c != '_' {
+			return "other"
+		}
+	}
+	return errorType
+}
+
 // queryOutcome turns an error of a query into Hippo's (design D2): ErrResultsUnavailable for a
 // 404, an *analysis.QueryError for another error status, the context's error when it is done,
 // errUnknown otherwise. raw is the response the SDK saw, when any: an error status whose body
@@ -80,7 +103,7 @@ func queryOutcome(ctx context.Context, err error, raw *http.Response) error {
 	var apiErr *sdk.Error
 	switch {
 	case errors.As(err, &apiErr):
-		status, errorType = apiErr.StatusCode, string(apiErr.Type())
+		status, errorType = apiErr.StatusCode, ErrorTypeClass(string(apiErr.Type()))
 	case ctx.Err() != nil:
 		return ctx.Err()
 	case errors.Is(err, errRedirect):
@@ -267,7 +290,7 @@ func decodeLine(raw []byte) (analysis.Result, error) {
 		}
 	case analysis.ResultErrored:
 		if line.Result.Error != nil {
-			result.ErrorType = line.Result.Error.Error.Type
+			result.ErrorType = ErrorTypeClass(line.Result.Error.Error.Type)
 		}
 	case analysis.ResultCanceled, analysis.ResultExpired:
 	default:

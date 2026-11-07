@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: An answered item carries its classification and its fiche
-Every `Item` the API answers SHALL carry the item's content type key, category id, tag ids in ascending order and fiche once analysed, and `null`, `[]` and no fiche before; `last_error` SHALL be `null` or one of the codes `invalid_response`, `request_errored`, `too_long` (RG-34, RG-35, RG-36, ADR-0017, ADR-0035).
+Every `Item` the API answers SHALL carry the item's content type key, category id, tag ids in ascending order and fiche once analysed, and `null`, `[]` and no fiche before; `last_error` SHALL be `null` or one of the codes `invalid_response`, `request_errored`, `too_long`, `storage_failed` (RG-34, RG-35, RG-36, ADR-0017, ADR-0035).
 
 #### Scenario: An analysed item is answered with its classification
 - **GIVEN** an `analyzed` item of the user with the type `tip`, a category, the tags `go` and `testing`, and a `tip` fiche

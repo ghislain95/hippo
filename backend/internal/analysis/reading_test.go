@@ -252,7 +252,7 @@ func TestUnavailableResults(t *testing.T) {
 		b, ids := e.submitted(t, 2)
 		storetest.SetAnalysisState(t, e.path, e.userID, ids[1], "submitted", nil, 1)
 		e.ai.ScriptStates(*b.AnthropicBatchID, analysistest.NotFound())
-		report := e.follow(t, e.cfg, e.userID, b)
+		e.followAll(t, e.cfg)
 		c := storetest.BatchClosingOf(t, e.path, e.userID, b.ID)
 		if c.Status != "ended" || c.CostUSD == nil || *c.CostUSD != 0 || !c.ResultsUnavailable {
 			t.Errorf("batch %+v, want ended with cost 0, results unavailable", c)
@@ -262,8 +262,10 @@ func TestUnavailableResults(t *testing.T) {
 				t.Errorf("item %s, batch %v, %d attempts; want extracted with %d", it.Status, it.BatchID, it.Attempts, want)
 			}
 		}
-		if report.Outcome != "results_unavailable" || report.Counts.WithoutResult != 2 {
-			t.Errorf("report %s %+v, want results_unavailable", report.Outcome, report.Counts)
+		line := e.lastFollowLine(t, b.ID)
+		if line["outcome"] != "results_unavailable" || line["without_result"] != float64(2) || line["cost_usd"] != float64(0) ||
+			line["user_id"] != e.userID {
+			t.Errorf("follow-up line %v, want the reason results_unavailable, two items without result, cost 0", line)
 		}
 	})
 

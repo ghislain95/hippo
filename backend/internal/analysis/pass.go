@@ -104,10 +104,10 @@ type PassConfig struct {
 }
 
 // Pass is the nightly analysis pass (RG-30 to RG-32, RG-81, design.md D2, D3, D7, D8): for
-// each user, it reconciles the batches whose send has an unknown outcome, checks the guards,
-// selects the waiting items, writes their requests, submits them and sends one batch, once.
-// Run and Reconcile exclude each other: a reconciliation at start-up never settles a batch
-// whose send is in flight.
+// each user, it reconciles the batches whose send has an unknown outcome, follows the batches
+// in progress (follow.go), checks the guards, selects the waiting items, writes their requests,
+// submits them and sends one batch, once. Run, Reconcile and Follow exclude each other: a
+// reconciliation or a follow-up never settles a batch whose send is in flight.
 type Pass struct {
 	cfg PassConfig
 	mu  sync.Mutex
@@ -256,9 +256,14 @@ func (p *Pass) sendUser(ctx context.Context, line *userPass) {
 		line.outcome, line.level, line.err = outcome, level, err
 	}
 
-	// Guard 2: reconcile, then no batch without a recorded cost (RG-81, ADR-0021).
+	// Guard 2: reconcile, follow the batches in progress, then no batch without a recorded cost
+	// (RG-81, ADR-0021): a batch that ended before the pass is applied before the guard
+	// (apply-batch-results design D1).
 	if err := p.reconcile(ctx, userID); err != nil {
 		p.cfg.Logger.Error("reconcile batches", slog.String("user_id", userID), slog.String("error", err.Error()))
+	}
+	if err := p.followUser(ctx, userID); err != nil && ctx.Err() == nil {
+		p.cfg.Logger.Error("follow batches", slog.String("user_id", userID), slog.String("error", err.Error()))
 	}
 	blocked, err := p.cfg.Store.HasBatchWithoutCost(ctx, userID)
 	if err != nil {

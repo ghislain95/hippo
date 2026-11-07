@@ -355,12 +355,16 @@ func TestPassGuards(t *testing.T) {
 		e.wantLog(t, map[string]string{"outcome": "no_api_key"})
 	})
 
+	// The follow-up runs before the guard (apply-batch-results design D1): the AI service still
+	// processes the batch in progress, and does not answer the state query of the ended one, so
+	// that neither gets its cost before the guard.
 	blocked := []struct {
 		name, status string
 		cost         *float64
+		state        analysistest.State
 	}{
-		{"A batch without recorded cost blocks the next one", store.BatchInProgress, nil},
-		{"An ended batch without cost blocks the next one", store.BatchEnded, nil},
+		{"A batch without recorded cost blocks the next one", store.BatchInProgress, nil, analysistest.Processing()},
+		{"An ended batch without cost blocks the next one", store.BatchEnded, nil, analysistest.QueryFailure(503, "overloaded_error")},
 	}
 	for _, tc := range blocked {
 		t.Run(tc.name, func(t *testing.T) {
@@ -370,6 +374,7 @@ func TestPassGuards(t *testing.T) {
 				ID: "01JB8Z6Q4M1X2Y3Z4A5B6C7E00", Status: tc.status, AnthropicBatchID: ptr("msgbatch_previous"),
 				ItemCount: 1, CostUSD: tc.cost, CreatedAt: passStart.Add(-24 * time.Hour),
 			})
+			e.ai.ScriptStates("msgbatch_previous", tc.state)
 			id := e.link(t, userID, "https://example.com/a", nil, full)
 			e.run(t, e.passConfig(t))
 			if e.ai.Creates() != 0 {

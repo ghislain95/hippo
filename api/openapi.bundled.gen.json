@@ -1367,11 +1367,12 @@
       },
       "AnalysisError": {
         "type": "string",
-        "description": "Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:\n`invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);\n`request_errored`: the AI service reported the request in error;\n`too_long`: the response was cut by its output cap twice, the fiche is too long.\n",
+        "description": "Why the last analysis attempt of an item failed (RG-35, RG-36). A closed set of codes, never a message:\n`invalid_response`: the AI's response was rejected by the validation (wrong tool call, schema, template, type or category);\n`request_errored`: the AI service reported the request in error;\n`too_long`: the response was cut by its output cap twice, the fiche is too long;\n`storage_failed`: the AI's response was valid but the server could not store it.\n",
         "enum": [
           "invalid_response",
           "request_errored",
-          "too_long"
+          "too_long",
+          "storage_failed"
         ]
       },
       "CorrectedField": {

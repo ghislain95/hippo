@@ -134,6 +134,18 @@ func TestGetBatch(t *testing.T) {
 		})
 	}
 
+	t.Run("an error type outside the API's form is answered as other", func(t *testing.T) {
+		s := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+			errorAnswer(w, http.StatusUnauthorized, "Bad type: "+leak)
+		})
+		_, err := newClient(t, s).GetBatch(ctx, "msgbatch_1")
+		var query *analysis.QueryError
+		if !errors.As(err, &query) || query.Status != http.StatusUnauthorized || query.Type != "other" {
+			t.Errorf("GetBatch = %v, want a query error 401 other", err)
+		}
+		wantClean(t, err)
+	})
+
 	t.Run("a done context is the context's error", func(t *testing.T) {
 		s := newServer(t, func(w http.ResponseWriter, r *http.Request) {})
 		cctx, cancel := context.WithCancel(ctx)
@@ -289,6 +301,17 @@ func TestResults(t *testing.T) {
 		}
 	})
 
+	t.Run("an errored line with an error type outside the API's form keeps other", func(t *testing.T) {
+		s, _ := resultsServer(t, func(w http.ResponseWriter) {
+			_, _ = fmt.Fprintf(w, `{"custom_id":"a","result":{"type":"errored","error":{"type":"error","error":`+
+				`{"type":%q,"message":"m"}}}}`+"\n", "ECHO-LEAK "+strings.Repeat("x", 100))
+		})
+		results, errs := readAll(t, s)
+		if len(errs) != 0 || len(results) != 1 || results[0].ErrorType != "other" {
+			t.Errorf("read %+v, %v; want one errored line of type other", results, errs)
+		}
+	})
+
 	t.Run("reads expired and canceled lines", func(t *testing.T) {
 		s, _ := resultsServer(t, func(w http.ResponseWriter) {
 			_, _ = io.WriteString(w, `{"custom_id":"a","result":{"type":"expired"}}`+"\n"+`{"custom_id":"b","result":{"type":"canceled"}}`)
@@ -391,6 +414,25 @@ func TestResults(t *testing.T) {
 	})
 }
 
+func TestErrorTypeClass(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"invalid_request_error", "invalid_request_error"},
+		{"overloaded_error", "overloaded_error"},
+		{strings.Repeat("a", 64), strings.Repeat("a", 64)},
+		{strings.Repeat("a", 65), "other"},
+		{"", ""}, // no type in the answer
+		{"Invalid_request_error", "other"},
+		{"error 42", "other"},
+		{"api-error", "other"},
+		{"erreur_é", "other"},
+		{"type\n", "other"},
+	} {
+		if got := anthropic.ErrorTypeClass(tc.in); got != tc.want {
+			t.Errorf("ErrorTypeClass(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestReaderMemory proves the reader holds one line, not the file: a file of many lines is
 // read through a buffer that never grows past the longest line.
 func TestReaderMemory(t *testing.T) {
@@ -416,6 +458,27 @@ func TestReaderMemory(t *testing.T) {
 		}
 		if got := anthropic.BufferCap(r); got > 64<<10 {
 			t.Errorf("line buffer of %d bytes, want at most one short line", got)
+		}
+	})
+
+	t.Run("releases the buffer of a line longer than 64 KiB", func(t *testing.T) {
+		// A readable line of 1 MiB (an unknown member is ignored), then a short one.
+		long := `{"custom_id":"long","padding":"` + strings.Repeat("x", 1<<20) + `","result":{"type":"expired"}}`
+		file := long + "\n" + `{"custom_id":"short","result":{"type":"expired"}}` + "\n"
+		r := anthropic.NewResultReader(io.NopCloser(strings.NewReader(file)))
+		first, err := r.Next()
+		if err != nil || first.CustomID != "long" {
+			t.Fatalf("first line %+v, %v; want the long one read", first, err)
+		}
+		if got := anthropic.BufferCap(r); got < 1<<20 {
+			t.Fatalf("line buffer of %d bytes after the long line, want it to hold the line", got)
+		}
+		second, err := r.Next()
+		if err != nil || second.CustomID != "short" {
+			t.Fatalf("second line %+v, %v; want the short one", second, err)
+		}
+		if got := anthropic.BufferCap(r); got > 64<<10 {
+			t.Errorf("line buffer of %d bytes after the short line, want the long line's released", got)
 		}
 	})
 }

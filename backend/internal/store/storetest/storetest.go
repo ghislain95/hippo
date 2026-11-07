@@ -480,3 +480,69 @@ func BatchClosingOf(t testing.TB, path, userID, batchID string) BatchClosing {
 	}
 	return c
 }
+
+// RefuseItemWrites makes every later update of the item itemID of userID fail, by a trigger of
+// the database at path: an update that would set the status toStatus, or any update when
+// toStatus is empty. It plays a write of the store that fails for another reason than a context
+// done (a constraint, a full disk), which no store function can be made to do otherwise: the
+// tests of the follow-up check that such a failure neither blocks the batch for good nor loses a
+// write (apply-batch-results design D8). userID and itemID are ids of the store.
+func RefuseItemWrites(t testing.TB, path, userID, itemID, toStatus string) {
+	t.Helper()
+	when := "OLD.user_id = " + quoted(t, userID) + " AND OLD.id = " + quoted(t, itemID)
+	if toStatus != "" {
+		when += " AND NEW.status = " + quoted(t, toStatus)
+	}
+	refuse(t, path, "items", "storetest_refuse_item_"+itemID+toStatus, when)
+}
+
+// RefuseBatchWrites makes every later update of the batch batchID of userID fail, by a trigger
+// of the database at path, as RefuseItemWrites does for an item: the tests of the follow-up
+// check that a batch row the store cannot write is logged and read again (design D8).
+func RefuseBatchWrites(t testing.TB, path, userID, batchID string) {
+	t.Helper()
+	refuse(t, path, "batches", "storetest_refuse_batch_"+batchID,
+		"OLD.user_id = "+quoted(t, userID)+" AND OLD.id = "+quoted(t, batchID))
+}
+
+// refuse creates the trigger name that aborts the updates of table matching when; name is built
+// from values quoted checked.
+func refuse(t testing.TB, path, table, name, when string) {
+	t.Helper()
+	db := openForWrite(t, path)
+	defer func() { _ = db.Close() }() // the statement below is committed when Exec returns
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE TRIGGER `+name+` BEFORE UPDATE ON `+table+` WHEN `+when+
+			` BEGIN SELECT RAISE(ABORT, 'storetest: write refused'); END`); err != nil {
+		t.Fatalf("refuse writes of %s: %v", table, err)
+	}
+}
+
+// quoted is value as an SQL string literal. A trigger takes no parameter: the ids and statuses
+// written in it, and in its name, are checked to be non-empty, of letters, digits and
+// underscores (ULIDs, statuses).
+func quoted(t testing.TB, value string) string {
+	t.Helper()
+	if value == "" {
+		t.Fatal("refuse writes: an empty id or status")
+	}
+	for _, c := range value {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && c != '_' {
+			t.Fatalf("refuse writes: %q is not an id nor a status", value)
+		}
+	}
+	return "'" + value + "'"
+}
+
+// SetFicheJSON writes raw as the stored fiche of the item itemID of userID, by SQL: a fiche
+// that may not decode, which no store function writes (every fiche written passed the schema).
+// The tests of the API check that such a stored value is an internal error that quotes nothing
+// (apply-batch-results design D13).
+func SetFicheJSON(t testing.TB, path, userID, itemID, raw string) {
+	t.Helper()
+	writeSynced(t, path, "set fiche", func(tx *sql.Tx, seq int64, date string) (sql.Result, error) {
+		return tx.ExecContext(context.Background(),
+			`UPDATE items SET fiche_json = ?, updated_at = ?, change_seq = ? WHERE user_id = ? AND id = ?`,
+			raw, date, seq, userID, itemID)
+	})
+}

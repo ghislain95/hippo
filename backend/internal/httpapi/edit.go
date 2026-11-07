@@ -44,5 +44,9 @@ func (h *handlers) UpdateItem(ctx context.Context, request UpdateItemRequestObje
 		// No item id here: the path segment is the client's, not checked as a ULID.
 		return nil, fmt.Errorf("update item: %w", err)
 	}
-	return UpdateItem200JSONResponse(itemFromStore(item)), nil
+	answer, err := itemFromStore(item)
+	if err != nil {
+		return nil, fmt.Errorf("update item: %w", err)
+	}
+	return UpdateItem200JSONResponse(answer), nil
 }
