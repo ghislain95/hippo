@@ -78,6 +78,7 @@ Terms this change introduces or makes precise; `doc-keeper` adds them to `docs/g
 - **What is followed**: `store.BatchesToFollow(ctx, userID)` returns the user's batches with `status = 'in_progress'` (they all have an `anthropic_batch_id`), oldest first, plus any `ended` batch with `cost_usd IS NULL` (no writer produces it any more, but `storetest` and an older binary could). Nothing to follow → no call (spec « Nothing to follow makes no call »).
 - **One batch**: `Analyzer.GetBatch` (bounded to 1 minute, SDK retries included): `in_progress` or `canceling` → nothing; `ended` → read and apply (D3–D8) within a 10-minute bound; not found or archived → closed as results unavailable (D8). Any other error → `poll_failed` (status and error type only), nothing written, retried at the next occasion.
 - Rejected: a separate goroutine with its own lock (the 02:00 pass could see an ended batch mid-application and skip the night, adversarial pass I1); following inside `schedule.Run` only (a batch would wait a whole day).
+- **As built (tranche B)**: the follow-up of one batch is `(*Pass).followBatch(ctx, userID, store.Batch) followReport` in `internal/analysis/results.go`: the state query (bounded by `PassConfig.QueryTimeout`, default `DefaultQueryTimeout` = 1 minute), the read and application (`PassConfig.ReadTimeout`, default `DefaultReadTimeout` = 10 minutes), the cut-read record and the closing. It does not lock the mutex nor log: `Pass.Follow` and `followUser` (tranche C) hold the mutex, loop on `BatchesToFollow` and write the line of D14 from the report (outcome, counts, tokens, cost, status and error type, and the per-item outcomes for the debug lines). Tests reach it through `export_test.go` (`FollowBatch`, which takes the mutex). A batch to follow without `anthropic_batch_id` (no writer leaves one; `storetest` could) cannot be asked for: it is closed as results unavailable rather than block the user for good.
 
 ### D2. `Analyzer` extended
 
@@ -120,8 +121,9 @@ var ErrUnreadableLine = errors.New("unreadable result line")
 
 - The analysis package never sees an SDK type: `Result` is Hippo's, built by the client from the line.
 - **`GetBatch`**: `MessageBatchService.Get` (`SDK/messagebatch.go:86`), at v2.7.0 of `github.com/anthropics/anthropic-sdk-go/v2` (`backend/go.mod`; `SDK/` = the module root in the module cache). `processing_status` is one of `in_progress`, `canceling`, `ended` (`SDK/messagebatch.go:336-338`); `archived_at` is « the time at which the Message Batch was archived and its results became unavailable » (`SDK/messagebatch.go:270-273`): non-zero → `ErrResultsUnavailable`. A `*anthropic.Error` with `StatusCode` 404 (`SDK/internal/apierror/apierror.go:24`) → `ErrResultsUnavailable`; any other error is reduced to `*QueryError{Status, Type}` or the context's error, never wrapped (its `Error()` prints the URL and the raw answer, `apierror.go:72-86`, as E3-01 D9 found). The SDK's default retries apply (a read).
-- **`Results`**: `Client.Get(ctx, "v1/messages/batches/<id>/results", nil, &raw, option.WithHeader("Accept", "application/x-jsonl"))` (`SDK/client.go:299`), the same path and header as `ResultsStreaming` (`SDK/messagebatch.go:224-241`), but with a `**http.Response` destination: the SDK hands the response over unread (`SDK/internal/requestconfig/requestconfig.go:541`, `:663`) and still turns a status ≥ 400 into an `*Error` (`:537-539`). Hippo reads the body itself (D3) instead of `jsonl.Stream`, which stops at the first line it cannot decode (`SDK/packages/jsonl/jsonl.go:37-52`).
+- **`Results`**: `Client.Get(ctx, "v1/messages/batches/<id>/results", nil, &raw, option.WithHeader("Accept", "application/x-jsonl"))` (`SDK/client.go:299`), the same path and header as `ResultsStreaming` (`SDK/messagebatch.go:224-241`), but with a `**http.Response` destination: the SDK hands the response over unread (`SDK/internal/requestconfig/requestconfig.go:541`, `:663`) and still turns a status ≥ 400 into an `*Error` (`:671`, `apiError` at `:687`; `:537-539` is `readsBody`, which reads an error body). Hippo reads the body itself (D3) instead of `jsonl.Stream`, which stops at the first line it cannot decode (`SDK/packages/jsonl/jsonl.go:36-53`).
 - Rejected: `ResultsStreaming` (one bad line blocks the batch, adversarial pass B1); the SDK's `MessageBatchIndividualResponse` as the line type (a decode error of any nested union fails the line; Hippo needs six fields).
+- **As built (tranche B)**: the query error of D1 is `analysis.QueryError{Status, Type}`; the processing states and result kinds are constants (`ProcessingInProgress`…, `ResultSucceeded`…), and `Usage.Add` sums two usages. Citations re-checked in the module cache on 2026-11-07, all accurate except two drifts, corrected above: in `requestconfig.go`, `:537-539` is `readsBody` (an error status is read by the SDK), the raw destination is detected at `:541` and handed over at `:663`, and a status ≥ 400 becomes an error at `:671` (`apiError`, `:687`); and `apiError` returns the JSON decode error, not an `*Error`, when an error body is not the API's JSON. So both calls also take the raw response (`option.WithResponseInto` for `Get`, the `**http.Response` destination for `Results`) and fall back on its status: a 404 without a JSON body is still `ErrResultsUnavailable`. `jsonl.Stream.Next` is at `SDK/packages/jsonl/jsonl.go:36-53`. `ResultsStreaming` prepends its `Accept` before the client options; `Results` passes it as a per-request option, applied last.
 
 ### D3. Results reader (`internal/analysis/anthropic`)
 
@@ -130,6 +132,7 @@ var ErrUnreadableLine = errors.New("unreadable result line")
 - Not JSON, no `custom_id`, or a `result.type` outside the four → `ErrUnreadableLine`. A `cache_creation` breakdown absent while `cache_creation_input_tokens` > 0 counts the total as 5-minute writes (the request sets the default 5-minute `cache_control`, E3-01 D4).
 - A transport error or a context end mid-body → `Next` returns it (not `ErrUnreadableLine`): the read is cut (D8).
 - Tests against an `httptest.Server`: headers, a 404, a line of 4 MiB + 1 then a valid line, a non-JSON line, a cut body, an unknown result type, a missing cache breakdown.
+- **As built (tranche B)**: the reader is `anthropic.ResultReader`, built by `NewResultReader(body)` (exported so that a test reads a body without a server). A blank line is no line (skipped, not counted). A `succeeded` line without `message` is unreadable. A breakdown short of `cache_creation_input_tokens` counts the rest as 5-minute writes. A read error is reduced to its class (`context.Canceled`, `context.DeadlineExceeded`, `io.ErrUnexpectedEOF`, otherwise « no answer »), since a transport error prints the URL. The line buffer is released after a line longer than 64 KiB, so that one long line does not hold 4 MiB for the rest of the read.
 
 ### D4. Outcome of each line
 
@@ -165,6 +168,7 @@ Steps that need the database run inside the write transaction (D6): the template
 
 - The envelope version check (D4, first row) runs before step 1, once per batch: `batches.envelope_version` against the embedded one.
 - `docs/prompt/README.md` « Validation d'une réponse » is rewritten in that order by `prompt-engineer` (task 4.9).
+- **As built (tranche B)**: the reason classes are `stop_reason`, `tool_calls`, `too_few_tags`, `schema` (step 3 when the input is not one JSON object, with nothing after it; steps 4 and 5), then the store's `unknown_type`, `template`, `unknown_category`; `envelope_version` marks a line requeued by the envelope check. The validator is `schema.Validator` (`schema.Compile`, built once by `NewPass`; `Validate` answers `schema.ErrInvalid`, never the validator's text; `FicheVersion(template)`); a fiche schema without `x-schema-version`, or whose `template` constant is not its name, stops the start-up. Step 5 decodes the typed fields from the input as received: the fiche is kept as the model wrote it, compacted, never re-marshalled from the decoded map (which would sort its keys and break the order of D11).
 
 ### D6. Writing a valid response (`store.WriteAnalysis`, one transaction)
 
@@ -257,9 +261,13 @@ SELECT t.name FROM tags t
 
 `Referentiel` writes `<tags>\n` + names joined by `, ` + `\n</tags>` when there are any, and `<tags>\n</tags>` otherwise, so the existing format stays (`system-prompt.md`, « séparés par des virgules »). Built once per batch with the rest of the référentiel: every request of a batch stays byte-identical (prompt cache). Names are ASCII by construction, so the name order is the byte order.
 
+**As built (tranche B)**: `analysis.Catalog` gains `ReferentielTags`, and `Referentiel(types, categories, tags)` takes the names in the order of the store (limit `maxReferentielTags` = 300).
+
 ### D11. Search text (ADR-0007)
 
 The stored fiche is walked with a `json.Decoder` token stream in document order; every string value is emitted, one per line, except the value of the root member `template` and of any member named `language` inside a nested object (a code block's language). Numbers, booleans and null are skipped; keys are never emitted. Code is kept (a command must be findable, RG-41). Rejected: a per-template field list (eight lists to keep in step with the schemas); including `template` (every fiche of a type would match its key).
+
+**As built (tranche B)**: `analysis.SearchText(fiche)`; « inside a nested object » is read as « while at least two objects are open », so a root member `language` of a fiche is kept and a code block's is left out, whatever arrays lie between. Strings are joined by `\n`; a fiche that is not one complete JSON value is an error (the response is then rejected as `schema`).
 
 ### D12. Cost and prices
 
@@ -269,6 +277,7 @@ The stored fiche is walked with a `json.Decoder` token stream in document order;
 - Start-up log: `analysis prices` with `model`, `input_usd_per_mtok`, `output_usd_per_mtok`.
 - `errored`, `expired` and `canceled` lines carry no usage and add nothing.
 - **Checked on 2026-11-07 (task 1.3)**, on https://platform.claude.com/docs/en/about-claude/pricing and https://platform.claude.com/docs/en/build-with-claude/batch-processing: Haiku 4.5 costs 1 $ / MTok input, 1.25 $ (5-minute write), 2 $ (1-hour write), 0.10 $ (cache read), 5 $ / MTok output, every figure matching this design; the Batch API charges « all usage » at 50 % of the standard prices (Haiku 4.5 batch: 0.50 $ / 2.50 $); the pricing page states that the cache multipliers « stack with other pricing modifiers, including the Batch API discount »; `errored`, `canceled` and `expired` requests are not billed (« You will not be billed for these requests »); results stay available 29 days after creation; a batch expires when processing does not complete within 24 hours. The batch guide suggests a 1-hour cache for batches; the request format is E3-01's and stays out of this change.
+- **As built (tranche B)**: `analysis.Prices` has the fields of `config.Prices`, so that `analysis` does not import `config`; `cmd/hippo` converts one into the other (`analysis.Prices(cfg.Prices)`) and passes it to `PassConfig.Prices`, which `NewPass` refuses unless both prices are above zero. The start-up log of the model and the prices stays for tranche C (task 5.2).
 
 ### D13. Contract and items served
 
@@ -295,6 +304,7 @@ The stored fiche is walked with a `json.Decoder` token stream in document order;
 
 - `infra/.env.example`: the two price variables, commented (« standard prices of `ANALYSIS_MODEL` per million tokens; update them with the model »).
 - No change to the compose files or the image.
+- **As built (tranche B)**: both compose files list the variables of the service one by one (`environment:`), so a variable set in `infra/.env` reaches the container only if it is listed there. The two price variables are therefore added to the `environment` of `docker-compose.yml` and `docker-compose.local.yml`, with the defaults 1 and 5, as `MONTHLY_BUDGET_USD` is; without them, step 3 of the migration plan (« if Haiku's prices changed, the two price variables ») would have no effect. The image is unchanged.
 
 ## Risks / Trade-offs
 

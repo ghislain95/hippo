@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/analysis/prompt"
+	"github.com/ghislain95/hippo/backend/internal/analysis/schema"
 	"github.com/ghislain95/hippo/backend/internal/store"
 )
 
@@ -83,6 +84,13 @@ type PassConfig struct {
 	SendTimeout time.Duration
 	// ListTimeout bounds the list of a reconciliation; zero or less means DefaultListTimeout.
 	ListTimeout time.Duration
+	// Prices are the standard prices of Model (config.Prices), which price the tokens of a
+	// batch once its results are read (RG-80, apply-batch-results D12); both must be above zero.
+	Prices Prices
+	// QueryTimeout bounds the state query of a batch; zero or less means DefaultQueryTimeout.
+	QueryTimeout time.Duration
+	// ReadTimeout bounds the read of a batch's results; zero or less means DefaultReadTimeout.
+	ReadTimeout time.Duration
 
 	// selected, beforeSubmit, afterSubmit and beforeRewrite are test hooks (export_test.go): the first replaces
 	// the selection handed to the request building, the second runs between the request
@@ -103,6 +111,9 @@ type PassConfig struct {
 type Pass struct {
 	cfg PassConfig
 	mu  sync.Mutex
+	// validator checks every response against the bundled schema, compiled once (design D5 of
+	// apply-batch-results).
+	validator *schema.Validator
 }
 
 // NewPass checks cfg and returns the pass. A nil Analyzer is allowed (no API key).
@@ -114,6 +125,13 @@ func NewPass(cfg PassConfig) (*Pass, error) {
 		return nil, errors.New("analysis pass: the model and the prompt are required")
 	case cfg.Assets == nil || cfg.Copier == nil || cfg.Temp == nil:
 		return nil, errors.New("analysis pass: assets, copier and temporary files are required")
+	case !(cfg.Prices.InputPerMTok > 0) || !(cfg.Prices.OutputPerMTok > 0):
+		// A price of zero would make every batch free and the budget unreachable (RG-81).
+		return nil, errors.New("analysis pass: the input and output prices must be above zero")
+	}
+	validator, err := newValidator()
+	if err != nil {
+		return nil, err
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -127,7 +145,13 @@ func NewPass(cfg PassConfig) (*Pass, error) {
 	if cfg.ListTimeout <= 0 {
 		cfg.ListTimeout = DefaultListTimeout
 	}
-	return &Pass{cfg: cfg}, nil
+	if cfg.QueryTimeout <= 0 {
+		cfg.QueryTimeout = DefaultQueryTimeout
+	}
+	if cfg.ReadTimeout <= 0 {
+		cfg.ReadTimeout = DefaultReadTimeout
+	}
+	return &Pass{cfg: cfg, validator: validator}, nil
 }
 
 // Run runs the pass for every user, one after the other. A user's failure is logged and does

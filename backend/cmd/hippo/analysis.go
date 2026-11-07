@@ -23,10 +23,12 @@ type analysisOptions struct {
 	Model     string
 	Prompt    prompt.Prompt
 	BudgetUSD float64
-	Schedule  schedule.Daily
-	Location  *time.Location // Europe/Paris
-	Assets    analysis.AssetOpener
-	Temp      analysis.TempFiles
+	// Prices are the standard prices of Model (ANALYSIS_*_PRICE_USD_PER_MTOK).
+	Prices   analysis.Prices
+	Schedule schedule.Daily
+	Location *time.Location // Europe/Paris
+	Assets   analysis.AssetOpener
+	Temp     analysis.TempFiles
 	// CopierCommand runs the child that copies an image: [executable, "copy-image"].
 	CopierCommand []string
 	// Clock is the clock of the schedule and of the pass.
@@ -46,6 +48,7 @@ func startAnalysis(ctx context.Context, opts analysisOptions) (stop func(), err 
 		Model:     opts.Model,
 		Prompt:    opts.Prompt,
 		BudgetUSD: opts.BudgetUSD,
+		Prices:    opts.Prices,
 		Location:  opts.Location,
 		Now:       opts.Clock.Now,
 		Assets:    opts.Assets,

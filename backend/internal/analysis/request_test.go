@@ -128,7 +128,12 @@ func TestRequest(t *testing.T) {
 		}
 		img, _ := e.image(t, userID, imagetest.JPEG(64, 48), "image/jpeg", nil)
 		ids = append(ids, img)
+		// A filled <tags> block (apply-batch-results D10) is built once per batch too.
+		storetest.AttachTag(t, e.path, userID, ids[0], storetest.AddTag(t, e.path, userID, "go"))
 		_, parsed := e.build(t, userID)
+		if tags := refBlock(t, parsed.of(t, ids[0]).referentiel(t), "tags"); len(tags) != 1 || tags[0] != "go" {
+			t.Fatalf("<tags> = %q, want the line go", tags)
+		}
 		first := parsed.of(t, ids[0]).Params.raw
 		for _, id := range ids[1:] {
 			raw := parsed.of(t, id).Params.raw

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ghislain95/hippo/backend/internal/analysis"
 	"github.com/ghislain95/hippo/backend/internal/analysis/analysistest"
 	"github.com/ghislain95/hippo/backend/internal/analysis/prompt"
 	"github.com/ghislain95/hippo/backend/internal/assetfs"
@@ -76,6 +77,7 @@ func newAnalysisEnv(t *testing.T) *analysisEnv {
 		st: st, path: path, clock: clock, ai: ai, userID: userID, logs: logs,
 		opts: analysisOptions{
 			Store: st, Analyzer: ai, Model: "claude-haiku-4-5", Prompt: p, BudgetUSD: 5,
+			Prices:   analysis.Prices{InputPerMTok: 1, OutputPerMTok: 5},
 			Schedule: daily, Location: paris, Assets: assets, Temp: tmp,
 			CopierCommand: []string{os.Args[0], imagecopy.ChildCommand},
 			Clock:         clock, Logger: slog.New(slog.NewJSONHandler(logs, nil)),

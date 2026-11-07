@@ -191,6 +191,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		Model:         cfg.AnalysisModel,
 		Prompt:        analysisPrompt,
 		BudgetUSD:     cfg.MonthlyBudgetUSD,
+		Prices:        analysis.Prices(cfg.Prices),
 		Schedule:      cfg.BatchSchedule,
 		Location:      paris,
 		Assets:        assets,

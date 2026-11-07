@@ -40,6 +40,16 @@ type Config struct {
 	BackupSchedule string
 	// MonthlyBudgetUSD caps the AI spend of a calendar month (MONTHLY_BUDGET_USD, RG-81).
 	MonthlyBudgetUSD float64
+	// Prices are the standard prices of AnalysisModel, which price a batch's tokens (RG-80).
+	Prices Prices
+}
+
+// Prices are the standard prices of the analysis model, in US dollars per million tokens
+// (ANALYSIS_INPUT_PRICE_USD_PER_MTOK, ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK). The batch discount
+// and the cache ratios are applied in code (analysis.BatchCost, apply-batch-results design D12).
+type Prices struct {
+	InputPerMTok  float64
+	OutputPerMTok float64
 }
 
 // Defaults, as written in docs/spec-v1.md and infra/.env.example.
@@ -50,6 +60,10 @@ const (
 	defaultBatchSchedule    = "0 2 * * *"
 	defaultBackupSchedule   = "0 3 * * *"
 	defaultMonthlyBudgetUSD = 5.0
+	// Standard prices of Claude Haiku 4.5, checked on 2026-11-07 at
+	// https://platform.claude.com/docs/en/about-claude/pricing (apply-batch-results D12).
+	defaultInputPricePerMTok  = 1.0
+	defaultOutputPricePerMTok = 5.0
 )
 
 // Load builds the configuration from getenv (os.Getenv in production, a map in tests).
@@ -93,6 +107,16 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.MonthlyBudgetUSD = budget
 
+	input, err := parsePrice("ANALYSIS_INPUT_PRICE_USD_PER_MTOK", getenv("ANALYSIS_INPUT_PRICE_USD_PER_MTOK"), defaultInputPricePerMTok)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	output, err := parsePrice("ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK", getenv("ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK"), defaultOutputPricePerMTok)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	cfg.Prices = Prices{InputPerMTok: input, OutputPerMTok: output}
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -118,4 +142,18 @@ func parseBudget(raw string) (float64, error) {
 		return 0, fmt.Errorf("MONTHLY_BUDGET_USD %q: want a non-negative number of dollars", raw)
 	}
 	return budget, nil
+}
+
+// parsePrice reads the price variable name: fallback when empty, otherwise a finite number
+// above zero. A price of zero would make every batch free and the budget unreachable (RG-81).
+func parsePrice(name, raw string, fallback float64) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback, nil
+	}
+	price, err := strconv.ParseFloat(raw, 64)
+	if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return 0, fmt.Errorf("%s %q: want a positive number of dollars per million tokens", name, raw)
+	}
+	return price, nil
 }

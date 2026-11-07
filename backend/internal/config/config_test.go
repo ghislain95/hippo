@@ -29,6 +29,7 @@ func TestLoad(t *testing.T) {
 			BatchSchedule:    schedule.Daily{Hour: 2, Minute: 0},
 			BackupSchedule:   "0 3 * * *",
 			MonthlyBudgetUSD: 5,
+			Prices:           Prices{InputPerMTok: 1, OutputPerMTok: 5},
 		}
 		if cfg != want {
 			t.Errorf("Load() = %+v, want %+v", cfg, want)
@@ -37,22 +38,25 @@ func TestLoad(t *testing.T) {
 
 	t.Run("reads every variable", func(t *testing.T) {
 		cfg, err := Load(env(map[string]string{
-			"API_TOKEN":          validToken,
-			"HTTP_ADDR":          "127.0.0.1:9000",
-			"DATA_DIR":           "/tmp/hippo",
-			"LOG_LEVEL":          "debug",
-			"ANTHROPIC_API_KEY":  "sk-ant-test",
-			"ANALYSIS_MODEL":     "claude-haiku-4-5-20251001",
-			"BATCH_SCHEDULE":     "30 1 * * *",
-			"BACKUP_SCHEDULE":    "30 4 * * *",
-			"MONTHLY_BUDGET_USD": "2.5",
+			"API_TOKEN":                          validToken,
+			"HTTP_ADDR":                          "127.0.0.1:9000",
+			"DATA_DIR":                           "/tmp/hippo",
+			"LOG_LEVEL":                          "debug",
+			"ANTHROPIC_API_KEY":                  "sk-ant-test",
+			"ANALYSIS_MODEL":                     "claude-haiku-4-5-20251001",
+			"BATCH_SCHEDULE":                     "30 1 * * *",
+			"BACKUP_SCHEDULE":                    "30 4 * * *",
+			"MONTHLY_BUDGET_USD":                 "2.5",
+			"ANALYSIS_INPUT_PRICE_USD_PER_MTOK":  "0.8",
+			"ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK": "4",
 		}))
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
 		if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.DataDir != "/tmp/hippo" || cfg.LogLevel != slog.LevelDebug ||
 			cfg.AnthropicAPIKey != "sk-ant-test" || cfg.AnalysisModel != "claude-haiku-4-5-20251001" ||
-			cfg.BatchSchedule != (schedule.Daily{Hour: 1, Minute: 30}) || cfg.BackupSchedule != "30 4 * * *" || cfg.MonthlyBudgetUSD != 2.5 {
+			cfg.BatchSchedule != (schedule.Daily{Hour: 1, Minute: 30}) || cfg.BackupSchedule != "30 4 * * *" || cfg.MonthlyBudgetUSD != 2.5 ||
+			cfg.Prices != (Prices{InputPerMTok: 0.8, OutputPerMTok: 4}) {
 			t.Errorf("Load() = %+v", cfg)
 		}
 	})
@@ -107,6 +111,33 @@ func TestBatchSchedule(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "BATCH_SCHEDULE") {
 				t.Errorf("Load with BATCH_SCHEDULE %q: error %q does not name BATCH_SCHEDULE", value, err)
+			}
+		}
+	})
+}
+
+func TestPrices(t *testing.T) {
+	t.Run("The prices default to the Haiku 4.5 prices", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{"API_TOKEN": validToken}))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AnalysisModel != "claude-haiku-4-5" || cfg.Prices != (Prices{InputPerMTok: 1, OutputPerMTok: 5}) {
+			t.Errorf("model %q, prices %+v; want claude-haiku-4-5 at 1 and 5", cfg.AnalysisModel, cfg.Prices)
+		}
+	})
+
+	t.Run("An invalid price stops the start-up", func(t *testing.T) {
+		for _, name := range []string{"ANALYSIS_INPUT_PRICE_USD_PER_MTOK", "ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK"} {
+			for _, value := range []string{"0", "-1", "abc", "NaN", "Inf"} {
+				_, err := Load(env(map[string]string{"API_TOKEN": validToken, name: value}))
+				if err == nil {
+					t.Errorf("Load with %s %q: want an error", name, value)
+					continue
+				}
+				if !strings.Contains(err.Error(), name) {
+					t.Errorf("Load with %s %q: error %q does not name the variable", name, value, err)
+				}
 			}
 		}
 	})

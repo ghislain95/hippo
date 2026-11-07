@@ -6,7 +6,9 @@
 // any status, cost and versions): each helper names the story that will write it, and goes
 // when that story ships. Only tests import it.
 // Those helpers advance sync_sequence by SQL, outside the store's single sequence function: a
-// test-only exception to that rule, like the seeding of migration 00006.
+// test-only exception to that rule, like the seeding of migration 00006. A few others read,
+// read-only, states no store function reads yet (tags, search text, a batch's tokens), each
+// naming the story that will.
 package storetest
 
 import (
@@ -360,4 +362,121 @@ func SetBatchState(t testing.TB, path, userID, batchID, status string, costUSD *
 	if n, err := result.RowsAffected(); err != nil || n != 1 {
 		t.Fatalf("set batch state: %d rows written (%v), want 1", n, err)
 	}
+}
+
+// openForRead opens the database at path read-only, for a helper that reads a state no store
+// function reads yet.
+func openForRead(t testing.TB, path string) *sql.DB {
+	t.Helper()
+	uri := url.URL{Scheme: "file", OmitHost: true, Path: path, RawQuery: "mode=ro"}
+	db, err := sql.Open("sqlite", uri.String())
+	if err != nil {
+		t.Fatalf("open test database read-only: %v", err)
+	}
+	return db
+}
+
+// TagIDs returns the ids of the non-deleted tags of userID by name, read-only, until E4 reads
+// the tags (GET /api/tags): the tests of a batch's results check which tags were created.
+func TagIDs(t testing.TB, path, userID string) map[string]int64 {
+	t.Helper()
+	db := openForRead(t, path)
+	defer func() { _ = db.Close() }() // read-only: nothing to flush
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT name, id FROM tags WHERE user_id = ? AND deleted_at IS NULL`, userID)
+	if err != nil {
+		t.Fatalf("read tags: %v", err)
+	}
+	defer func() { _ = rows.Close() }() // read only
+	ids := map[string]int64{}
+	for rows.Next() {
+		var (
+			name string
+			id   int64
+		)
+		if err := rows.Scan(&name, &id); err != nil {
+			t.Fatalf("read tags: %v", err)
+		}
+		ids[name] = id
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read tags: %v", err)
+	}
+	return ids
+}
+
+// AnalysisColumns are columns of an item that store.Item does not carry.
+type AnalysisColumns struct {
+	SearchText        *string
+	IncompleteRetried bool
+}
+
+// ItemAnalysisColumns reads the search text and the cut-retry mark of the item itemID of
+// userID, read-only, until E4 reads the search text (search) and E3-07 the mark: the tests of a
+// batch's results check them (ADR-0007, RG-36).
+func ItemAnalysisColumns(t testing.TB, path, userID, itemID string) AnalysisColumns {
+	t.Helper()
+	db := openForRead(t, path)
+	defer func() { _ = db.Close() }() // read-only: nothing to flush
+	var (
+		cols AnalysisColumns
+		text sql.Null[string]
+	)
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT search_text, incomplete_retried FROM items WHERE user_id = ? AND id = ?`, userID, itemID).Scan(
+		&text, &cols.IncompleteRetried); err != nil {
+		t.Fatalf("read item analysis columns: %v", err)
+	}
+	if text.Valid {
+		cols.SearchText = &text.V
+	}
+	return cols
+}
+
+// BatchClosing is the closing state of a batch row: its token sums (nil until written), cost,
+// end and whether its results were unavailable.
+type BatchClosing struct {
+	Status                                  string
+	Input, Output, CacheCreation, CacheRead *int64
+	CostUSD                                 *float64
+	EndedAt                                 *string
+	ResultsUnavailable                      bool
+	ResultsLinesRead                        *int64
+}
+
+// BatchClosingOf reads the closing state of the batch batchID of userID, read-only, until E3-08
+// reads the tokens and the cost of a batch (Réglages): the tests of a batch's results check
+// them (RG-80).
+func BatchClosingOf(t testing.TB, path, userID, batchID string) BatchClosing {
+	t.Helper()
+	db := openForRead(t, path)
+	defer func() { _ = db.Close() }() // read-only: nothing to flush
+	var (
+		c                                    BatchClosing
+		input, output, creation, read, lines sql.Null[int64]
+		cost                                 sql.Null[float64]
+		endedAt                              sql.Null[string]
+	)
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT status, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cost_usd, ended_at,
+		   results_unavailable_at IS NOT NULL, results_lines_read
+		 FROM batches WHERE user_id = ? AND id = ?`, userID, batchID).Scan(
+		&c.Status, &input, &output, &creation, &read, &cost, &endedAt, &c.ResultsUnavailable, &lines); err != nil {
+		t.Fatalf("read batch closing: %v", err)
+	}
+	nullable := func(v sql.Null[int64]) *int64 {
+		if !v.Valid {
+			return nil
+		}
+		return &v.V
+	}
+	c.Input, c.Output, c.CacheCreation, c.CacheRead, c.ResultsLinesRead = nullable(input), nullable(output),
+		nullable(creation), nullable(read), nullable(lines)
+	if cost.Valid {
+		c.CostUSD = &cost.V
+	}
+	if endedAt.Valid {
+		c.EndedAt = &endedAt.V
+	}
+	return c
 }

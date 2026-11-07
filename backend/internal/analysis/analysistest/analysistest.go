@@ -1,7 +1,8 @@
 // Package analysistest fakes the AI service for the tests of the analysis (docs/dev/testing.md,
 // « Dépendances externes »): an analysis.Analyzer that records every body it is sent and plays
-// scripted outcomes. It is the boundary with a third-party service, not a mock of the store.
-// No test reaches the network.
+// scripted outcomes: creates, lists, the processing states of a batch and its results files
+// (lines, unreadable lines, cut downloads, not found, archived). It is the boundary with a
+// third-party service, not a mock of the store. No test reaches the network.
 package analysistest
 
 import (
@@ -39,6 +40,76 @@ var ErrLost = errors.New("analysistest: answer lost")
 
 // ErrList is the error of a list when the fake is told to fail it.
 var ErrList = errors.New("analysistest: list failed")
+
+// ErrCut is the error of a results download cut by the fake (Download.Cut): a transport error,
+// not an unreadable line.
+var ErrCut = errors.New("analysistest: download cut")
+
+// State is a processing state the fake answers for a batch (GetBatch).
+type State struct {
+	// Processing is analysis.ProcessingInProgress, ProcessingCanceling or ProcessingEnded.
+	Processing string
+	EndedAt    time.Time
+	// Archived answers analysis.ErrResultsUnavailable, as an archived batch does.
+	Archived bool
+	// NotFound answers analysis.ErrResultsUnavailable, as a 404 does.
+	NotFound bool
+	// Status, when set, answers an *analysis.QueryError with Status and Type.
+	Status int
+	Type   string
+}
+
+// Processing is a batch still processing.
+func Processing() State { return State{Processing: analysis.ProcessingInProgress} }
+
+// Canceling is a batch being canceled.
+func Canceling() State { return State{Processing: analysis.ProcessingCanceling} }
+
+// Ended is a batch ended at at.
+func Ended(at time.Time) State { return State{Processing: analysis.ProcessingEnded, EndedAt: at} }
+
+// Archived is a batch ended at at whose results were archived.
+func Archived(at time.Time) State {
+	return State{Processing: analysis.ProcessingEnded, EndedAt: at, Archived: true}
+}
+
+// NotFound is a batch the service does not know.
+func NotFound() State { return State{NotFound: true} }
+
+// QueryFailure is a state query answered with an error status (401, 503…).
+func QueryFailure(status int, errorType string) State { return State{Status: status, Type: errorType} }
+
+// Line is one line of a scripted results file: a result, or a line the reader could not read.
+type Line struct {
+	Result     analysis.Result
+	Unreadable bool
+}
+
+// Lines are the lines of results, in order.
+func Lines(results ...analysis.Result) []Line {
+	lines := make([]Line, len(results))
+	for i, r := range results {
+		lines[i] = Line{Result: r}
+	}
+	return lines
+}
+
+// UnreadableLine is a line the reader skips (not JSON, over 4 MiB…): Next answers
+// analysis.ErrUnreadableLine for it.
+func UnreadableLine() Line { return Line{Unreadable: true} }
+
+// Download is what one Results call answers.
+type Download struct {
+	Lines []Line
+	// Cut, when set, cuts the download after CutAfter lines: Next then answers ErrCut.
+	Cut      bool
+	CutAfter int
+	// NotFound answers analysis.ErrResultsUnavailable, as a 404 does.
+	NotFound bool
+	// Status, when set, answers an *analysis.QueryError with Status and Type.
+	Status int
+	Type   string
+}
 
 // Body is a body the fake received.
 type Body struct {
@@ -78,6 +149,11 @@ type Analyzer struct {
 	creates  int
 	lists    int
 	next     int
+	states   map[string][]State
+	results  map[string][]Download
+	onLine   func(ctx context.Context, n int)
+	gets     int
+	reads    int
 }
 
 // New returns a fake whose batches are created at now(); every create is accepted until Script
@@ -86,7 +162,130 @@ func New(now func() time.Time) *Analyzer {
 	if now == nil {
 		now = time.Now
 	}
-	return &Analyzer{now: now}
+	return &Analyzer{now: now, states: map[string][]State{}, results: map[string][]Download{}}
+}
+
+// ScriptStates sets the states the next state queries of the batch anthropicID answer, in
+// order; the last one is answered again once they are played. A batch without a script is in
+// progress when the fake holds it, not found otherwise.
+func (a *Analyzer) ScriptStates(anthropicID string, states ...State) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.states[anthropicID] = append(a.states[anthropicID], states...)
+}
+
+// ScriptResults sets what the next results downloads of the batch anthropicID answer, in order;
+// the last one is answered again once they are played. A batch without a script has no results
+// (not found).
+func (a *Analyzer) ScriptResults(anthropicID string, downloads ...Download) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.results[anthropicID] = append(a.results[anthropicID], downloads...)
+}
+
+// OnLine runs hook before each later line of a results file is answered, n counting the lines
+// of that download from 0: a test acts there « during the read ».
+func (a *Analyzer) OnLine(hook func(ctx context.Context, n int)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.onLine = hook
+}
+
+// GetBatch plays the next scripted state of anthropicID.
+func (a *Analyzer) GetBatch(ctx context.Context, anthropicID string) (analysis.BatchState, error) {
+	if err := ctx.Err(); err != nil {
+		return analysis.BatchState{}, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.gets++
+	state, ok := next(a.states, anthropicID)
+	if !ok {
+		state = NotFound()
+		if slices.ContainsFunc(a.held, func(b analysis.BatchInfo) bool { return b.ID == anthropicID }) {
+			state = Processing()
+		}
+	}
+	switch {
+	case state.Status != 0:
+		return analysis.BatchState{}, &analysis.QueryError{Status: state.Status, Type: state.Type}
+	case state.NotFound, state.Archived:
+		return analysis.BatchState{}, fmt.Errorf("analysistest: batch %s: %w", anthropicID, analysis.ErrResultsUnavailable)
+	}
+	return analysis.BatchState{Processing: state.Processing, EndedAt: state.EndedAt}, nil
+}
+
+// Results plays the next scripted download of anthropicID.
+func (a *Analyzer) Results(ctx context.Context, anthropicID string) (analysis.ResultReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reads++
+	download, ok := next(a.results, anthropicID)
+	switch {
+	case !ok || download.NotFound:
+		return nil, fmt.Errorf("analysistest: results of %s: %w", anthropicID, analysis.ErrResultsUnavailable)
+	case download.Status != 0:
+		return nil, &analysis.QueryError{Status: download.Status, Type: download.Type}
+	}
+	return &reader{ctx: ctx, fake: a, download: download}, nil
+}
+
+// next returns the next scripted value of id, the last one again once they are played.
+func next[T any](scripts map[string][]T, id string) (T, bool) {
+	script := scripts[id]
+	if len(script) == 0 {
+		var zero T
+		return zero, false
+	}
+	value := script[0]
+	if len(script) > 1 {
+		scripts[id] = script[1:]
+	}
+	return value, true
+}
+
+// reader plays a scripted download.
+type reader struct {
+	ctx      context.Context
+	fake     *Analyzer
+	download Download
+	n        int
+	closed   bool
+}
+
+func (r *reader) Next() (analysis.Result, error) {
+	if r.closed {
+		return analysis.Result{}, errors.New("analysistest: read after close")
+	}
+	if err := r.ctx.Err(); err != nil {
+		return analysis.Result{}, err
+	}
+	if r.download.Cut && r.n >= r.download.CutAfter {
+		return analysis.Result{}, ErrCut
+	}
+	if r.n >= len(r.download.Lines) {
+		return analysis.Result{}, io.EOF
+	}
+	r.fake.mu.Lock()
+	hook := r.fake.onLine
+	r.fake.mu.Unlock()
+	if hook != nil {
+		hook(r.ctx, r.n)
+	}
+	line := r.download.Lines[r.n]
+	r.n++
+	if line.Unreadable {
+		return analysis.Result{}, analysis.ErrUnreadableLine
+	}
+	return line.Result, nil
+}
+
+func (r *reader) Close() error {
+	r.closed = true
+	return nil
 }
 
 // Script sets the outcomes of the next creates, in order; once they are played, creates are
@@ -238,9 +437,23 @@ func (a *Analyzer) Lists() int {
 	return a.lists
 }
 
+// Gets is the number of state queries (GetBatch) received.
+func (a *Analyzer) Gets() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.gets
+}
+
+// Reads is the number of results downloads (Results) received.
+func (a *Analyzer) Reads() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reads
+}
+
 // Calls is the number of calls of any kind received.
 func (a *Analyzer) Calls() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.creates + a.lists
+	return a.creates + a.lists + a.gets + a.reads
 }

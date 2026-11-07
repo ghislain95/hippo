@@ -78,6 +78,7 @@ func (e *passEnv) passConfig(t *testing.T) analysis.PassConfig {
 	}
 	return analysis.PassConfig{
 		Store: e.st, Analyzer: e.ai, Model: testModel, Prompt: p, BudgetUSD: 5, Location: paris, Now: e.clock.Now,
+		Prices: analysis.Prices{InputPerMTok: 1, OutputPerMTok: 5},
 		Assets: e.assets, Copier: imagecopy.NewCopier([]string{os.Args[0], imagecopy.ChildCommand}, e.limits), Temp: e.temp,
 		Logger: e.logger(),
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -120,6 +121,113 @@ func TestAnalyzer(t *testing.T) {
 		}
 		if len(a.Bodies()) != 2 {
 			t.Errorf("%d bodies recorded, want 2", len(a.Bodies()))
+		}
+	})
+
+	t.Run("plays the scripted states of a batch, the last one again", func(t *testing.T) {
+		a := analysistest.New(clock)
+		ended := now.Add(time.Hour)
+		a.ScriptStates("b1", analysistest.Processing(), analysistest.Canceling(), analysistest.QueryFailure(503, "overloaded_error"),
+			analysistest.Ended(ended))
+		ctx := context.Background()
+		for _, want := range []string{analysis.ProcessingInProgress, analysis.ProcessingCanceling} {
+			if state, err := a.GetBatch(ctx, "b1"); err != nil || state.Processing != want {
+				t.Errorf("GetBatch = %+v, %v; want %s", state, err, want)
+			}
+		}
+		var query *analysis.QueryError
+		if _, err := a.GetBatch(ctx, "b1"); !errors.As(err, &query) || query.Status != 503 || query.Type != "overloaded_error" {
+			t.Errorf("GetBatch = %v, want a query error 503", err)
+		}
+		for range 2 {
+			if state, err := a.GetBatch(ctx, "b1"); err != nil || state.Processing != analysis.ProcessingEnded || !state.EndedAt.Equal(ended) {
+				t.Errorf("GetBatch = %+v, %v; want ended at %s", state, err, ended)
+			}
+		}
+		if a.Gets() != 5 || a.Calls() != 5 {
+			t.Errorf("%d gets, %d calls; want 5", a.Gets(), a.Calls())
+		}
+	})
+
+	t.Run("answers archived and unknown batches as unavailable, a held one as processing", func(t *testing.T) {
+		a := analysistest.New(clock)
+		a.ScriptStates("archived", analysistest.Archived(now))
+		a.ScriptStates("gone", analysistest.NotFound())
+		ctx := context.Background()
+		for _, id := range []string{"archived", "gone", "never-seen"} {
+			if _, err := a.GetBatch(ctx, id); !errors.Is(err, analysis.ErrResultsUnavailable) {
+				t.Errorf("GetBatch(%s) = %v, want ErrResultsUnavailable", id, err)
+			}
+		}
+		ref, err := create(t, a, twoRequests)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state, err := a.GetBatch(ctx, ref.ID); err != nil || state.Processing != analysis.ProcessingInProgress {
+			t.Errorf("GetBatch(held) = %+v, %v; want in progress", state, err)
+		}
+	})
+
+	t.Run("plays results files line by line, unreadable lines, cut and missing downloads", func(t *testing.T) {
+		a := analysistest.New(clock)
+		first := analysis.Result{CustomID: "a", Kind: analysis.ResultSucceeded, Usage: analysis.Usage{Input: 10}}
+		second := analysis.Result{CustomID: "b", Kind: analysis.ResultExpired}
+		a.ScriptResults("b1",
+			analysistest.Download{Lines: append(analysistest.Lines(first), analysistest.UnreadableLine(), analysistest.Lines(second)[0])},
+			analysistest.Download{Lines: analysistest.Lines(first, second), Cut: true, CutAfter: 1},
+			analysistest.Download{Status: 500, Type: "api_error"},
+			analysistest.Download{NotFound: true})
+		var seen []int
+		a.OnLine(func(_ context.Context, n int) { seen = append(seen, n) })
+		ctx := context.Background()
+
+		r, err := a.Results(ctx, "b1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := r.Next(); err != nil || got.CustomID != "a" || got.Usage.Input != 10 {
+			t.Errorf("line 1 = %+v, %v", got, err)
+		}
+		if _, err := r.Next(); !errors.Is(err, analysis.ErrUnreadableLine) {
+			t.Errorf("line 2 = %v, want unreadable", err)
+		}
+		if got, err := r.Next(); err != nil || got.Kind != analysis.ResultExpired {
+			t.Errorf("line 3 = %+v, %v", got, err)
+		}
+		if _, err := r.Next(); !errors.Is(err, io.EOF) {
+			t.Errorf("end = %v, want io.EOF", err)
+		}
+		_ = r.Close()
+		if len(seen) != 3 {
+			t.Errorf("the line hook ran for %v, want 3 lines", seen)
+		}
+
+		r, err = a.Results(ctx, "b1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Next(); err != nil {
+			t.Errorf("line 1 of the cut download = %v", err)
+		}
+		if _, err := r.Next(); !errors.Is(err, analysistest.ErrCut) || errors.Is(err, analysis.ErrUnreadableLine) {
+			t.Errorf("line 2 of the cut download = %v, want ErrCut", err)
+		}
+		_ = r.Close()
+
+		var query *analysis.QueryError
+		if _, err := a.Results(ctx, "b1"); !errors.As(err, &query) || query.Status != 500 {
+			t.Errorf("third download = %v, want a query error 500", err)
+		}
+		for range 2 {
+			if _, err := a.Results(ctx, "b1"); !errors.Is(err, analysis.ErrResultsUnavailable) {
+				t.Errorf("fourth download = %v, want ErrResultsUnavailable", err)
+			}
+		}
+		if _, err := a.Results(ctx, "unscripted"); !errors.Is(err, analysis.ErrResultsUnavailable) {
+			t.Errorf("unscripted download = %v, want ErrResultsUnavailable", err)
+		}
+		if a.Reads() != 6 || a.Creates() != 0 || a.Gets() != 0 {
+			t.Errorf("%d reads, %d creates, %d gets; want 6, 0, 0", a.Reads(), a.Creates(), a.Gets())
 		}
 	})
 }
