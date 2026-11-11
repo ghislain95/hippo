@@ -31,6 +31,8 @@ Conventions de ce document :
    ssh <admin>@<adresse-locale-du-nas>
    ```
 
+   `<admin>` : le compte administrateur d'UGOS. `<adresse-locale-du-nas>` : l'adresse qu'utilise le navigateur pour ouvrir l'interface d'UGOS, sans `http://` ni `:port` (par exemple `192.168.1.20`) ; sinon UGOS › Panneau de configuration › Réseau, ou la liste des appareils de la box. Hors de chez soi, le nom Tailscale du NAS (console Tailscale › Machines) marche aussi, Tailscale actif sur le Mac.
+
    SSH peut être coupé entre deux mises à jour : l'exploitation courante passe par l'interface Docker (section 6).
 
 2. **Architecture et Docker** (NAS) :
