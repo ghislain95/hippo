@@ -224,7 +224,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 
 7. **Depuis l'iPhone** : LocalDevVPN (le VPN de SideStore) coupé, Tailscale actif ([ADR-0013](adr/0013-distribution-ios-gratuite.md) : iOS n'a qu'un VPN à la fois). Dans Safari, ouvrir `https://hippo.<tailnet>.ts.net/healthz`. Attendu : `{"status":"ok","version":"<SHA complet>"}`. Le tout premier appel peut prendre une dizaine de secondes, le temps que Tailscale obtienne le certificat : recharger.
 
-8. **Depuis le Mac** (« Use Tailscale DNS » actif dans Tailscale, voir le [runbook iOS](runbook-ios.md#2-tailscale-en-https-une-fois)) : une capture authentifiée, une note fictive **marquée privée** (jamais envoyée à l'IA, RG-12). Le token est lu sans écho, pour ne pas finir dans l'historique du shell. Mac :
+8. **Depuis le Mac** (« Use Tailscale DNS » actif dans Tailscale, voir le [runbook iOS](runbook-ios.md#2-tailscale-en-https-une-fois)) : une capture authentifiée, une note fictive **marquée privée** (jamais envoyée à l'IA, RG-12). Ces commandes se tapent dans un terminal **du Mac**, pas dans la session SSH : le NAS lui-même ne résout pas les noms `*.ts.net`. Le token est lu sans écho, pour ne pas finir dans l'historique du shell : la commande `read` attend qu'on colle le token (rien ne s'affiche) puis qu'on appuie sur `Entrée`. Mac :
 
    ```bash
    read -rs HIPPO_TOKEN && export HIPPO_TOKEN
@@ -379,5 +379,6 @@ Perdre `tailscale/state` crée une nouvelle machine au prochain démarrage (nouv
 | Après l'effacement de `TS_AUTHKEY`, le nœud ne se reconnecte plus | remettre une clé neuve (section 3) dans `.env`, `up -d`, puis la laisser en place (une clé consommée est inoffensive) et le noter dans le journal |
 | `/healthz` injoignable depuis l'iPhone | Tailscale actif, LocalDevVPN coupé ? `hippo` connecté dans la console ? Premier appel : attendre le certificat et recharger |
 | Le Mac ne résout pas `hippo.<tailnet>.ts.net` | « Use Tailscale DNS » coupé sur le Mac |
+| `curl: (6) Could not resolve host` dans la session SSH | les tests `curl` se lancent depuis le Mac, pas depuis le NAS |
 | Rien n'est analysé la nuit | `ANTHROPIC_API_KEY` vide ? budget du mois atteint (RG-81) ? NAS éteint à 2 h ? Lire la ligne `analysis pass` (son `outcome`) |
 | L'interface montre `healthy` mais rien ne répond par Tailscale | le conteneur Tailscale a été redémarré seul, ou a planté et été relancé par Docker : redémarrer le projet (section 6) |
