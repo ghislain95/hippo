@@ -123,7 +123,10 @@ Conventions de ce document :
 
    Le ranger dans le gestionnaire de mots de passe (« Hippo NAS — API_TOKEN ») : l'appli le recevra à son build (E5-02).
 
-3. Choisir le tag de l'image : page du paquet [ghcr.io/ghislain95/hippo](https://github.com/ghislain95/hippo/pkgs/container/hippo), le tag `sha-<7 caractères>` le plus récent. Il n'existe que pour les fusions qui touchent le backend ; c'est normal qu'il diffère du `SHA` de la section 1. Vérifier qu'il existe pour le NAS (NAS) :
+3. Choisir la version de Hippo à faire tourner. Le programme arrive sous forme d'**image Docker**, téléchargée depuis GitHub. Chaque version porte une étiquette (un **tag**) de la forme `sha-<7 caractères>` : les 7 premiers caractères du commit qui l'a construite. `latest` désigne toujours la dernière, mais bouge sans prévenir ; le NAS épingle donc un `sha-…` précis.
+   - Ouvrir la page du paquet [ghcr.io/ghislain95/hippo](https://github.com/ghislain95/hippo/pkgs/container/hippo) et prendre le tag `sha-…` le plus récent.
+   - Une image n'est construite que quand le backend change : ce tag diffère donc, le plus souvent, du `SHA` de la section 1 (qui sert aux fichiers de configuration). C'est normal.
+   - Vérifier que ce tag existe pour le processeur du NAS (amd64), en remplaçant `<tag>` (NAS) :
 
    ```bash
    sudo docker manifest inspect ghcr.io/ghislain95/hippo:<tag> | grep -c '"amd64"'
