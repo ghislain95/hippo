@@ -28,7 +28,7 @@ Before starting: `graphify check-update .`, read ADR-0013, 0015, 0019, 0020, 002
 
 ## 5. Pull request and QA
 
-- [ ] 5.1 Commit `feat(deploy-nas)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
-- [ ] 5.2 QA by Ghislain on the NAS, phase 1: sections 0 to 4 and 6 of the runbook, including a project restart, a NAS reboot and a restart after the auth key is erased. Every deviation fixes the runbook (or the compose) in the same PR, with a new review.
+- [x] 5.1 Commit `feat(deploy-nas)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
+- [x] 5.2 QA by Ghislain on the NAS, phase 1: sections 0 to 4 and 6 of the runbook, including a project restart, a NAS reboot and a restart after the auth key is erased. Every deviation fixes the runbook (or the compose) in the same PR, with a new review.
 - [ ] 5.3 QA phase 2: API key added; paid end-to-end test (one fictitious public link, one fictitious image) left for the night; the next morning, items read back by replaying their captures with the same `client_id`, logs and the duration of the pass that copied the image recorded in design.md (no personal data); then Hippo restarts from an empty `data/` (no delete route before E4).
 - [ ] 5.4 Post-archive: backlog E6-01, E6-02, E6-04 done; `/opsx:archive`; `graphify update .`; commit `chore(deploy-nas): archive change, post-archive`; `/dod-check`; merge (`gh pr merge --merge --delete-branch`).

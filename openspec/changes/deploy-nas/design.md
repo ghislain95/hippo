@@ -98,6 +98,16 @@ Rollback: goose (v3.29.0) ignores applied versions unknown to the binary (`inter
 
 No data migration. Deployment = the runbook itself. Rollback of this change: the previous compose is in git history; the NAS keeps whatever SHA it fetched.
 
+## QA results
+
+### Phase 1 (2026-11-11, Ghislain on the NAS, runbook sections 0 to 4)
+
+- Install: the Docker shared folder is `/volume1/docker`; `data/` owned by 65532 before the first start; image `sha-7f30bf5` found for amd64 (`docker manifest inspect`); files fetched at the PR's commit SHA.
+- D2 confirmed: after erasing `TS_AUTHKEY` and `up -d`, the sidecar is recreated and the node stays enrolled (no `hippo-1`); `TS_AUTH_ONCE` with an empty key works.
+- D3 confirmed: `hippo` is recreated with its sidecar and comes back `healthy`; a project restart and a NAS reboot both bring `/healthz` back from the iPhone.
+- D1 confirmed in real conditions: `http://…:8080/healthz` and `http://…/healthz` fail from the Mac; `https://…/healthz` answers `ok` from the iPhone; an authenticated capture answers `201` (`queued`, private note), without a token `401`.
+- Runbook fixes from the QA: where to find the NAS address for SSH; UGOS turned SSH off during the session (re-enabled in the UGOS Terminal settings); the image tag step explained; the `curl` checks run from the Mac (the NAS itself does not resolve `*.ts.net`), the Mac needs « Use Tailscale DNS settings », and `read -rs` waits silently for the pasted token.
+
 ## Open Questions
 
-- UGOS version, Compose version and path of the Docker shared folder on Ghislain's NAS: read by the runbook's first section during the QA; they do not change the approach.
+- Compose version on the NAS: not recorded; `depends_on.restart` works, so it is 2.17 or later.
