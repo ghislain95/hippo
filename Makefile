@@ -116,8 +116,8 @@ build-backend: ## Build the backend binary into backend/bin/
 
 .PHONY: dev
 dev: ## Run the backend locally on 127.0.0.1:8080 (variables from infra/.env if present)
-	@mkdir -p data/dev
-	@$(LOAD_LOCAL_ENV); cd backend && HTTP_ADDR=127.0.0.1:8080 DATA_DIR=../data/dev go run -ldflags "-X main.version=$(VERSION)" ./cmd/hippo
+	@mkdir -p data/dev data/dev-backups
+	@$(LOAD_LOCAL_ENV); cd backend && HTTP_ADDR=127.0.0.1:8080 DATA_DIR=../data/dev BACKUP_DIR=../data/dev-backups go run -ldflags "-X main.version=$(VERSION)" ./cmd/hippo
 
 .PHONY: image
 image: ## Build the backend Docker image (hippo:local)
@@ -163,10 +163,11 @@ COMPOSE_LOCAL := docker compose -f infra/docker-compose.local.yml
 
 .PHONY: up
 up: ## Build and start the local stack on 127.0.0.1:8080 (variables from infra/.env or the shell)
+	@mkdir -p infra/backups
 	VERSION=$(VERSION) $(COMPOSE_LOCAL) up --build --detach --wait
 
 .PHONY: down
-down: ## Stop the local stack (the data stays in infra/data/)
+down: ## Stop the local stack (the data stays in infra/data/, the backups in infra/backups/)
 	API_TOKEN=$${API_TOKEN:-unused-by-down} $(COMPOSE_LOCAL) down
 
 .PHONY: logs
@@ -175,7 +176,7 @@ logs: ## Follow the logs of the local stack
 
 .PHONY: check-infra
 check-infra: ## Validate both compose files and their invariants (infra/check-compose.sh)
-	API_TOKEN=check HIPPO_IMAGE_TAG=check docker compose -f infra/docker-compose.yml config --quiet
+	API_TOKEN=check HIPPO_IMAGE_TAG=check BACKUP_HOST_DIR=/check docker compose -f infra/docker-compose.yml config --quiet
 	API_TOKEN=check $(COMPOSE_LOCAL) config --quiet
 	shellcheck -S warning infra/check-compose.sh
 	bash infra/check-compose.sh

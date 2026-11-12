@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+
+	"github.com/ghislain95/hippo/backend/internal/freespace"
 )
 
 // The temporary directory, DATA_DIR/tmp, holds the PDFs being downloaded and, through NewFile,
@@ -20,10 +22,6 @@ const (
 	tempDirMode  fs.FileMode = 0o700
 	tempFileMode fs.FileMode = 0o600
 	tempPrefix               = ".pdf-"
-	// freeSpaceMargin is the space left free on the NAS after a PDF: the database, its WAL and
-	// the images share the volume, and SQLite fails on a full disk as well. A PDF whose size,
-	// or MaxPDFSize when unknown, does not fit with it is not downloaded.
-	freeSpaceMargin = 64 << 20
 )
 
 // errStorage: the NAS cannot store a PDF (no room, read-only volume, input-output error). The
@@ -50,7 +48,7 @@ func OpenTempDir(path string) (*TempDir, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("open temporary directory: %w", pathless(err))
 	}
-	d := &TempDir{root: root, freeSpace: func() (uint64, bool, error) { return diskFree(path) }}
+	d := &TempDir{root: root, freeSpace: func() (uint64, bool, error) { return freespace.Available(path) }}
 	removed, err := d.removeLeftovers()
 	if err == nil {
 		var probe *tempFile
@@ -99,17 +97,18 @@ func (d *TempDir) removeLeftovers() (int, error) {
 	return removed, nil
 }
 
-// errNoRoom: the volume has not the room for a PDF and freeSpaceMargin.
+// errNoRoom: the volume has not the room for a PDF and freespace.Margin.
 var errNoRoom = errors.New("not enough free space")
 
 // checkRoom tells, as a storage failure, that the volume cannot hold size bytes more and
-// freeSpaceMargin.
+// freespace.Margin: a PDF whose size, or MaxPDFSize when unknown, does not fit with it is not
+// downloaded.
 func (d *TempDir) checkRoom(size uint64) error {
 	free, known, err := d.freeSpace()
 	if err != nil {
 		return fmt.Errorf("%w: free space: %w", errStorage, pathless(err))
 	}
-	if known && free < size+freeSpaceMargin {
+	if known && free < size+freespace.Margin {
 		return fmt.Errorf("%w: %w", errStorage, errNoRoom)
 	}
 	return nil

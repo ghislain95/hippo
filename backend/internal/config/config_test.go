@@ -27,7 +27,8 @@ func TestLoad(t *testing.T) {
 			LogLevel:         slog.LevelInfo,
 			AnalysisModel:    "claude-haiku-4-5",
 			BatchSchedule:    schedule.Daily{Hour: 2, Minute: 0},
-			BackupSchedule:   "0 3 * * *",
+			BackupSchedule:   schedule.Daily{Hour: 3, Minute: 0},
+			BackupDir:        "/backups",
 			MonthlyBudgetUSD: 5,
 			Prices:           Prices{InputPerMTok: 1, OutputPerMTok: 5},
 		}
@@ -46,6 +47,7 @@ func TestLoad(t *testing.T) {
 			"ANALYSIS_MODEL":                     "claude-haiku-4-5-20251001",
 			"BATCH_SCHEDULE":                     "30 1 * * *",
 			"BACKUP_SCHEDULE":                    "30 4 * * *",
+			"BACKUP_DIR":                         "/tmp/hippo-backups",
 			"MONTHLY_BUDGET_USD":                 "2.5",
 			"ANALYSIS_INPUT_PRICE_USD_PER_MTOK":  "0.8",
 			"ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK": "4",
@@ -55,7 +57,7 @@ func TestLoad(t *testing.T) {
 		}
 		if cfg.HTTPAddr != "127.0.0.1:9000" || cfg.DataDir != "/tmp/hippo" || cfg.LogLevel != slog.LevelDebug ||
 			cfg.AnthropicAPIKey != "sk-ant-test" || cfg.AnalysisModel != "claude-haiku-4-5-20251001" ||
-			cfg.BatchSchedule != (schedule.Daily{Hour: 1, Minute: 30}) || cfg.BackupSchedule != "30 4 * * *" || cfg.MonthlyBudgetUSD != 2.5 ||
+			cfg.BatchSchedule != (schedule.Daily{Hour: 1, Minute: 30}) || cfg.BackupSchedule != (schedule.Daily{Hour: 4, Minute: 30}) || cfg.BackupDir != "/tmp/hippo-backups" || cfg.MonthlyBudgetUSD != 2.5 ||
 			cfg.Prices != (Prices{InputPerMTok: 0.8, OutputPerMTok: 4}) {
 			t.Errorf("Load() = %+v", cfg)
 		}
@@ -112,6 +114,78 @@ func TestBatchSchedule(t *testing.T) {
 			if !strings.Contains(err.Error(), "BATCH_SCHEDULE") {
 				t.Errorf("Load with BATCH_SCHEDULE %q: error %q does not name BATCH_SCHEDULE", value, err)
 			}
+		}
+	})
+}
+
+func TestBackupSchedule(t *testing.T) {
+	t.Run("The default backup schedule is 03:00", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{"API_TOKEN": validToken}))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.BackupSchedule != (schedule.Daily{Hour: 3, Minute: 0}) {
+			t.Errorf("BackupSchedule = %+v, want 03:00", cfg.BackupSchedule)
+		}
+	})
+
+	t.Run("A backup schedule that is not daily stops the start-up", func(t *testing.T) {
+		for _, value := range []string{"0 3 * * 1", "*/5 3 * * *", "3:00"} {
+			_, err := Load(env(map[string]string{"API_TOKEN": validToken, "BACKUP_SCHEDULE": value}))
+			if err == nil {
+				t.Errorf("Load with BACKUP_SCHEDULE %q: want an error", value)
+				continue
+			}
+			if !strings.Contains(err.Error(), "BACKUP_SCHEDULE") {
+				t.Errorf("Load with BACKUP_SCHEDULE %q: error %q does not name BACKUP_SCHEDULE", value, err)
+			}
+		}
+	})
+}
+
+func TestBackupDir(t *testing.T) {
+	t.Run("The backup folder defaults to /backups", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{"API_TOKEN": validToken}))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.BackupDir != "/backups" {
+			t.Errorf("BackupDir = %q, want /backups", cfg.BackupDir)
+		}
+	})
+
+	t.Run("A backup folder beside the data folder is accepted", func(t *testing.T) {
+		for _, dirs := range [][2]string{
+			{"/data", "/backups"},
+			{"../data/dev", "../data/dev-backups"},
+			{"/srv/data", "/srv/data-backups"},
+		} {
+			cfg, err := Load(env(map[string]string{"API_TOKEN": validToken, "DATA_DIR": dirs[0], "BACKUP_DIR": dirs[1]}))
+			if err != nil {
+				t.Errorf("Load with DATA_DIR %q and BACKUP_DIR %q: %v", dirs[0], dirs[1], err)
+				continue
+			}
+			if cfg.BackupDir != dirs[1] {
+				t.Errorf("BackupDir = %q, want %q", cfg.BackupDir, dirs[1])
+			}
+		}
+	})
+
+	t.Run("A backup folder that is, holds or is inside the data folder is refused", func(t *testing.T) {
+		for _, backupDir := range []string{"/data", "/data/", "/data/backups", "/data/../data/x", "/", "/srv/..", "/data/assets/../.."} {
+			_, err := Load(env(map[string]string{"API_TOKEN": validToken, "DATA_DIR": "/data", "BACKUP_DIR": backupDir}))
+			if err == nil {
+				t.Errorf("Load with BACKUP_DIR %q: want an error", backupDir)
+				continue
+			}
+			if !strings.Contains(err.Error(), "BACKUP_DIR") {
+				t.Errorf("Load with BACKUP_DIR %q: error %q does not name BACKUP_DIR", backupDir, err)
+			}
+		}
+		// The parent of a nested data folder holds it as well.
+		_, err := Load(env(map[string]string{"API_TOKEN": validToken, "DATA_DIR": "/srv/hippo/data", "BACKUP_DIR": "/srv/hippo"}))
+		if err == nil || !strings.Contains(err.Error(), "BACKUP_DIR") {
+			t.Errorf("Load with BACKUP_DIR the parent of DATA_DIR: error %v, want one naming BACKUP_DIR", err)
 		}
 	})
 }

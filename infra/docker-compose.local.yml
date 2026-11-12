@@ -1,6 +1,8 @@
 # Hippo on the Mac, without Tailscale: the image is built from ../backend and the API is
 # published on 127.0.0.1:8080 only (never on the local network). Same image, same volume layout
 # as docker-compose.yml. Used by `make up`, `make down`, `make logs`.
+# Backups go to infra/backups (ignored by git, created by `make up`) unless BACKUP_HOST_DIR says
+# otherwise; one on demand: docker compose -f infra/docker-compose.local.yml exec hippo /hippo backup
 # Variables: infra/.env if present (read by Compose from this folder), else the shell.
 name: hippo-local
 
@@ -33,6 +35,12 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
+      # Long syntax, as in docker-compose.yml: the folder must exist (`make up` creates it).
+      - type: bind
+        source: ${BACKUP_HOST_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
     # ADR-0038: the nightly batch runs an image copy child of up to 256 MiB beside the service.
     mem_limit: 384m
     restart: unless-stopped

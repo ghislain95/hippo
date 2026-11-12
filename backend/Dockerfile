@@ -15,8 +15,11 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/hippo /hippo
+# BACKUP_DIR has no VOLUME on purpose (nightly-backup, design D15): a missing mount must leave no
+# /backups, so that the service refuses to start instead of backing up into an anonymous volume.
 ENV HTTP_ADDR=:8080 \
-    DATA_DIR=/data
+    DATA_DIR=/data \
+    BACKUP_DIR=/backups
 EXPOSE 8080
 VOLUME ["/data"]
 USER nonroot:nonroot

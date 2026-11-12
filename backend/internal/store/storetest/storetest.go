@@ -546,3 +546,79 @@ func SetFicheJSON(t testing.TB, path, userID, itemID, raw string) {
 			raw, date, seq, userID, itemID)
 	})
 }
+
+// IntegrityCheck returns the answer of PRAGMA integrity_check on the database at path, read
+// only: "ok" for a sound database (tests of a backup's copy, nightly-backup).
+func IntegrityCheck(t testing.TB, path string) string {
+	t.Helper()
+	db := openForRead(t, path)
+	defer func() { _ = db.Close() }() // read-only: nothing to flush
+	var answer string
+	if err := db.QueryRowContext(context.Background(), `PRAGMA integrity_check`).Scan(&answer); err != nil {
+		t.Fatalf("integrity check: %v", err)
+	}
+	return answer
+}
+
+// MigrationVersion returns the last migration applied to the database at path, read only from
+// goose's own table (tests that a backup migrates nothing, nightly-backup).
+func MigrationVersion(t testing.TB, path string) int64 {
+	t.Helper()
+	db := openForRead(t, path)
+	defer func() { _ = db.Close() }() // read-only: nothing to flush
+	var version int64
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
+		t.Fatalf("read migration version: %v", err)
+	}
+	return version
+}
+
+// CreateAtVersion creates the database at path with the migrations up to version only: a
+// database behind the binary, as an update finds it before it migrates (nightly-backup).
+func CreateAtVersion(t testing.TB, path string, version int64) {
+	t.Helper()
+	if err := store.CreateAtVersion(context.Background(), path, version); err != nil {
+		t.Fatalf("create database at version %d: %v", version, err)
+	}
+}
+
+// HoldItemInsert begins a write transaction that inserts an item of userID, as the store's
+// capture does between its insert and its commit, and leaves it uncommitted until the returned
+// function rolls it back. No function of the store leaves a write open: tests of a backup taken
+// during a write use it (nightly-backup). The insert writes a subset of the columns of
+// insertItem (items.go) and advances the sequence in the same transaction.
+func HoldItemInsert(t testing.TB, path, userID, itemID string) (rollback func()) {
+	t.Helper()
+	ctx := context.Background()
+	db := openForWrite(t, path)
+	db.SetMaxOpenConns(1)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		_ = db.Close()
+		t.Fatalf("begin write: %v", err)
+	}
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `UPDATE sync_sequence SET value = value + 1 WHERE id = 1 RETURNING value`).Scan(&seq); err != nil {
+		_ = tx.Rollback()
+		_ = db.Close()
+		t.Fatalf("advance sequence: %v", err)
+	}
+	date := time.Now().UTC().Format(store.TimeLayout)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO items (id, user_id, kind, source, status, title, created_at, updated_at, change_seq)
+		 VALUES (?, ?, 'note', 'share', 'queued', 'An uncommitted note', ?, ?, ?)`,
+		itemID, userID, date, date, seq); err != nil {
+		_ = tx.Rollback()
+		_ = db.Close()
+		t.Fatalf("insert item: %v", err)
+	}
+	return func() {
+		if err := tx.Rollback(); err != nil {
+			t.Errorf("roll back the write: %v", err)
+		}
+		if err := db.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	}
+}

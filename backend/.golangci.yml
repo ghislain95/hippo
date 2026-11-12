@@ -103,6 +103,22 @@ linters:
           deny:
             - pkg: github.com/ghislain95/hippo/backend/internal/extraction/pdftest
               desc: pdftest builds fictional and hostile PDFs for tests; no production code imports it (E2-08)
+        backup-stays-on-the-nas:
+          # The backup reads and writes local files only: no path from a backup to the network
+          # or the AI exists (RG-12, RG-92, nightly-backup design D18).
+          files:
+            - "**/internal/backup/**"
+          deny:
+            - pkg: net
+              desc: a backup never leaves the NAS (RG-92); it knows nothing of the network
+            - pkg: github.com/ghislain95/hippo/backend/internal/analysis
+              desc: a backup has no path to the AI (RG-12)
+            - pkg: github.com/ghislain95/hippo/backend/internal/extraction
+              desc: a backup has no path to the network nor to DATA_DIR/tmp
+            - pkg: github.com/ghislain95/hippo/backend/internal/httpapi
+              desc: nothing of a backup goes through the API
+            - pkg: database/sql
+              desc: SQLite stays in store (store.Snapshot); a backup runs no query
         generated-api-only-in-httpapi:
           files:
             - "$all"

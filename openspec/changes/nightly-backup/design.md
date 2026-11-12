@@ -51,11 +51,11 @@ Terms this change introduces or makes precise; `doc-keeper` adds them to `docs/g
 | `internal/backup` (new) | the backup: lock, free-space check, partial folder, database snapshot (through `store`), images walk with links and copies, manifest, sync and rename, retention, log line; `CheckDir` for the start-up. A new top-level package, justified by D1 |
 | `internal/freespace` (new) | `Available(path)` and `Margin` (64 MiB), moved out of `internal/extraction` (D10) |
 | `internal/extraction` | uses `freespace`; its `freespace_*.go` and `freeSpaceMargin` go; no behaviour change |
-| `internal/store` | new `snapshot.go`: `Snapshot(ctx, dbPath, outPath) (migrationVersion int64, err error)` on its own read-only connection (D2, D3) |
+| `internal/store` | new `snapshot.go`: `Snapshot(ctx, dbPath, outPath) (migrationVersion int64, err error)` on its own read-only connection (D2, D3); `CreateAtVersion(ctx, path, version)`, exported for `storetest` only (a database behind the binary for the tests); `storetest` gains `IntegrityCheck`, `MigrationVersion`, `CreateAtVersion` and `HoldItemInsert` (an uncommitted item insert by SQL: no store function leaves a write open) |
 | `internal/config` | `BackupSchedule` becomes a `schedule.Daily` parsed by `schedule.ParseDaily`; new `BackupDir` (`BACKUP_DIR`, default `/backups`); `BACKUP_DIR` equal to, inside or around `DATA_DIR` refused (D15) |
 | `cmd/hippo` | sub-command `backup` (D13); `startBackup` beside `startAnalysis` (D14); start-up check of the backup folder (D15) |
 | `backend/Dockerfile` | `ENV BACKUP_DIR=/backups`, no `VOLUME` for it (D15) |
-| `backend/.golangci.yml` | depguard rule `backup-stays-on-the-nas` (D20) |
+| `backend/.golangci.yml` | depguard rule `backup-stays-on-the-nas` (D18) |
 | `Makefile` | `make dev` sets `BACKUP_DIR=../data/dev-backups` and creates it; `make up` creates `infra/backups` |
 | `infra/` | both compose files mount the backup folder; `check-compose.sh`, `.env.example`, `CLAUDE.md`; `.gitignore` `infra/backups/` (D16) |
 | docs | `docs/metier.md` (RG-98, RG-92, RG-79), new ADR-0039 and ADR-0020's status, glossary, `docs/spec-v1.md`, `docs/backlog.md`, `docs/runbook-nas.md`, `docs/dev/conventions-backend.md` |
@@ -75,7 +75,7 @@ Alternatives: the backup in `store` (it would mix file copies and retention into
 
 ### D2. The database is copied by `VACUUM INTO` on its own read-only connection
 
-`store.Snapshot` opens a new `*sql.DB` on `file:<path>?mode=ro&_pragma=busy_timeout(5000)`: no `_txlock`, no `journal_mode`, no migrations, no category fill, one connection (`SetMaxOpenConns(1)`). It runs `VACUUM INTO ?` with the target path (the partial folder's `hippo.db`), closes, then opens the copy, `fsync`s it and closes it (the VACUUM's own syncs follow the source's pager flags, we do not rely on them).
+`store.Snapshot` opens a new `*sql.DB` on `file:<path>?mode=ro&_pragma=busy_timeout(5000)`: no `_txlock`, no `journal_mode`, no migrations, no category fill, one connection (`SetMaxOpenConns(1)`). It runs `VACUUM INTO ?` with the target path (the partial folder's `hippo.db`; SQLite's message on a failed open names that file, « unable to open database: <path> », so the paths are cut out of its errors), closes, then opens the copy, `fsync`s it and closes it (the VACUUM's own syncs follow the source's pager flags, we do not rely on them).
 
 Source, at `modernc.org/sqlite v1.61.0` (SQLite 3.54.1, `lib/sqlite.go:4564`):
 
@@ -97,7 +97,7 @@ Alternative: `PRAGMA user_version` (goose does not write it); a query on the sou
 
 Order: database, then images (backlog E6-03, inherited from E2-04): an image captured after the snapshot is an orphan in the backup, harmless; a row without its file only happens when an image is removed in between (E4-05), counted as gone.
 
-The walk goes through an `os.Root` on the images folder, `Lstat` only: regular files are backed up, at their relative path; folders are recreated (`0750`); `.tmp-*` files are skipped (any level); symbolic links and other types are skipped, never followed (`os.Root` refuses an escape anyway). A file listed then missing when opened (`fs.ErrNotExist`) is counted in `images_gone`, not an error. No query on the `assets` table: the folder is the source, so no business table is read (RG-90 below).
+The walk goes through an `os.Root` on the images folder, `Lstat` only: regular files are backed up, at their relative path; folders are recreated (`0750`); `.tmp-*` files are skipped (any level); symbolic links and other types are skipped, never followed (`os.Root` refuses an escape anyway). A file listed then missing when opened (`fs.ErrNotExist`), or no longer a regular file once opened, is counted in `images_gone`, not an error. The whole folder is listed first, then copied: the test seam « after the database » runs between the listing and the first copy, which is where an image can be gone. A missing images folder fails the backup (a wrong `DATA_DIR`), as does a missing database (`mode=ro` never creates it). No query on the `assets` table: the folder is the source, so no business table is read (RG-90 below).
 
 Alternative: list the image paths from the copied database (a query on a business table across users, and the copy is open read-only anyway); copy the whole folder blindly (would take `.tmp-*` and links).
 
@@ -114,7 +114,7 @@ Alternatives: a content hash per image each night (reads every image every night
 ### D6. Written in `.partial-<name>`, synced, renamed
 
 1. Under the lock, remove every `.partial-*` folder whose rest is in the backup format (leftovers of a crash: `leftovers_removed`). Nothing else is touched.
-2. If `<name>` exists (`Lstat`), fail with `name_taken` before writing.
+2. If `<name>` exists (`Lstat`), fail with `name_taken` before writing; any other error of that `Lstat` is `failed`. The check runs after the free-space check of D10, still before anything is written.
 3. `Mkdir .partial-<name>` (`0750`), snapshot, images, manifest.
 4. `fsync` each folder of the partial tree after its entries (bottom-up), then the partial folder.
 5. `Lstat <name>` again, then `Root.Rename(.partial-<name>, <name>)`, then `fsync` the backup folder: the model of `assetfs.(*Upload).Commit`.
@@ -166,7 +166,7 @@ Before writing, `backup` makes a plan: the size of `hippo.db` plus `hippo.db-wal
 
 ### D11. Lock: `flock` on `.lock`, across processes
 
-`Root.OpenFile(".lock", O_RDWR|O_CREATE, 0640)`, then `syscall.Flock(fd, LOCK_EX|LOCK_NB)`; `EWOULDBLOCK` means taken. The nightly backup tries once (`skipped`, `warn`). `hippo backup` retries every second up to 10 minutes (`locked`, exit non-zero). The file is never removed and never holds data.
+`Root.OpenFile(".lock", O_RDWR|O_CREATE, 0640)`, then `syscall.Flock(fd, LOCK_EX|LOCK_NB)`; `EWOULDBLOCK` means taken. The nightly backup tries once (`skipped`, `warn`). `hippo backup` retries every second up to 10 minutes (`locked`, exit non-zero), and writes one line `waiting for the backup lock` (`info`) when it starts waiting, so that the operator sees why nothing happens; the name and the start time of the backup are read once the lock is taken. The file is never removed and never holds data; `CheckDir` creates it at start-up.
 
 - A `flock` lock belongs to the open file description and goes with its last descriptor, process death included; two `open` of the same file, even in one process, conflict (Linux `flock(2)`, https://man7.org/linux/man-pages/man2/flock.2.html; macOS `flock(2)` has the same semantics). So the in-process tests are real, and one test kills a child process that holds the lock (spec « The lock of a killed process is released »).
 - Go opens every file `O_CLOEXEC` (`os/root_unix.go:85`): the children `extract-page` and `copy-image` never inherit the lock.
@@ -177,11 +177,11 @@ Ten minutes: far above a nightly backup of V1 (seconds: a few MB of database, a 
 
 ### D12. One log line; outcomes
 
-One JSON line `backup` per backup, written by `Run` before it returns, on the service's logger (nightly) or the command's (D13): `outcome`, `trigger`, `backup` (the name), `backend_version`, `migration_version`, `database_bytes`, `images`, `images_copied`, `images_linked`, `images_gone`, `image_bytes_written`, `duration_ms`, `backups_removed`, `leftovers_removed`, and `error` when it failed. Outcomes: `ok` (`info`), `skipped` (`warn`), `locked`, `no_room`, `name_taken`, `failed`, `stopped` (`error`). Errors are made path-free like `assetfs.pathless` (the cause only); no image path, no item content, ever (conventions-backend « Logs »).
+One JSON line `backup` per backup, written by `Run` before it returns, on the service's logger (nightly) or the command's (D13): `outcome`, `trigger`, `backup` (the name), `backend_version`, `migration_version`, `database_bytes`, `images`, `images_copied`, `images_linked`, `images_gone`, `image_bytes_written`, `duration_ms`, `backups_removed`, `leftovers_removed`, and `error` when it failed. Outcomes: `ok` (`info`), `skipped` (`warn`), `locked`, `no_room`, `name_taken`, `failed`, `stopped` (`error`). Errors are made path-free like `assetfs.pathless` (the cause only); no image path, no item content, ever (conventions-backend « Logs »). The service's line is written at `info` (`ok`), `warn` (`skipped`) or `error`: a `LOG_LEVEL` above `info` (`warn`, `error`) hides the nightly `ok` line, and one above `warn` hides `skipped` too; `.env.example` and the runbook say so. `backup` is empty when the backup failed before taking the lock (backup folder missing, lock taken). A lock file that fails to close after the backup is logged on its own line (`backup lock`, `error`) and does not fail a complete backup. Should the final sync of the backup folder fail after the rename, the backup is reported `failed` though its folder exists: the conservative side for `nightly-update`.
 
 ### D13. `hippo backup`
 
-`run` dispatches `backup` before the service path: `config.Load(getenv)` (the container's environment is the service's: same `DATA_DIR`, `BACKUP_DIR`, `LOG_LEVEL`), JSON logger on standard output, `capture.LoadParis`, `debug.SetMemoryLimit(32 MiB)` (a soft limit of the Go heap: the command is a fourth Go process in the 384 MB of ADR-0038), then `backup.Run` with trigger `command` and a 10-minute lock wait. It opens neither the store nor the images folder through `assetfs`, nor `DATA_DIR/tmp`: no migration, no sweep. `SIGINT`/`SIGTERM` cancel the context (`stopped`). Success returns nil (exit 0); any failure returns an error (exit 1, `hippo: <error>` on standard error, no path). The log line on standard output is what the operator and `nightly-update` read: an `exec` does not reach the Docker logs.
+`run` dispatches `backup` before the service path: `config.Load(getenv)` (the container's environment is the service's: same `DATA_DIR`, `BACKUP_DIR`, `LOG_LEVEL`), JSON logger on standard output, `capture.LoadParis`, `debug.SetMemoryLimit(32 MiB)` (a soft limit of the Go heap: the command is a fourth Go process in the 384 MB of ADR-0038; set in `main` when the first argument is `backup`, so that the tests, which call `run` in-process, keep the test binary's limit), then `backup.Run` with trigger `command` and a 10-minute lock wait. It opens neither the store nor the images folder through `assetfs`, nor `DATA_DIR/tmp`: no migration, no sweep. `SIGINT`/`SIGTERM` cancel the context (`stopped`). Its handler logs at `min(LOG_LEVEL, info)`: the line of the backup is the command's report and is always printed, whatever `LOG_LEVEL` says (the nightly line, on the service's logger, follows `LOG_LEVEL`, D12). Success returns nil (exit 0); any failure returns an error (exit 1, `hippo: <error>` on standard error, no path). The log line on standard output is what the operator and `nightly-update` read: an `exec` does not reach the Docker logs.
 
 Run with `docker compose exec hippo /hippo backup`, never `run`: `run` starts a new container of the current image tag, which would be the new version during an update, and the backup would not be the old version's. The command itself never migrates, but the runbook says `exec` only.
 
@@ -195,7 +195,7 @@ SQLite's page cache is allocated by `modernc.org/libc` outside the Go heap, so `
 
 - `BACKUP_SCHEDULE`: `schedule.ParseDaily` in `config.Load`, error `BACKUP_SCHEDULE: …` like `BATCH_SCHEDULE` (conventions-backend « Configuration »); default `0 3 * * *`.
 - `BACKUP_DIR`: default `/backups`. Like `DATA_DIR`, fixed by the image (`ENV BACKUP_DIR=/backups`) and by `make dev` (`../data/dev-backups`, created by the target), never set in `.env`. `config.Load` refuses it equal to, inside or around `DATA_DIR` (lexical, after `filepath.Clean` and `filepath.Abs`): a backup inside the data would back itself up.
-- Start-up: `backup.CheckDir(BACKUP_DIR)` after the data folder: the folder must exist and be a directory, and `.lock` must open for writing. It never creates `BACKUP_DIR`: in the container, a missing mount leaves no `/backups` (the image declares no `VOLUME` for it, which would hide a missing mount behind an anonymous volume), and the service refuses to start instead of running without backups. Same rule as the assets and temporary folders, which fail at start rather than at first use (conventions-backend « Dossier temporaire »).
+- Start-up: `backup.CheckDir(BACKUP_DIR)` after the data folder: the folder must exist and be a directory, a probe file `.probe-<random>` must be created (`O_EXCL`) and removed (as `extraction.OpenTempDir` does: a folder whose `.lock` exists but where nothing can be created is refused), and `.lock` must open for writing. It never creates `BACKUP_DIR`: in the container, a missing mount leaves no `/backups` (the image declares no `VOLUME` for it, which would hide a missing mount behind an anonymous volume), and the service refuses to start instead of running without backups. Same rule as the assets and temporary folders, which fail at start rather than at first use (conventions-backend « Dossier temporaire »).
 - Existing tests of `cmd/hippo` set `BACKUP_DIR` to a `t.TempDir()`.
 
 ### D16. Compose and the static check
@@ -204,6 +204,7 @@ SQLite's page cache is allocated by `modernc.org/libc` outside the Go heap, so `
 - Local: `- ${BACKUP_HOST_DIR:-./backups}:/backups`; `infra/backups/` in `.gitignore` (public repository, ADR-0027); `make up` creates it.
 - `.env.example`: `BACKUP_HOST_DIR=` uncommented and empty (NAS: `/<volume>/Sauvegardes/hippo`), `BACKUP_SCHEDULE` comment rewritten (used now, daily form only), `BACKUP_DIR=/backups` in the commented « fixed by the image » block.
 - `check-compose.sh`: `BACKUP_HOST_DIR` joins `COMPOSE_ONLY_VARS`; new production assertion: `hippo` has a volume whose target is `/backups` and whose source reads `${BACKUP_HOST_DIR:?`; new local assertion: a volume whose target is `/backups`. **Unverified**: how `config --no-interpolate --format json` renders a variable source (Compose may prefix it with the project folder, as it does for `./data`); the assertion matches « contains `${BACKUP_HOST_DIR:?` » and task 8.1 checks the rendering first.
+- **Deviations found while implementing (8.1, 8.2):** without interpolation, Compose splits the short form `${BACKUP_HOST_DIR:?…}:/backups` on its colons (source `${BACKUP_HOST_DIR`, no `/backups` target), so both compose files use the long syntax (`type: bind`, `source`, `target`); the rendered source is prefixed with the project folder and still contains `${BACKUP_HOST_DIR:?`. Both volumes also set `bind.create_host_path: false` (asserted in production): without it Docker creates a missing host folder as root even in the long syntax (seen on Docker Desktop), and `up` now stops on « bind source path does not exist » instead (Linux Docker of the NAS: checked during the QA). A new common assertion refuses any `COMPOSE_ONLY_VARS` variable in the `environment` of `hippo`. `make check-infra` passes `BACKUP_HOST_DIR=/check` (an absolute path; a bare word would be read as a named volume).
 
 ### D17. Permissions
 

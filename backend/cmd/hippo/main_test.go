@@ -20,9 +20,10 @@ func TestRun(t *testing.T) {
 	t.Run("starts without an API key, answers the healthcheck and stops on cancel", func(t *testing.T) {
 		port := freePort(t)
 		env := map[string]string{
-			"API_TOKEN": "test-token-0123456789abcdef012345",
-			"HTTP_ADDR": "127.0.0.1:" + port,
-			"DATA_DIR":  t.TempDir(),
+			"API_TOKEN":  "test-token-0123456789abcdef012345",
+			"HTTP_ADDR":  "127.0.0.1:" + port,
+			"DATA_DIR":   t.TempDir(),
+			"BACKUP_DIR": t.TempDir(),
 		}
 		getenv := func(name string) string { return env[name] }
 
@@ -54,6 +55,7 @@ func TestRun(t *testing.T) {
 		for _, want := range []string{
 			`"msg":"no ANTHROPIC_API_KEY: the nightly analysis sends nothing"`,
 			`"msg":"analysis scheduled","batch_schedule":"0 2 * * *","time_zone":"Europe/Paris"`,
+			`"msg":"backup scheduled","backup_schedule":"0 3 * * *","time_zone":"Europe/Paris"`,
 		} {
 			if !strings.Contains(logs.String(), want) {
 				t.Errorf("logs lack %s:\n%s", want, logs)
@@ -67,9 +69,10 @@ func TestRun(t *testing.T) {
 	// apply-batch-results, item-analysis « The token prices are configured », log side.
 	t.Run("The prices default to the Haiku 4.5 prices", func(t *testing.T) {
 		env := map[string]string{
-			"API_TOKEN": "test-token-0123456789abcdef012345",
-			"HTTP_ADDR": "127.0.0.1:" + freePort(t),
-			"DATA_DIR":  t.TempDir(),
+			"API_TOKEN":  "test-token-0123456789abcdef012345",
+			"HTTP_ADDR":  "127.0.0.1:" + freePort(t),
+			"DATA_DIR":   t.TempDir(),
+			"BACKUP_DIR": t.TempDir(),
 		}
 		logs := runUntilHealthy(t, env)
 		want := `"msg":"analysis prices","model":"claude-haiku-4-5","input_usd_per_mtok":1,"output_usd_per_mtok":5`
@@ -87,6 +90,7 @@ func TestRun(t *testing.T) {
 			"ANTHROPIC_API_KEY": "sk-ant-test-KEY-MUST-NOT-LEAK-7f3c9e",
 			"HTTP_ADDR":         "127.0.0.1:" + port,
 			"DATA_DIR":          t.TempDir(),
+			"BACKUP_DIR":        t.TempDir(),
 		}
 		getenv := func(name string) string { return env[name] }
 		ctx, cancel := context.WithCancel(context.Background())
@@ -125,9 +129,10 @@ func TestRun(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = listener.Close() })
 		env := map[string]string{
-			"API_TOKEN": "test-token-0123456789abcdef012345",
-			"HTTP_ADDR": listener.Addr().String(),
-			"DATA_DIR":  t.TempDir(),
+			"API_TOKEN":  "test-token-0123456789abcdef012345",
+			"HTTP_ADDR":  listener.Addr().String(),
+			"DATA_DIR":   t.TempDir(),
+			"BACKUP_DIR": t.TempDir(),
 		}
 		done := make(chan error, 1)
 		go func() {
@@ -154,6 +159,7 @@ func TestRun(t *testing.T) {
 		env := map[string]string{
 			"API_TOKEN":      "test-token-0123456789abcdef012345",
 			"DATA_DIR":       t.TempDir(),
+			"BACKUP_DIR":     t.TempDir(),
 			"BATCH_SCHEDULE": "*/5 * * * *",
 		}
 		err := run(context.Background(), nil, func(name string) string { return env[name] }, &bytes.Buffer{})

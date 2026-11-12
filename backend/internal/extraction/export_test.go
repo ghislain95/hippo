@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ghislain95/hippo/backend/internal/childproc"
+	"github.com/ghislain95/hippo/backend/internal/freespace"
 )
 
 // Response exposes response to the tests of extraction_test.
@@ -234,8 +235,8 @@ func PDFBytes(resp Response) ([]byte, error) {
 	return io.ReadAll(io.NewSectionReader(resp.PDF.r, 0, MaxPDFSize+1))
 }
 
-// FreeSpaceMargin exposes freeSpaceMargin to the tests of extraction_test.
-const FreeSpaceMargin = freeSpaceMargin
+// FreeSpaceMargin exposes freespace.Margin to the tests of extraction_test.
+const FreeSpaceMargin = freespace.Margin
 
 // SetFreeSpace makes dir measure its free space with free.
 func SetFreeSpace(dir *TempDir, free func() (uint64, bool, error)) { dir.freeSpace = free }
