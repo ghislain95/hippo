@@ -63,7 +63,7 @@ Before starting: `graphify check-update .` (then `graphify update .` if stale); 
 
 - [x] 10.1 `make check` green; `openspec validate nightly-backup --strict` green; every scenario title of `specs/backup/spec.md` found by `git grep` in a `t.Run`.
 - [x] 10.2 `code-reviewer` on the uncommitted diff; fix every 🛑 and 🔴, then review again.
-- [ ] 10.3 `/opsx:verify nightly-backup`.
+- [x] 10.3 `/opsx:verify nightly-backup`.
 
 ## 11. Pull request, QA and archive
 
