@@ -119,7 +119,7 @@ Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la bran
 5. **Anthropic** (avant E3) : compte API, crédits prépayés **sans recharge automatique**, clé dédiée à Hippo, à poser dans `infra/.env` (ADR-0021).
 6. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet. Au 7 novembre 2026 : compte, iPhone et HTTPS faits en E1 ([runbook iOS](../runbook-ios.md#2-tailscale-en-https-une-fois)) ; la clé du nœud `hippo`, à usage unique et effacée après l'enrôlement, se crée en suivant le [runbook NAS](../runbook-nas.md#3-clé-dauthentification-tailscale-une-fois) (change `deploy-nas`).
 7. **Apple et SideStore** (E1) : identifiant Apple gratuit, premier appairage de SideStore depuis le Mac.
-8. **NAS** (E6) : dossier de données appartenant à l'uid 65532, service de sauvegarde externe à choisir (ADR-0020). Au 7 novembre 2026 : l'installation, dossier de données compris, suit le [runbook NAS](../runbook-nas.md) (change `deploy-nas`) ; le service de sauvegarde externe reste à choisir en E6-03 (change `nightly-backup`).
+8. **NAS** (E6) : dossier de données appartenant à l'uid 65532. Au 7 novembre 2026 : l'installation, dossier de données compris, suit le [runbook NAS](../runbook-nas.md) (change `deploy-nas`). Le 12 novembre 2026, plus de service de sauvegarde externe à choisir : les sauvegardes restent sur le NAS ([ADR-0039](../adr/0039-sauvegardes-sur-le-nas.md)) ; le dossier des sauvegardes se prépare en suivant le runbook NAS (change `nightly-backup`).
 
 Aucune action ne coûte d'argent à ce stade.
 

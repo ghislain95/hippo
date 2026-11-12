@@ -635,12 +635,12 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 Deux conteneurs : le service Go et un sidecar Tailscale qui le publie en HTTPS sur le réseau privé ([ADR-0015](adr/0015-reseau-tailscale.md), [ADR-0019](adr/0019-deploiement-docker-nas.md)). Le compose de production, [`infra/docker-compose.yml`](../infra/docker-compose.yml), fait référence ; ses invariants, vérifiés en CI par `make check-infra`, sont listés dans [`infra/CLAUDE.md`](../infra/CLAUDE.md). Installation, mise à jour et retour arrière : [runbook NAS](runbook-nas.md).
 
 - Image construite par GitHub Actions pour amd64 et arm64, publiée sur GHCR, **publique** ([ADR-0027](adr/0027-depot-public.md), qui amende ADR-0019) : le NAS la tire sans identifiant. Tags `latest` et `sha-<commit court>` ; le NAS épingle un `sha-…` (`HIPPO_IMAGE_TAG`, obligatoire).
-- Mise à jour manuelle et délibérée : `docker compose pull && docker compose up -d` ; les migrations s'appliquent au démarrage.
+- Mise à jour manuelle et délibérée : une sauvegarde par `hippo backup`, puis `docker compose pull && docker compose up -d` ; les migrations s'appliquent au démarrage.
 - Le service écoute sur `127.0.0.1:8080` dans le réseau du sidecar, qui seul le publie (`tailscale serve`) ; aucun port publié. Sidecar en mode noyau (`NET_ADMIN`, `/dev/net/tun`), image Tailscale épinglée ; le service redémarre avec le sidecar, dont il partage le réseau. La clé d'authentification Tailscale ne sert qu'à l'enrôlement (`TS_AUTH_ONCE`).
-- Sauvegarde nocturne à 3 h par `VACUUM INTO` et copie des images, 14 jours conservés, plus une copie chiffrée externe ([ADR-0020](adr/0020-sauvegardes.md)) : E6-03, change `nightly-backup`, pas encore en place au 7 novembre 2026.
+- Sauvegardes sur le NAS seulement, sans copie externe ([RG-98](metier.md#données-et-multi-utilisateur), [ADR-0039](adr/0039-sauvegardes-sur-le-nas.md), qui remplace la copie externe de l'[ADR-0020](adr/0020-sauvegardes.md)) : chaque nuit à `BACKUP_SCHEDULE` (3 h, heure de Paris) par le service, et à la demande, avant chaque mise à jour, par `docker compose exec hippo /hippo backup`. Copie de la base par `VACUUM INTO` sur une connexion en lecture seule, puis des images, liées en dur à la sauvegarde précédente quand elles n'ont pas changé ; dans le dossier partagé `Sauvegardes/hippo` (`BACKUP_HOST_DIR`, monté sur `/backups`, obligatoire). Conservation : 14 jours, les 3 sauvegardes les plus récentes toujours gardées. Restauration manuelle, par le [runbook NAS](runbook-nas.md#8-revenir-en-arrière). Change `nightly-backup` (E6-03).
 - Logs JSON sur la sortie standard, sans secret ni contenu d'élément ; rotation par Docker (`json-file`, taille bornée), pour que les logs ne remplissent pas le volume du NAS.
-- Limite mémoire à 384 Mo ([ADR-0038](adr/0038-limite-memoire-384-mo.md), qui amende ADR-0019) : le service, l'enfant d'extraction (48 Mio) et l'enfant de copie d'image (256 Mio).
-- `TZ` ne règle que l'horodatage des logs : l'horaire du batch et toutes les dates du domaine sont à l'heure de Paris.
+- Limite mémoire à 384 Mo ([ADR-0038](adr/0038-limite-memoire-384-mo.md), qui amende ADR-0019) : le service, l'enfant d'extraction (48 Mio) et l'enfant de copie d'image (256 Mio) ; pendant `hippo backup`, la commande aussi (limite souple de 32 Mio sur son tas Go).
+- `TZ` ne règle que l'horodatage des logs : les horaires du batch et de la sauvegarde, les noms des sauvegardes et toutes les dates du domaine sont à l'heure de Paris.
 
 ## Coûts et garde-fous
 
@@ -702,6 +702,5 @@ Le détail des étapes est dans la [backlog](backlog.md).
 - **Questions posées à la base** : en local sur le NAS si des modèles plus légers et performants sortent, sinon via Haiku.
 - **Profondeur des catégories** : 2 niveaux aujourd'hui, peut-être 3 ou 4 si le classement le demande ou devient plus cohérent ainsi.
 - **Médias pour l'actualité générale** : liste à définir, lignes éditoriales variées.
-- **Service de sauvegarde externe** à choisir.
 - **Reels Instagram** : surveiller les outils qui simplifieraient l'extraction d'ici la V1.5.
 - **Compte Apple Developer payant** : seulement si d'autres projets iOS le justifient.

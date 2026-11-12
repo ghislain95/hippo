@@ -1,15 +1,15 @@
 # Runbook NAS — installer, vérifier, mettre à jour Hippo
 
-Procédure pour faire tourner Hippo sur le NAS (Ugreen DXP4800 Plus, UGOS Pro), le joindre en HTTPS par Tailscale, puis le mettre à jour et revenir en arrière. Elle sert à Ghislain, seul, sans l'agent ([ADR-0015](adr/0015-reseau-tailscale.md), [ADR-0019](adr/0019-deploiement-docker-nas.md), [ADR-0038](adr/0038-limite-memoire-384-mo.md)).
+Procédure pour faire tourner Hippo sur le NAS (Ugreen DXP4800 Plus, UGOS Pro), le joindre en HTTPS par Tailscale, le sauvegarder, puis le mettre à jour, revenir en arrière et restaurer une sauvegarde. Elle sert à Ghislain, seul, sans l'agent ([ADR-0015](adr/0015-reseau-tailscale.md), [ADR-0019](adr/0019-deploiement-docker-nas.md), [ADR-0038](adr/0038-limite-memoire-384-mo.md), [ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)).
 
 > **État** : écrite le 2026-11-07 par le change `deploy-nas` (E6-01, E6-02, E6-04), à suivre une première fois pendant sa QA. Les libellés des écrans d'UGOS Pro sont donnés à titre indicatif : la QA les corrige.
 >
-> **Pas encore de sauvegarde** : la sauvegarde nocturne arrive avec E6-03 (change `nightly-backup`). D'ici là, rien de précieux dans Hippo (section 9).
+> **Sauvegardes** : ajoutées le 2026-11-12 par le change `nightly-backup` (E6-03), à suivre une première fois pendant sa QA. Hippo se sauvegarde chaque nuit et avant chaque mise à jour dans le dossier partagé `Sauvegardes/hippo` du NAS ; les sauvegardes ne quittent jamais le NAS (section 9). Une installation antérieure à ce change passe d'abord par la section 7, « Mise à jour qui installe les sauvegardes ».
 
 Conventions de ce document :
 
 - Les commandes marquées « NAS » se tapent dans une session SSH sur le NAS ; celles marquées « Mac » dans un terminal du Mac.
-- `<volume>`, `<tailnet>`, `<sha>`, `<tag>` sont à remplacer. Rien de personnel (nom du tailnet, adresses, clés) ne s'écrit dans le dépôt, qui est public ([ADR-0027](adr/0027-depot-public.md)).
+- `<volume>`, `<tailnet>`, `<sha>`, `<tag>`, `<nom>` sont à remplacer. Rien de personnel (nom du tailnet, adresses, clés) ne s'écrit dans le dépôt, qui est public ([ADR-0027](adr/0027-depot-public.md)).
 - Un **journal d'exploitation**, hors du dépôt (une note du gestionnaire de mots de passe convient), garde pour chaque installation ou mise à jour : la date, le SHA des fichiers récupérés, le tag de l'image, et ce qui a été fait.
 
 ## Ce qu'il faut
@@ -61,9 +61,14 @@ Conventions de ce document :
    ls -d /volume*/*/
    ```
 
-   Repérer le dossier partagé qui accueillera Hippo (par exemple `/<volume>/docker`, créé par l'appli Docker). Il doit être **réservé à l'administrateur** (aucun autre utilisateur, pas d'accès invité) et **exclu de toute tâche de synchronisation ou de sauvegarde vers le cloud** d'UGOS : la base et les images de Hippo ne doivent pas quitter le NAS en clair ([ADR-0020](adr/0020-sauvegardes.md)). Le chiffrement de la copie externe arrive avec E6-03.
+   Repérer le dossier partagé qui accueillera Hippo (par exemple `/<volume>/docker`, créé par l'appli Docker), et celui de ses sauvegardes, `Sauvegardes` (créé à la section 1, point 4, s'il n'existe pas). Chacun doit être :
+   - **réservé à l'administrateur** (aucun autre utilisateur, pas d'accès invité) : les sauvegardes contiennent tous les éléments, privés compris (RG-98) ;
+   - **exclu de toute tâche de synchronisation ou de sauvegarde vers le cloud** d'UGOS (applis de synchronisation et de sauvegarde, libellés à confirmer pendant la QA) : la base, les images et leurs sauvegardes ne quittent jamais le NAS (RG-92). Il n'y a **aucune copie externe** ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)) ;
+   - sur un **volume local** du NAS, pas sur un partage réseau monté : le verrou des sauvegardes n'y est pas fiable.
 
-5. **Alimentation** : UGOS › Panneau de configuration › Matériel et alimentation. Aucune extinction ni mise en veille programmée autour de 2 h : le batch de nuit manqué n'est pas rattrapé, il part la nuit suivante (RG-30).
+   Une tâche existante qui inclut l'un de ces dossiers : l'en exclure, ou s'arrêter et le signaler.
+
+5. **Alimentation** : UGOS › Panneau de configuration › Matériel et alimentation. Aucune extinction ni mise en veille programmée entre 2 h et 3 h 30 : le batch de nuit (2 h) et la sauvegarde de nuit (3 h) manqués ne sont pas rattrapés, ils partent la nuit suivante (RG-30, RG-98).
 
 6. **Console Tailscale** ([login.tailscale.com/admin](https://login.tailscale.com/admin)) :
    - **Machines** : aucune machine ne s'appelle déjà `hippo` (par exemple un essai depuis le Mac). Sinon, la supprimer d'abord : la nouvelle s'appellerait `hippo-1`, et ce nom finirait dans les journaux publics de certificats et dans l'adresse compilée dans l'appli.
@@ -105,7 +110,29 @@ Conventions de ce document :
 
    Attendu : `data` appartient à `65532 65532` ; `tailscale/state` et `copies` en `drwx------`, sans `+` à la fin (un `+` signale une ACL d'UGOS qui ouvre le dossier à d'autres comptes). Si `data` n'appartient pas à 65532 (les droits des dossiers partagés d'UGOS peuvent l'emporter), s'arrêter : SQLite ne pourra pas créer la base. `data/` doit exister **avant** le premier démarrage : créé par Docker, il appartiendrait à root.
 
-4. Noter dans le journal : date, `SHA`.
+4. **Dossier des sauvegardes** (une fois, avant le `.env` de la section 2 et avant tout démarrage) : le compose refuse de démarrer si le dossier n'existe pas, et Hippo refuse de démarrer s'il ne peut pas y écrire.
+   - Créer le dossier partagé `Sauvegardes` dans UGOS s'il n'existe pas : Panneau de configuration › Dossiers partagés › Créer (libellés indicatifs), sur le même volume que `docker`, réservé à l'administrateur, sans synchronisation ni sauvegarde cloud (section 0, point 4).
+   - Vérifier qu'il existe (NAS) :
+
+   ```bash
+   sudo ls -ld /<volume>/Sauvegardes
+   ```
+
+   Attendu : un dossier. Absent : le créer dans UGOS d'abord ; un `mkdir` le créerait hors des dossiers partagés d'UGOS.
+
+   - Créer le sous-dossier de Hippo, le donner à l'utilisateur de l'image (uid 65532) et le fermer aux autres. NAS :
+
+   ```bash
+   SAUVEGARDES=/<volume>/Sauvegardes/hippo
+   ```
+
+   ```bash
+   sudo mkdir -p "$SAUVEGARDES" && sudo chown 65532:65532 "$SAUVEGARDES" && sudo chmod 750 "$SAUVEGARDES" && sudo ls -ldn "$SAUVEGARDES"
+   ```
+
+   Attendu : `drwxr-x---`, propriétaire `65532 65532`, **sans `+` à la fin**. Un `+` signale une ACL d'UGOS, qui peut ouvrir les sauvegardes à d'autres comptes ou empêcher Hippo d'y écrire : s'arrêter et le signaler. Comme `HIPPO_DIR`, la variable `SAUVEGARDES` se redéfinit à chaque session SSH.
+
+5. Noter dans le journal : date, `SHA`.
 
 ## 2. Fichier `.env` (une fois)
 
@@ -146,6 +173,8 @@ Conventions de ce document :
    | `ANTHROPIC_API_KEY` | **vide** en phase 1 (section 4) : rien ne peut partir vers l'IA |
    | `ANALYSIS_MODEL`, `ANALYSIS_INPUT_PRICE_USD_PER_MTOK`, `ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK` | défauts (Claude Haiku 4.5, 1 $ et 5 $ par million de jetons, vérifiés le 2026-11-07) ; à changer ensemble si le modèle change (RG-80) |
    | `BATCH_SCHEDULE` | `"0 2 * * *"` (heure de Paris) |
+   | `BACKUP_SCHEDULE` | `"0 3 * * *"` (heure de Paris) ; seule la forme quotidienne `M H * * *` est acceptée, toute autre empêche Hippo de démarrer |
+   | `BACKUP_HOST_DIR` | `/<volume>/Sauvegardes/hippo`, le dossier de la section 1, point 4 ; obligatoire, le compose refuse de démarrer sans. Jamais `BACKUP_DIR` ni `DATA_DIR` dans ce fichier : l'image les fixe |
    | `MONTHLY_BUDGET_USD` | `5` (au-delà, plus d'analyse jusqu'au 1er du mois suivant, RG-81) |
    | `TZ` | `Europe/Paris` |
    | `TS_AUTHKEY` | la clé de la section 3, puis **effacée** après l'enrôlement (section 4) |
@@ -200,7 +229,8 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
    Attendu, en JSON, une ligne par évènement :
    - `"msg":"hippo started"` avec `"version"` : le SHA complet, qui **commence par** les 7 caractères du tag ;
    - `"msg":"analysis prices"` avec le modèle et les deux prix ;
-   - `"msg":"no ANTHROPIC_API_KEY: the nightly analysis sends nothing"` (attendu en phase 1).
+   - `"msg":"no ANTHROPIC_API_KEY: the nightly analysis sends nothing"` (attendu en phase 1) ;
+   - `"msg":"backup scheduled"` avec `"backup_schedule"` et `"next_run"` : la prochaine sauvegarde de nuit, en UTC.
 
    Aucune ligne ne contient de token, de clé ni de contenu d'élément.
 
@@ -313,6 +343,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 - **Logs** : appli Docker › Conteneurs › `hippo-hippo-1` › Journal. Une ligne JSON par évènement (`time`, `level`, `msg`, puis des identifiants et des compteurs) ; jamais de secret ni de contenu d'élément. Les logs tournent seuls (3 fichiers de 10 Mo par conteneur).
 - **Santé** : la colonne d'état montre `healthy`. Limite connue : la sonde interroge Hippo de l'intérieur ; elle reste verte même si le nœud Tailscale est hors ligne. Le vrai test reste `/healthz` depuis l'iPhone.
 - **Redémarrer** : redémarrer **le projet** (les deux conteneurs), ou `hippo-hippo-1` seul. **Jamais `hippo-tailscale-1` seul** : il porte le réseau de Hippo, qui perdrait sa connexion sans que sa sonde ne le voie.
+- **Sauvegardes** : dans le journal de `hippo-hippo-1`, la ligne `backup scheduled` au démarrage (prochaine sauvegarde de nuit), puis chaque nuit une ligne `backup` avec son `outcome` (section 9). La sortie d'un `docker compose exec hippo /hippo backup` ne va pas dans ce journal : elle s'affiche dans la session SSH.
 - **Ne pas modifier** le compose ni les variables depuis l'interface : la référence est le dossier `$HIPPO_DIR` et ce runbook.
 
 ## 7. Mettre à jour
@@ -333,21 +364,53 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
    cd "$HIPPO_DIR" && sudo docker compose pull
    ```
 
-5. **Copier les données, Hippo arrêté** (la base est en WAL : ses fichiers `-wal` et `-shm` partent avec elle), puis démarrer la nouvelle version. La copie porte la date et l'heure ; si elle existe déjà, `mkdir` échoue avant l'arrêt et rien ne change. NAS :
+5. **Sauvegarder, Hippo en marche**, avec la version en place. NAS :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo docker compose exec hippo /hippo backup; echo "code de sortie : $?"
+   ```
+
+   Attendu : une ligne JSON `"msg":"backup"` avec `"outcome":"ok"` et `"backup":"<nom>"`, puis `code de sortie : 0`. Cette sortie ne va **pas** dans les logs Docker : c'est ici qu'on la lit. Noter `<nom>` dans le journal. Un autre code, ou un autre `outcome` : ne pas mettre à jour, voir la section 10.
+
+   - Toujours `exec`, jamais `run` : `run` lancerait un conteneur neuf de l'image du nouveau tag (point 4), et la sauvegarde ne serait pas celle de la version en place.
+   - Jamais `-u root` : des fichiers de la base (`-wal`, `-shm`) pourraient appartenir à root, et Hippo ne pourrait plus les ouvrir.
+   - Si une sauvegarde est déjà en cours (celle de la nuit), la commande l'attend jusqu'à 10 minutes (ligne `waiting for the backup lock`), puis échoue avec `"outcome":"locked"`.
+   - Les captures faites entre cette sauvegarde et le point 6 n'y sont pas : ne rien capturer pendant la mise à jour.
+
+6. Démarrer la nouvelle version (NAS) :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo docker compose up -d
+   ```
+
+7. Vérifier : `cd "$HIPPO_DIR" && sudo docker compose ps` (`healthy`), `/healthz` depuis l'iPhone avec la nouvelle `version`. Les migrations s'appliquent seules au démarrage.
+8. Noter dans le journal. Les sauvegardes anciennes s'effacent seules (section 9).
+
+### Mise à jour qui installe les sauvegardes (une fois)
+
+La première mise à jour vers une version qui contient le change `nightly-backup` diffère : l'image en place n'a pas encore la commande `backup`, et le nouveau compose exige le dossier des sauvegardes.
+
+1. Points 1 à 3 ci-dessus. Le `diff` du point 3 montre `BACKUP_HOST_DIR` : ne pas l'ajouter tout de suite.
+2. Créer et vérifier le dossier des sauvegardes : section 1, point 4. **Avant** la ligne `BACKUP_HOST_DIR` et avant tout démarrage : le compose refuse un dossier absent (« bind source path does not exist »), et Hippo refuse de démarrer s'il ne peut pas y écrire.
+3. Ajouter au `.env` la ligne `BACKUP_HOST_DIR=/<volume>/Sauvegardes/hippo` (section 2, point 4). Sans elle, toute commande `docker compose` s'arrête sur « set BACKUP_HOST_DIR in infra/.env ».
+4. Point 4 ci-dessus (tag, `pull`).
+5. À la place des points 5 et 6, **copier les données à la main, Hippo arrêté** (la base est en WAL : ses fichiers `-wal` et `-shm` partent avec elle), puis démarrer la nouvelle version. La copie porte la date et l'heure ; si elle existe déjà, `mkdir` échoue avant l'arrêt et rien ne change. NAS :
 
    ```bash
    cd "$HIPPO_DIR" && C="copies/data-$(date +%F-%H%M)" && sudo mkdir "$C" && sudo docker compose stop hippo && sudo cp -a data/. "$C"/ && echo "copie : $C" && sudo docker compose up -d
    ```
 
-   Noter le nom de la copie dans le journal.
+   Noter le nom de la copie dans le journal. Pour revenir en arrière depuis cette mise à jour : section 8, « Depuis une copie manuelle ».
 
-6. Vérifier : `cd "$HIPPO_DIR" && sudo docker compose ps` (`healthy`), `/healthz` depuis l'iPhone avec la nouvelle `version`. Les migrations s'appliquent seules au démarrage.
-7. Noter dans le journal ; supprimer les copies de plus de quelques jours dans `copies/`.
+6. Point 7 ci-dessus, et dans les logs la ligne `backup scheduled` (section 4, point 3).
+7. Une première sauvegarde, avec la commande du point 5 ci-dessus : elle copie toutes les images, c'est la plus longue. Pendant la QA du change `nightly-backup`, garder `sudo docker stats` ouvert dans une autre session SSH et noter le pic de mémoire de `hippo-hippo-1` et la durée (`duration_ms`).
+8. Le lendemain matin, la sauvegarde de la nuit (section 9). Supprimer la copie manuelle quand tout va bien.
 
 ## 8. Revenir en arrière
 
 - **Sans migration entre les deux versions** : remettre l'ancien tag dans `HIPPO_IMAGE_TAG` (et les anciens fichiers, section 1 avec l'ancien `SHA`, s'ils ont changé), puis `sudo docker compose up -d`.
-- **Avec une migration** : l'ancienne image démarrerait sans erreur sur le nouveau schéma, qu'elle ne connaît pas (goose ignore les versions inconnues). Il faut restaurer la copie faite avant la mise à jour. NAS :
+- **Avec une migration** : l'ancienne image démarrerait sans erreur sur le nouveau schéma, qu'elle ne connaît pas (goose ignore les versions inconnues). Il faut restaurer la sauvegarde faite avant la mise à jour (section 7, point 5, nom noté dans le journal) : « Restaurer une sauvegarde » ci-dessous. Son manifeste donne l'ancien tag.
+- **Depuis une copie manuelle** de `copies/` (mise à jour qui installe les sauvegardes). NAS :
 
   ```bash
   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-abandonnee-$(date +%F-%H%M)" && sudo cp -a "copies/<nom de la copie, noté dans le journal>" data && sudo ls -ldn data
@@ -355,22 +418,154 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 
   Attendu : `data` appartient à `65532 65532` (`cp -a` garde le propriétaire). Puis remettre l'ancien tag et les anciens fichiers, et `sudo docker compose up -d`. Les captures faites depuis la copie sont perdues (elles restent dans `copies/data-abandonnee-…`).
 
-## 9. Sauvegardes : pas encore
+### Restaurer une sauvegarde
 
-Jusqu'au change `nightly-backup` (E6-03, [ADR-0020](adr/0020-sauvegardes.md)), **aucune sauvegarde automatique** :
+Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captures faites depuis (RG-98) ; ces captures restent dans le `data/` mis de côté. Hippo n'a pas de commande de restauration : tout se fait à la main.
 
-- le RAID protège d'une panne de disque, pas d'une erreur ni d'un bug ;
-- seules existent les copies manuelles de `copies/`, faites avant chaque mise à jour ;
-- ne rien mettre de précieux dans Hippo d'ici là ;
-- ne pas ajouter `$HIPPO_DIR` à une synchronisation ou à une sauvegarde cloud d'UGOS : la copie externe sera chiffrée sur le NAS avant l'envoi.
+1. Choisir la sauvegarde (NAS, `SAUVEGARDES` défini à la section 1, point 4) :
 
-Perdre `tailscale/state` crée une nouvelle machine au prochain démarrage (nouvelle clé d'authentification, et peut-être un nouveau nom) : `nightly-backup` décidera s'il faut le sauvegarder.
+   ```bash
+   sudo ls "$SAUVEGARDES"
+   ```
+
+   Chaque nom est l'heure de Paris du début de la sauvegarde, avec son décalage (`2026-11-13T030000+0100`). Jamais un dossier `.partial-…` : c'est une sauvegarde inachevée.
+
+2. Lire son manifeste (NAS) :
+
+   ```bash
+   sudo cat "$SAUVEGARDES/<nom>/manifest.json"
+   ```
+
+   `backend_version` est la version qui l'a faite ; le tag de son image est `sha-` suivi des 7 premiers caractères de `backend_version`. Vérifier que ce tag existe (section 2, point 3). `migration_version` est la dernière migration de la base sauvegardée.
+
+3. Arrêter Hippo, mettre `data/` de côté et créer un `data/` vide. Si `data/` n'a pas bougé, `mkdir` échoue et rien n'est écrasé. NAS :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-abandonnee-$(date +%F-%H%M)" && sudo mkdir data
+   ```
+
+4. **Copier** la base et les images de la sauvegarde dans `data/`, puis le donner à l'utilisateur de l'image. Toujours `cp -a`, **jamais `mv` ni `ln`** : déplacer viderait la sauvegarde, et un lien ferait écrire Hippo dans la sauvegarde et dans toutes celles qui partagent ses images. NAS :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo cp -a "$SAUVEGARDES/<nom>/hippo.db" "$SAUVEGARDES/<nom>/assets" data/ && sudo chown -R 65532:65532 data && sudo ls -ln data
+   ```
+
+   Attendu : `hippo.db` et `assets`, propriétaire `65532 65532`, rien d'autre. **Aucun** `hippo.db-wal` ni `hippo.db-shm` : une sauvegarde n'en contient pas, et un tel fichier venu d'une autre base abîmerait celle-ci. Hippo repasse la base en mode WAL au démarrage.
+
+5. Mettre dans `HIPPO_IMAGE_TAG` le tag du point 2 (et les fichiers du SHA correspondant, section 1, s'ils ont changé), puis démarrer (NAS) :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo docker compose up -d
+   ```
+
+6. Vérifier : `cd "$HIPPO_DIR" && sudo docker compose ps` (`healthy`), puis `/healthz` depuis l'iPhone : sa `version` commence par les 7 caractères du tag.
+7. Noter dans le journal : la sauvegarde restaurée, le tag, le nom du `data/` mis de côté. Le supprimer quand tout va bien : `sudo rm -r "$HIPPO_DIR/copies/data-abandonnee-<date>"`.
+
+### Tester une restauration
+
+À faire une fois, pendant la QA du change `nightly-backup` ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)) : sur une base de test, le vrai `data/` mis de côté puis remis en place. Hors de 2 h à 3 h 30 (batch et sauvegarde de nuit) ; aucune capture réelle pendant le test : elle finirait dans la base de test.
+
+1. Mettre le vrai `data/` de côté et démarrer sur un `data/` vide (NAS) :
+
+   ```bash
+   cd "$HIPPO_DIR" && R="copies/data-reelle-$(date +%F-%H%M)" && sudo docker compose stop hippo && sudo mv -n data "$R" && sudo mkdir data && sudo chown 65532:65532 data && echo "vrai data : $R" && sudo docker compose up -d
+   ```
+
+   Noter le nom du vrai `data/` dans le journal.
+
+2. Deux captures fictives **privées** (jamais envoyées à l'IA, RG-12), chacune avec un `client_id` fixe, depuis le Mac (`HIPPO_TOKEN` comme à la section 4, point 8 ; l'image de la section 5, point 3) :
+
+   ```bash
+   curl -sS -w '\nHTTP %{http_code}\n' https://hippo.<tailnet>.ts.net/api/items -H "Authorization: Bearer $HIPPO_TOKEN" -H 'Content-Type: application/json' -d '{"note":"Note fictive de test de restauration","is_private":true,"client_id":"01K9NASREST000000000000001"}'
+   ```
+
+   ```bash
+   curl -sS -w '\nHTTP %{http_code}\n' https://hippo.<tailnet>.ts.net/api/items -H "Authorization: Bearer $HIPPO_TOKEN" -F image=@"$HOME/Desktop/test-hippo.png" -F is_private=true -F client_id=01K9NASREST000000000000002
+   ```
+
+   Attendu : `HTTP 201` pour les deux. Noter l'`id` de chaque élément et, pour l'image, l'`id` de son image (`assets`).
+
+3. Une sauvegarde de cette base : section 7, point 5. Noter `<nom>`.
+4. La restaurer : « Restaurer une sauvegarde », points 3 à 6 (le tag ne change pas : `backend_version` est la version en place).
+5. Vérifier depuis le Mac. Rejouer chaque capture du point 2 telle quelle : `HTTP 200` (et non `201`) avec le même `id` (RG-08). Puis l'image :
+
+   ```bash
+   curl -sS -o "$HOME/Desktop/test-hippo-restauree.png" -w 'HTTP %{http_code}\n' https://hippo.<tailnet>.ts.net/api/assets/<id de l'image> -H "Authorization: Bearer $HIPPO_TOKEN" && cmp "$HOME/Desktop/test-hippo.png" "$HOME/Desktop/test-hippo-restauree.png" && echo identique
+   ```
+
+   Attendu : `HTTP 200` puis `identique`.
+
+6. Remettre le vrai `data/`. Le test `[ ! -e data ]` empêche de ranger le vrai `data/` **dans** un `data/` resté en place. NAS :
+
+   ```bash
+   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-test-restauration-$(date +%F-%H%M)" && [ ! -e data ] && sudo mv -n "copies/<vrai data, noté au point 1>" data && sudo ls -ldn data && sudo docker compose up -d
+   ```
+
+   Attendu : `data` appartient à `65532 65532`. Puis `/healthz` depuis l'iPhone.
+
+7. Nettoyer : les deux bases de test, `copies/data-abandonnee-<date>` (mise de côté au point 4) et `copies/data-test-restauration-<date>` (`sudo rm -r "$HIPPO_DIR/copies/<nom>"`), puis la sauvegarde de test (`sudo rm -r "$SAUVEGARDES/<nom>"`) ; sans elle, la sauvegarde suivante lie de nouveau ses images à la dernière vraie sauvegarde. Sur le Mac, `test-hippo-restauree.png`. Noter le résultat dans le journal.
+
+## 9. Sauvegardes
+
+Chaque nuit à `BACKUP_SCHEDULE` (3 h, heure de Paris), et avant chaque mise à jour (section 7, point 5), Hippo copie sa base et ses images dans `/<volume>/Sauvegardes/hippo` (`BACKUP_HOST_DIR`) ([RG-98](metier.md#données-et-multi-utilisateur), [ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)). Une nuit manquée (NAS éteint) n'est pas rattrapée.
+
+**Ce qu'une sauvegarde contient** : un dossier par sauvegarde, nommé d'après l'heure de Paris de son début (`2026-11-13T030000+0100`), avec :
+
+- `hippo.db` : une copie cohérente de la base, faite Hippo en marche, sans rien y écrire ;
+- `assets/` : les images ; une image inchangée depuis la sauvegarde précédente n'est pas recopiée, mais liée en dur (le même fichier sur le disque) ;
+- `manifest.json` : versions, nombres, tailles ; aucun nom de fichier, aucun contenu d'élément.
+
+Tous les éléments y sont, privés compris, sur le NAS seulement. Un élément supprimé reste dans les sauvegardes jusqu'à leur effacement (RG-98). Ni `tailscale/state` (le nœud se réenrôle avec une clé neuve, section 10), ni `.env` (ses secrets sont dans le gestionnaire de mots de passe) ne sont sauvegardés.
+
+Le dossier contient aussi `.lock` (le verrou, à laisser) et, pendant une sauvegarde, un dossier `.partial-<nom>`, renommé à la fin. **Ne jamais modifier un fichier d'une sauvegarde** : une image liée est la même dans toutes les sauvegardes qui la contiennent. Supprimer un dossier de sauvegarde entier ne touche pas les autres.
+
+**Conservation** : après chaque sauvegarde réussie, celles de plus de 14 jours sont effacées, sauf les 3 plus récentes, toujours gardées. Seuls les dossiers nommés comme une sauvegarde sont effacés ; rien d'autre du dossier n'est touché.
+
+**Place occupée** : à peu près les images une fois, plus une base par sauvegarde (14 à 28 bases). NAS :
+
+```bash
+sudo du -sh "$SAUVEGARDES"
+```
+
+`du` compte une seule fois un fichier lié dans plusieurs sauvegardes ; l'explorateur de fichiers d'UGOS peut l'additionner à chaque sauvegarde et afficher plus.
+
+**Lire la sauvegarde de la nuit**, le matin (NAS) :
+
+```bash
+cd "$HIPPO_DIR" && sudo docker compose logs --since 24h hippo | grep -E '"msg":"backup|"schedule":"backup"'
+```
+
+Attendu : une ligne `backup` vers 3 h avec `"trigger":"nightly"` et `"outcome":"ok"`. Ses champs : `backup` (le nom), `backend_version`, `migration_version`, `database_bytes`, `images`, `images_copied`, `images_linked`, `images_gone` (une image supprimée pendant la sauvegarde : sans gravité), `image_bytes_written`, `duration_ms`, `backups_removed`, `leftovers_removed`. Les autres `outcome` :
+
+| `outcome` | Sens |
+| --- | --- |
+| `skipped` | la sauvegarde de nuit a trouvé une autre sauvegarde en cours (`hippo backup`) : rien d'écrit, la suivante part la nuit prochaine |
+| `locked` | `hippo backup` a attendu 10 minutes une sauvegarde en cours |
+| `no_room` | pas assez de place sur le volume : rien d'écrit |
+| `name_taken` | une sauvegarde porte déjà ce nom (deux sauvegardes dans la même seconde) |
+| `failed` | erreur, lue dans `error` (jamais un chemin) ; rien ne reste de cette sauvegarde |
+| `stopped` | Hippo s'est arrêté pendant la sauvegarde ; rien ne reste de cette sauvegarde |
+
+Une ligne `backup retention` (`error`) signale un effacement impossible : la sauvegarde existe quand même.
+
+**Risques acceptés** par Ghislain le 12 novembre 2026 ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)) : un vol, un incendie, une surtension ou un rançongiciel qui atteint le NAS emporte Hippo et ses sauvegardes ensemble ; une image abîmée sur le disque l'est dans toutes les sauvegardes qui la lient. Le RAID 1 couvre la panne d'un disque, pas ces risques.
 
 ## 10. En cas de problème
 
 | Symptôme | Piste |
 | --- | --- |
 | `docker compose` : « set HIPPO_IMAGE_TAG in infra/.env » ou « set API_TOKEN… » | variable vide ou absente dans `.env` (section 2) |
+| `docker compose` : « set BACKUP_HOST_DIR in infra/.env » | `BACKUP_HOST_DIR` vide ou absente dans `.env` : section 1 point 4 (dossier), puis section 2 |
+| `up` : « bind source path does not exist » | le dossier de `BACKUP_HOST_DIR` n'existe pas, ou le chemin est mal recopié : `sudo ls -ldn "$SAUVEGARDES"`, section 1 point 4. Docker ne le crée pas, exprès |
+| `hippo-hippo-1` redémarre en boucle, log « hippo: backup folder: … » (« permission denied », « no such file or directory », « not a directory ») | Hippo refuse de démarrer sans un dossier des sauvegardes où il peut écrire : propriétaire 65532 et absence de `+` (`sudo ls -ldn "$SAUVEGARDES"`, section 1 point 4) |
+| Log « BACKUP_DIR must be outside DATA_DIR… » ou « BACKUP_SCHEDULE: … » au démarrage | `BACKUP_DIR` ou `DATA_DIR` changées dans l'image ou dans le compose à la main (le compose ne lit pas ces variables dans `.env`) : reprendre les fichiers au SHA (section 1) ; `BACKUP_SCHEDULE` qui n'est pas de la forme `M H * * *` : la corriger (section 2) |
+| `hippo backup` ou la ligne de nuit : `"outcome":"no_room"` | le volume est presque plein ; rien n'a été écrit. Libérer de la place (`df -h /<volume>`) ; une vieille sauvegarde peut s'effacer à la main (`sudo rm -r "$SAUVEGARDES/<nom>"`), jamais la plus récente |
+| `hippo backup` : `"outcome":"locked"` | une autre sauvegarde a tenu le verrou 10 minutes (celle de la nuit, ou un autre `exec`) : attendre la ligne `backup` de celle-ci, puis relancer |
+| Aucune ligne `backup` la nuit alors que `backup scheduled` est au démarrage | `LOG_LEVEL` au-dessus d'`info` dans `.env` masque la ligne d'une sauvegarde réussie : remettre `info` (la commande `hippo backup`, elle, imprime toujours sa ligne) |
+| `hippo backup` : `"outcome":"name_taken"` | deux sauvegardes lancées dans la même seconde : relancer |
+| Un dossier `.partial-…` dans `$SAUVEGARDES` alors qu'aucune sauvegarde ne tourne | laissé par un arrêt brutal pendant une sauvegarde : la suivante le supprime, n'y rien toucher |
+| Pas de ligne `backup` le matin | NAS éteint ou Hippo arrêté à 3 h (pas de rattrapage) ; une ligne `scheduled run missed` avec `"schedule":"backup"` ; sinon chercher `backup scheduled` au dernier démarrage (section 9) |
+| Après un `exec -u root`, Hippo n'arrive plus à ouvrir ou à écrire sa base | des fichiers `hippo.db-wal` ou `hippo.db-shm` appartiennent à root : `cd "$HIPPO_DIR" && sudo chown 65532:65532 data/hippo.db*`, puis redémarrer ; ne jamais lancer `hippo backup` avec `-u root` |
 | `pull` : « manifest unknown » | le tag n'existe pas : le relire sur la page du paquet GHCR |
 | `hippo-hippo-1` redémarre en boucle, log « open database … » ou « permission denied » | `data/` n'appartient pas à 65532 : `sudo ls -ldn data`, section 1 point 3 |
 | `hippo-hippo-1` `unhealthy` | `sudo docker compose logs --tail 50 hippo` |

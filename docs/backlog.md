@@ -420,11 +420,11 @@ ADR-0015
 
 ### E6-03 — Sauvegardes · M
 
-ADR-0020
-- Sauvegarde locale nocturne (base et images), 14 jours conservés.
+RG-92 · RG-98 · ADR-0020 · ADR-0039
+- Sauvegardes locales seulement, sur le NAS, dans le dossier partagé `Sauvegardes/hippo` : chaque nuit à 3 h et avant chaque mise à jour (`hippo backup`), base et images, 14 jours conservés. Aucune copie externe : décidé avec Ghislain le 12 novembre 2026 ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md), qui remplace la copie externe chiffrée de l'ADR-0020).
 - Hérité d'E2-04 (27 octobre 2026) : copier la base (`VACUUM INTO`) puis les images de `DATA_DIR/assets`, en excluant les fichiers temporaires `.tmp-*`. Dans cet ordre, une image orpheline est possible, une ligne sans fichier ne l'est pas.
-- Sauvegarde externe chiffrée (service à choisir).
-- Restauration testée une fois, procédure dans `docs/runbook-nas.md`.
+- Restauration testée une fois sur le NAS, procédure dans [`docs/runbook-nas.md`](runbook-nas.md).
+- Change `nightly-backup`, cadré avec Ghislain le 12 novembre 2026.
 
 ### E6-04 — Exploitation · S
 

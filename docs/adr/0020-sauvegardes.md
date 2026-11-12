@@ -1,6 +1,6 @@
 # ADR-0020 — Sauvegardes locale et externe chiffrée
 
-- **Statut** : Accepté (service externe à choisir)
+- **Statut** : Accepté — copie externe remplacée par [ADR-0039](0039-sauvegardes-sur-le-nas.md)
 - **Date** : 2026-10-11
 
 ## Contexte
