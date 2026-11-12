@@ -81,3 +81,14 @@ updates:
     commit-message:
       prefix: build
       include: scope
+
+  # Images of the production compose: the Tailscale sidecar, pinned to an exact version. The NAS
+  # gets a bump only by fetching docker-compose.yml again at the new commit (docs/runbook-nas.md).
+  - package-ecosystem: docker-compose
+    directory: /infra
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: build
+      include: scope

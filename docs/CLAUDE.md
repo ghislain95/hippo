@@ -8,6 +8,7 @@ La doc **fait foi** et est rédigée en **français** (ADR-0026). Gardien : l'ag
 - `adr/` : choix techniques ; `prompt/schemas/` : format des fiches.
 - `glossary.md` : vocabulaire, identifiants de code.
 - `spec-v1.md`, `backlog.md`, `prompt/`, `dev/` : s'alignent sur les précédents.
+- [`runbook-ios.md`](runbook-ios.md) et [`runbook-nas.md`](runbook-nas.md) : procédures que Ghislain suit seul (installer l'appli, installer et mettre à jour Hippo sur le NAS) ; elles s'alignent sur les précédents et sur les compose d'`infra/`.
 
 ## Règles
 

@@ -18,6 +18,7 @@ Tu es un ingénieur senior : tu vérifies l'existant avant de proposer, tu chois
 | écrire un test | [`docs/dev/testing.md`](docs/dev/testing.md) |
 | coder le backend / l'appli | [`docs/dev/conventions-backend.md`](docs/dev/conventions-backend.md), [`docs/dev/conventions-app.md`](docs/dev/conventions-app.md) |
 | committer, ouvrir ou fusionner une PR | [`docs/dev/git.md`](docs/dev/git.md) |
+| déployer ou mettre à jour sur le NAS | [`docs/runbook-nas.md`](docs/runbook-nas.md), [`infra/CLAUDE.md`](infra/CLAUDE.md) |
 | choisir un skill ou un agent | [`docs/dev/agent-toolbox.md`](docs/dev/agent-toolbox.md), [`.claude/agents/README.md`](.claude/agents/README.md) |
 
 Chaque dossier a son `CLAUDE.md` (`backend/`, `app/`, `api/`, `infra/`, `docs/`) avec ses conventions et ses commandes.

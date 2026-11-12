@@ -90,7 +90,7 @@ Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la bran
 
 - **Nullabilité OpenAPI 3.1** : oapi-codegen 2.8.1 traduit `type: [string, "null"]` (`NextCursor`) en `string` non nullable. Le premier change du contrat devra vérifier ce rendu sur ses schémas nullables (le contrat de la spec en a beaucoup) et choisir la parade (`x-go-type-skip-optional-pointer`, pointeurs, ou rendu accepté).
 - **Mots-clés non standard dans l'`input_schema` de l'outil** : le schéma assemblé garde `x-schema-version` et les `$defs`. Leur acceptation par l'API Anthropic est à vérifier au premier appel réel (E3-01 ou E3-09), avant de compter dessus.
-- **Volume `./data` sur le NAS** : l'image tourne en utilisateur non root (uid 65532). Sur le Mac, Docker Desktop gère les droits ; sur le NAS, le dossier devra lui appartenir (`sudo chown -R 65532:65532 data`, noté dans le compose ; procédure dans `docs/runbook-nas.md` en E6-01).
+- **Volume `./data` sur le NAS** : l'image tourne en utilisateur non root (uid 65532). Sur le Mac, Docker Desktop gère les droits ; sur le NAS, le dossier doit lui appartenir avant le premier démarrage (`sudo chown -R 65532:65532 data`, noté dans le compose). Depuis le 7 novembre 2026, la procédure et sa vérification (`ls -ln`) sont dans le [runbook NAS](../runbook-nas.md#1-dossier-droits-et-fichiers-une-fois) (change `deploy-nas`).
 - **Compte `gh`** : `gh` est connecté en `ghislain-sartorius-adeo` ; les PR doivent partir de `ghislain95` (token, §4).
 
 ## 3. Mise à jour de la backlog et du README
@@ -117,9 +117,9 @@ Un agent relecteur, avec la grille de `code-reviewer`, a relu le code de la bran
 3. ✅ **Auto-merge GitHub** : *Allow auto-merge* coché (Settings › General) ; les agents l'utilisent selon [ADR-0034](../adr/0034-auto-merge-github.md).
 4. **Facultatif, `GITHUB_TOKEN` en lecture par défaut** (Settings › Actions › General › Workflow permissions) : non vérifiable par les agents ; les workflows déclarent déjà leurs permissions.
 5. **Anthropic** (avant E3) : compte API, crédits prépayés **sans recharge automatique**, clé dédiée à Hippo, à poser dans `infra/.env` (ADR-0021).
-6. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet.
+6. **Tailscale** (E1 et E6) : compte, Tailscale sur l'iPhone, clé d'authentification du nœud `hippo` pour `TS_AUTHKEY`, HTTPS activé sur le tailnet. Au 7 novembre 2026 : compte, iPhone et HTTPS faits en E1 ([runbook iOS](../runbook-ios.md#2-tailscale-en-https-une-fois)) ; la clé du nœud `hippo`, à usage unique et effacée après l'enrôlement, se crée en suivant le [runbook NAS](../runbook-nas.md#3-clé-dauthentification-tailscale-une-fois) (change `deploy-nas`).
 7. **Apple et SideStore** (E1) : identifiant Apple gratuit, premier appairage de SideStore depuis le Mac.
-8. **NAS** (E6) : dossier de données appartenant à l'uid 65532, service de sauvegarde externe à choisir (ADR-0020).
+8. **NAS** (E6) : dossier de données appartenant à l'uid 65532, service de sauvegarde externe à choisir (ADR-0020). Au 7 novembre 2026 : l'installation, dossier de données compris, suit le [runbook NAS](../runbook-nas.md) (change `deploy-nas`) ; le service de sauvegarde externe reste à choisir en E6-03 (change `nightly-backup`).
 
 Aucune action ne coûte d'argent à ce stade.
 

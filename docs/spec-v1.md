@@ -465,7 +465,7 @@ Mise en œuvre de RG-38. L'IA reçoit une copie, jamais le fichier stocké, qui 
 | HEIC 48 Mpx, en grille | 120 Mo | 1,91 s |
 | PNG 48 Mpx | 209 Mo | 0,46 s |
 
-Mesuré le 6 novembre 2026 dans le conteneur linux/arm64 limité à 384 Mo : un HEIC de 48 Mpx copié pendant la lecture d'un PDF de 49 Mo. La mémoire du conteneur a culminé à 215 Mio, sans processus tué ; le service a répondu à tous les contrôles de santé et le dossier temporaire était vide après coup. Le pire cas mesuré, un PNG de 48 Mpx, a culminé à 289 Mio. Ces pics ont été mesurés avec une surveillance à la milliseconde ; à 10 ms, un enfant peut aller un peu plus loin avant de s'arrêter, ce qui reste à remesurer pour les cas qui dépassent la limite (PNG entrelacé ou 16 bits). La copie y a pris 13 à 16 s quand l'enfant surveillait sa mémoire toutes les millisecondes, 2,3 s avec l'intervalle de 10 ms retenu pour la copie d'image ; le temps sur le NAS reste à mesurer, une copie au-delà de 30 s partant sans image. Le plafond reste à 50 Mpx.
+Mesuré le 6 novembre 2026 dans le conteneur linux/arm64 limité à 384 Mo : un HEIC de 48 Mpx copié pendant la lecture d'un PDF de 49 Mo. La mémoire du conteneur a culminé à 215 Mio, sans processus tué ; le service a répondu à tous les contrôles de santé et le dossier temporaire était vide après coup. Le pire cas mesuré, un PNG de 48 Mpx, a culminé à 289 Mio. Ces pics ont été mesurés avec une surveillance à la milliseconde ; à 10 ms, un enfant peut aller un peu plus loin avant de s'arrêter, ce qui reste à remesurer pour les cas qui dépassent la limite (PNG entrelacé ou 16 bits). La copie y a pris 13 à 16 s quand l'enfant surveillait sa mémoire toutes les millisecondes, 2,3 s avec l'intervalle de 10 ms retenu pour la copie d'image ; sur le NAS (amd64), le 12 novembre 2026, l'envoi d'un batch avec une capture d'écran et une page a pris 829 ms au total, copie de l'image comprise ; une photo de 48 Mpx y reste à mesurer, une copie au-delà de 30 s partant sans image. Le plafond reste à 50 Mpx.
 
 Le plafond de 50 Mpx tient sous la limite de 256 Mio. La limite du conteneur passe à 384 Mo pour faire place à cet enfant ([ADR-0038](adr/0038-limite-memoire-384-mo.md)).
 
@@ -632,47 +632,15 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 
 ## Déploiement sur le NAS
 
-Deux conteneurs : le service Go et un sidecar Tailscale qui le publie en HTTPS sur le réseau privé ([ADR-0015](adr/0015-reseau-tailscale.md), [ADR-0019](adr/0019-deploiement-docker-nas.md)).
+Deux conteneurs : le service Go et un sidecar Tailscale qui le publie en HTTPS sur le réseau privé ([ADR-0015](adr/0015-reseau-tailscale.md), [ADR-0019](adr/0019-deploiement-docker-nas.md)). Le compose de production, [`infra/docker-compose.yml`](../infra/docker-compose.yml), fait référence ; ses invariants, vérifiés en CI par `make check-infra`, sont listés dans [`infra/CLAUDE.md`](../infra/CLAUDE.md). Installation, mise à jour et retour arrière : [runbook NAS](runbook-nas.md).
 
-- Images construites par GitHub Actions, publiées sur GHCR (privé) ; mise à jour par `docker compose pull && docker compose up -d`.
-- Sauvegarde nocturne à 3 h par `VACUUM INTO` et copie des images, 14 jours conservés, plus une copie chiffrée externe ([ADR-0020](adr/0020-sauvegardes.md)).
-- Logs JSON sur la sortie standard, sans secret ni contenu d'élément.
+- Image construite par GitHub Actions pour amd64 et arm64, publiée sur GHCR, **publique** ([ADR-0027](adr/0027-depot-public.md), qui amende ADR-0019) : le NAS la tire sans identifiant. Tags `latest` et `sha-<commit court>` ; le NAS épingle un `sha-…` (`HIPPO_IMAGE_TAG`, obligatoire).
+- Mise à jour manuelle et délibérée : `docker compose pull && docker compose up -d` ; les migrations s'appliquent au démarrage.
+- Le service écoute sur `127.0.0.1:8080` dans le réseau du sidecar, qui seul le publie (`tailscale serve`) ; aucun port publié. Sidecar en mode noyau (`NET_ADMIN`, `/dev/net/tun`), image Tailscale épinglée ; le service redémarre avec le sidecar, dont il partage le réseau. La clé d'authentification Tailscale ne sert qu'à l'enrôlement (`TS_AUTH_ONCE`).
+- Sauvegarde nocturne à 3 h par `VACUUM INTO` et copie des images, 14 jours conservés, plus une copie chiffrée externe ([ADR-0020](adr/0020-sauvegardes.md)) : E6-03, change `nightly-backup`, pas encore en place au 7 novembre 2026.
+- Logs JSON sur la sortie standard, sans secret ni contenu d'élément ; rotation par Docker (`json-file`, taille bornée), pour que les logs ne remplissent pas le volume du NAS.
 - Limite mémoire à 384 Mo ([ADR-0038](adr/0038-limite-memoire-384-mo.md), qui amende ADR-0019) : le service, l'enfant d'extraction (48 Mio) et l'enfant de copie d'image (256 Mio).
 - `TZ` ne règle que l'horodatage des logs : l'horaire du batch et toutes les dates du domaine sont à l'heure de Paris.
-
-```yaml
-# infra/docker-compose.yml (ébauche)
-services:
-  tailscale:
-    image: tailscale/tailscale:latest
-    hostname: hippo
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_SERVE_CONFIG=/config/serve.json
-      - TS_STATE_DIR=/var/lib/tailscale
-    volumes:
-      - ./tailscale/state:/var/lib/tailscale
-      - ./tailscale/config:/config
-    restart: unless-stopped
-
-  hippo:
-    image: ghcr.io/<owner>/hippo:latest
-    network_mode: service:tailscale
-    environment:
-      - API_TOKEN=${API_TOKEN}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANALYSIS_MODEL=claude-haiku-4-5
-      - BATCH_SCHEDULE=0 2 * * *
-      - BACKUP_SCHEDULE=0 3 * * *
-      - ANALYSIS_INPUT_PRICE_USD_PER_MTOK=1
-      - ANALYSIS_OUTPUT_PRICE_USD_PER_MTOK=5
-      - MONTHLY_BUDGET_USD=5
-      - TZ=Europe/Paris
-    volumes:
-      - ./data:/data
-    mem_limit: 384m
-    restart: unless-stopped
-```
 
 ## Coûts et garde-fous
 

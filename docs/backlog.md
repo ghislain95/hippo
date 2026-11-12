@@ -405,11 +405,15 @@ RG-97 · ADR-0018
 
 ### E6-01 — Image et compose · M
 
+✅ Terminé le 12 novembre 2026 par le change `deploy-nas` ([archive](../openspec/changes/archive/2026-11-12-deploy-nas/proposal.md), [runbook NAS](runbook-nas.md)), suivi par Ghislain sur le NAS : Hippo tourne en HTTPS sur le tailnet, un batch réel y est passé.
+
 ADR-0019
 - Image distroless publiée sur GHCR par la CI ; `infra/docker-compose.yml` avec le sidecar Tailscale ; `.env.example` documenté.
 - Le même compose tourne sur le Mac et sur le NAS.
 
 ### E6-02 — HTTPS par Tailscale · M
+
+✅ Terminé le 12 novembre 2026 par le change `deploy-nas` ([archive](../openspec/changes/archive/2026-11-12-deploy-nas/proposal.md), [runbook NAS](runbook-nas.md)), suivi par Ghislain sur le NAS : Hippo tourne en HTTPS sur le tailnet, un batch réel y est passé.
 
 ADR-0015
 - `tailscale serve` publie le backend en HTTPS sur le réseau Tailscale ; aucun port ouvert sur la box.
@@ -423,6 +427,8 @@ ADR-0020
 - Restauration testée une fois, procédure dans `docs/runbook-nas.md`.
 
 ### E6-04 — Exploitation · S
+
+✅ Terminé le 12 novembre 2026 par le change `deploy-nas` ([archive](../openspec/changes/archive/2026-11-12-deploy-nas/proposal.md), [runbook NAS](runbook-nas.md)), suivi par Ghislain sur le NAS : Hippo tourne en HTTPS sur le tailnet, un batch réel y est passé.
 
 - Logs JSON lisibles depuis l'interface Docker du NAS ; aucun secret ni contenu d'élément dans les logs.
 - Procédure de mise à jour et de retour arrière dans `docs/runbook-nas.md`.

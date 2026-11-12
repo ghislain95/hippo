@@ -174,9 +174,11 @@ logs: ## Follow the logs of the local stack
 	API_TOKEN=$${API_TOKEN:-unused-by-logs} $(COMPOSE_LOCAL) logs --follow
 
 .PHONY: check-infra
-check-infra: ## Validate both compose files
-	API_TOKEN=check TS_AUTHKEY=check docker compose -f infra/docker-compose.yml config --quiet
+check-infra: ## Validate both compose files and their invariants (infra/check-compose.sh)
+	API_TOKEN=check HIPPO_IMAGE_TAG=check docker compose -f infra/docker-compose.yml config --quiet
 	API_TOKEN=check $(COMPOSE_LOCAL) config --quiet
+	shellcheck -S warning infra/check-compose.sh
+	bash infra/check-compose.sh
 
 # --- Agent tooling ---------------------------------------------------------------
 
