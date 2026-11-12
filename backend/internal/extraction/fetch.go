@@ -218,12 +218,13 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL, req fetchRequest) 
 		return out, nil
 	}
 	out, err = f.readBody(resp, req.Mode, out)
-	if err == nil && !out.TooLarge && ctx.Err() != nil {
+	if ctx.Err() != nil && !out.TooLarge && (err == nil || errors.Is(err, io.ErrUnexpectedEOF)) {
 		// A body that ends cleanly once the call is over may be cut: at the deadline the
 		// transport sends close_notify then closes the connection, and a server that ends a
 		// chunked or unsized body on seeing close_notify gets its last bytes in before the close;
-		// the read then ends on io.EOF instead of the deadline. Nothing read is kept, and the
-		// error wraps the context's, so that classify tells a timeout from a stop. Too large
+		// the read then ends on io.EOF instead of the deadline, or on io.ErrUnexpectedEOF when
+		// the transport decompresses a gzip stream left unfinished. Nothing read is kept, and
+		// the error wraps the context's, so that classify tells a timeout from a stop. Too large
 		// stands: more than the limit was read.
 		out.Body = nil
 		if out.PDF != nil {

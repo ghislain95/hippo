@@ -306,16 +306,21 @@ func TestFetchBodyEndedAfterDeadline(t *testing.T) {
 	pageReq := extraction.FetchRequest{Accept: "text/html", Mode: extraction.ModePage}
 	htmlReq := extraction.FetchRequest{Accept: "text/html", Mode: extraction.ModeHTML}
 	jsonReq := extraction.FetchRequest{Accept: "application/json", Mode: extraction.ModeJSON}
+	// The !out.TooLarge branch of fetch is not covered deterministically: no case reads past a limit.
 	cases := []struct {
 		name, contentType, format string
 		first                     []byte
 		req                       extraction.FetchRequest
+		gzip                      bool // a gzip stream left unfinished: io.ErrUnexpectedEOF, not io.EOF
 	}{
-		{"an HTML page", "text/html", "html", []byte("<html><head><title>Cut"), pageReq},
-		{"a PDF", "application/pdf", "pdf", pdf[:1000], pageReq},
-		{"a body neither HTML nor PDF", "image/png", "other", []byte("\x89PNG\r\n\x1a\n"), pageReq},
-		{"the page of a video", "text/html", "html", []byte("<html><head><title>Cut"), htmlReq},
-		{"an oEmbed answer", "application/json", "", []byte(`{"title":"Cut`), jsonReq},
+		{"an HTML page", "text/html", "html", []byte("<html><head><title>Cut"), pageReq, false},
+		{"a PDF", "application/pdf", "pdf", pdf[:1000], pageReq, false},
+		{"a body neither HTML nor PDF", "image/png", "other", []byte("\x89PNG\r\n\x1a\n"), pageReq, false},
+		{"the page of a video", "text/html", "html", []byte("<html><head><title>Cut"), htmlReq, false},
+		{"an oEmbed answer", "application/json", "", []byte(`{"title":"Cut`), jsonReq, false},
+		{"a gzip HTML page", "text/html", "html", []byte("<html><head><title>Cut"), pageReq, true},
+		{"a gzip PDF", "application/pdf", "pdf", pdf[:1000], pageReq, true},
+		{"a gzip oEmbed answer", "application/json", "", []byte(`{"title":"Cut`), jsonReq, true},
 	}
 	for _, tc := range cases {
 		t.Run("a body that ends after the deadline of the call is a timeout: "+tc.name, func(t *testing.T) {
@@ -328,7 +333,14 @@ func TestFetchBodyEndedAfterDeadline(t *testing.T) {
 			const link = "https://slow.example.com/cut"
 			w.handle(link, func(rw http.ResponseWriter, r *http.Request) {
 				rw.Header().Set("Content-Type", tc.contentType)
-				_, _ = rw.Write(tc.first)
+				if tc.gzip {
+					rw.Header().Set("Content-Encoding", "gzip")
+					gz := gzip.NewWriter(rw)
+					_, _ = gz.Write(tc.first)
+					_ = gz.Flush() // never closed: the stream ends without its trailer
+				} else {
+					_, _ = rw.Write(tc.first)
+				}
 				rw.(http.Flusher).Flush()
 				<-r.Context().Done()
 				cancelled.Store(true) // returning ends the chunked body cleanly
