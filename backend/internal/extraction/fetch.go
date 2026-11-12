@@ -181,7 +181,8 @@ func (f *fetcher) dial(ctx context.Context, network, addr string) (net.Conn, err
 // modePage, an HTML page is read in memory, up to MaxBodySize; a PDF is streamed to a temporary
 // file without name, up to MaxPDFSize, which the caller closes (response.PDF). The response
 // keeps its format and final URL along with an error of the body, so that a PDF that fails
-// falls back with its file name. The error names the URL: it is classified, never logged nor
+// falls back with its file name. A body that ends once the call is over is such an error, of
+// the context: none of it is kept. The error names the URL: it is classified, never logged nor
 // stored.
 func (f *fetcher) fetch(ctx context.Context, target *url.URL, req fetchRequest) (response, error) {
 	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
@@ -216,10 +217,30 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL, req fetchRequest) 
 	if out.Status < 200 || out.Status > 299 {
 		return out, nil
 	}
-	if req.Mode == modeJSON {
+	out, err = f.readBody(resp, req.Mode, out)
+	if err == nil && !out.TooLarge && ctx.Err() != nil {
+		// A body that ends cleanly once the call is over may be cut: at the deadline the
+		// transport sends close_notify then closes the connection, and a server that ends a
+		// chunked or unsized body on seeing close_notify gets its last bytes in before the close;
+		// the read then ends on io.EOF instead of the deadline. Nothing read is kept, and the
+		// error wraps the context's, so that classify tells a timeout from a stop. Too large
+		// stands: more than the limit was read.
+		out.Body = nil
+		if out.PDF != nil {
+			_ = out.PDF.Close() // no name: closing frees the data, there is nothing to flush
+			out.PDF = nil
+		}
+		return out, fmt.Errorf("fetch: read body: %w", ctx.Err())
+	}
+	return out, err
+}
+
+// readBody reads the body of a success status as mode says, into out.
+func (f *fetcher) readBody(resp *http.Response, mode fetchMode, out response) (response, error) {
+	if mode == modeJSON {
 		return readJSON(resp.Body, out)
 	}
-	if req.Mode == modePage && mediaTypeOf(out.ContentType) == "application/pdf" && resp.ContentLength > MaxPDFSize {
+	if mode == modePage && mediaTypeOf(out.ContentType) == "application/pdf" && resp.ContentLength > MaxPDFSize {
 		// Announced too large: not a byte of the body is read.
 		out.Format, out.TooLarge = formatPDF, true
 		return out, nil
@@ -233,7 +254,7 @@ func (f *fetcher) fetch(ctx context.Context, target *url.URL, req fetchRequest) 
 		return out, fmt.Errorf("fetch: read body: %w", err)
 	}
 	switch {
-	case out.Format == formatPDF && req.Mode == modePage:
+	case out.Format == formatPDF && mode == modePage:
 		return f.downloadPDF(body, resp.ContentLength, out)
 	case out.Format == formatHTML:
 		// The limit applies to the decompressed stream: a gzip bomb or a lying Content-Length
