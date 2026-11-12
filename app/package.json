@@ -18,7 +18,7 @@
     "doctor": "expo-doctor"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.105.2",
+    "@tanstack/react-query": "^5.107.1",
     "expo": "~58.0.25",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.20",
