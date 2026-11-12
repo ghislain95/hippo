@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -201,6 +202,20 @@ const MaxJSONSize = maxJSONSize
 // FetcherWithRequest downloads as Fetcher does, with the options of each call.
 func FetcherWithRequest(policy func(netip.AddrPort) bool, resolver Resolver, roots *x509.CertPool, dir *TempDir) func(context.Context, *url.URL, FetchRequest) (Response, error) {
 	return newFetcher(policy, resolver, roots, "test", dir).fetch
+}
+
+// FetcherWithConn downloads as FetcherWithRequest does, every connection it dials wrapped by
+// wrap: a test controls when a connection closes.
+func FetcherWithConn(policy func(netip.AddrPort) bool, resolver Resolver, roots *x509.CertPool, dir *TempDir, wrap func(net.Conn) net.Conn) func(context.Context, *url.URL, FetchRequest) (Response, error) {
+	f := newFetcher(policy, resolver, roots, "test", dir)
+	f.transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := f.dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return wrap(conn), nil
+	}
+	return f.fetch
 }
 
 // FailWrites makes every temporary file of dir fail its writes, as on a full disk.

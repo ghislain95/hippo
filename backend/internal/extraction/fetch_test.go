@@ -5,9 +5,11 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -292,4 +294,112 @@ func TestFetchModes(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestFetchBodyEndedAfterDeadline makes certain a race of a loaded machine: at the deadline of
+// the call the transport sends close_notify, then closes the connection; a server that ends its
+// body on seeing close_notify (here, a handler that returns when its request is cancelled) gets
+// the end of its chunked body in before the close, and the read ends on io.EOF.
+func TestFetchBodyEndedAfterDeadline(t *testing.T) {
+	ctx := context.Background()
+	pdf := articlePDF()
+	pageReq := extraction.FetchRequest{Accept: "text/html", Mode: extraction.ModePage}
+	htmlReq := extraction.FetchRequest{Accept: "text/html", Mode: extraction.ModeHTML}
+	jsonReq := extraction.FetchRequest{Accept: "application/json", Mode: extraction.ModeJSON}
+	// The !out.TooLarge branch of fetch is not covered deterministically: no case reads past a limit.
+	cases := []struct {
+		name, contentType, format string
+		first                     []byte
+		req                       extraction.FetchRequest
+		gzip                      bool // a gzip stream left unfinished: io.ErrUnexpectedEOF, not io.EOF
+	}{
+		{"an HTML page", "text/html", "html", []byte("<html><head><title>Cut"), pageReq, false},
+		{"a PDF", "application/pdf", "pdf", pdf[:1000], pageReq, false},
+		{"a body neither HTML nor PDF", "image/png", "other", []byte("\x89PNG\r\n\x1a\n"), pageReq, false},
+		{"the page of a video", "text/html", "html", []byte("<html><head><title>Cut"), htmlReq, false},
+		{"an oEmbed answer", "application/json", "", []byte(`{"title":"Cut`), jsonReq, false},
+		{"a gzip HTML page", "text/html", "html", []byte("<html><head><title>Cut"), pageReq, true},
+		{"a gzip PDF", "application/pdf", "pdf", pdf[:1000], pageReq, true},
+		{"a gzip oEmbed answer", "application/json", "", []byte(`{"title":"Cut`), jsonReq, true},
+	}
+	for _, tc := range cases {
+		t.Run("a body that ends after the deadline of the call is a timeout: "+tc.name, func(t *testing.T) {
+			w := newWeb(t)
+			dir, _ := tempDir(t)
+			var cancelled, endedLate atomic.Bool
+			fetch := extraction.FetcherWithConn(testPolicy, w, w.roots, dir, func(c net.Conn) net.Conn {
+				return &lateCloseConn{Conn: c, cancelled: &cancelled, endedLate: &endedLate}
+			})
+			const link = "https://slow.example.com/cut"
+			w.handle(link, func(rw http.ResponseWriter, r *http.Request) {
+				rw.Header().Set("Content-Type", tc.contentType)
+				if tc.gzip {
+					rw.Header().Set("Content-Encoding", "gzip")
+					gz := gzip.NewWriter(rw)
+					_, _ = gz.Write(tc.first)
+					_ = gz.Flush() // never closed: the stream ends without its trailer
+				} else {
+					_, _ = rw.Write(tc.first)
+				}
+				rw.(http.Flusher).Flush()
+				<-r.Context().Done()
+				cancelled.Store(true) // returning ends the chunked body cleanly
+			})
+			req := tc.req
+			req.Timeout = 200 * time.Millisecond
+			resp, err := fetch(ctx, mustURL(t, link), req)
+			if resp.PDF != nil {
+				defer func() { _ = resp.PDF.Close() }()
+			}
+			if !endedLate.Load() {
+				t.Fatal("no byte reached the transport after the server saw the call end: the race was not provoked")
+			}
+			if err == nil || extraction.Classify(ctx, err) != "timeout" {
+				t.Errorf("error %v (%s), want timeout", err, extraction.Classify(ctx, err))
+			}
+			if resp.Body != nil || resp.PDF != nil || resp.TooLarge || resp.Format != tc.format || resp.URL == nil || resp.URL.String() != link {
+				t.Errorf("body %d bytes, file %v, too large %v, format %q, URL %v; want nothing kept but the format and the URL",
+					len(resp.Body), resp.PDF != nil, resp.TooLarge, resp.Format, resp.URL)
+			}
+		})
+	}
+}
+
+// lateCloseConn holds its Close until the read in flight returns, so that the bytes a server
+// writes on seeing close_notify reach the transport before the connection closes.
+type lateCloseConn struct {
+	net.Conn
+	cancelled *atomic.Bool // the server saw the call end
+	endedLate *atomic.Bool // a read returned bytes after that
+	mu        sync.Mutex
+	reading   chan struct{} // closed when the read in flight returns; nil without one
+}
+
+func (c *lateCloseConn) Read(p []byte) (int, error) {
+	done := make(chan struct{})
+	c.mu.Lock()
+	c.reading = done
+	c.mu.Unlock()
+	n, err := c.Conn.Read(p)
+	if n > 0 && c.cancelled.Load() {
+		c.endedLate.Store(true)
+	}
+	c.mu.Lock()
+	c.reading = nil
+	c.mu.Unlock()
+	close(done)
+	return n, err
+}
+
+func (c *lateCloseConn) Close() error {
+	c.mu.Lock()
+	reading := c.reading
+	c.mu.Unlock()
+	if reading != nil {
+		select {
+		case <-reading:
+		case <-time.After(waitLimit):
+		}
+	}
+	return c.Conn.Close()
 }
