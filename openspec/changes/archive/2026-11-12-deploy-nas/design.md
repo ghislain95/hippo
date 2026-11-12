@@ -108,6 +108,14 @@ No data migration. Deployment = the runbook itself. Rollback of this change: the
 - D1 confirmed in real conditions: `http://…:8080/healthz` and `http://…/healthz` fail from the Mac; `https://…/healthz` answers `ok` from the iPhone; an authenticated capture answers `201` (`queued`, private note), without a token `401`.
 - Runbook fixes from the QA: where to find the NAS address for SSH; UGOS turned SSH off during the session (re-enabled in the UGOS Terminal settings); the image tag step explained; the `curl` checks run from the Mac (the NAS itself does not resolve `*.ts.net`), the Mac needs « Use Tailscale DNS settings », and `read -rs` waits silently for the pasted token.
 
+### Phase 2 (2026-11-11 and 12, Ghislain on the NAS, runbook section 5)
+
+- API key dedicated to the NAS added; one fictitious public link and one fictitious screenshot captured from the Mac; the private note of phase 1 still in the base.
+- Pass of 2026-11-12 at 02:00: `selected` 2, `submitted` 2 (the private note left out: RG-12 in real conditions), `images_without_copy` 0, `body_bytes` 441 258, `duration_ms` 829 for the whole send, image copy included (amd64).
+- Follow-up at 02:08: `ended`, `analyzed` 2, nothing invalid, cut, errored or requeued; tokens: 10 287 input, 5 009 output, 8 445 cache write, 8 445 cache read; `cost_usd` 0.0234.
+- Read back by replaying the link capture: `200`, `analyzed`, `tech_article`, French fiche (tldr, details, pitfalls, links), four tags, `freshness` timeless.
+- Cost: the proposal announced under 0.01 $; the real batch cost 0.0234 $ (output about 2 500 tokens per fiche, cache write paid once per batch). Extrapolated: about 0.009 $ per item plus 0.006 $ per night, so about 5.4 $ a month at 20 items a day, above ADR-0021's 2 to 4 $ and the 5 $ budget. Two items are too few to conclude; RG-81 bounds the spend; to watch over the first real weeks (follow-up, not this change).
+
 ## Open Questions
 
 - Compose version on the NAS: not recorded; `depends_on.restart` works, so it is 2.17 or later.
