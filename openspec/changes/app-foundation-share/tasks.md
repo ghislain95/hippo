@@ -50,7 +50,7 @@ Before starting: `graphify check-update .` (refresh if stale), read ADR-0012, 00
 
 - [x] 8.1 `make check` green and `make build-ios-sim` green; `openspec validate app-foundation-share --strict`.
 - [x] 8.2 `code-reviewer` on the diff, including: no log in the extension, no token in the repository, no App Group, every scenario of the specs has its test; fix every 🛑 and 🔴, then review again.
-- [ ] 8.3 `/opsx:verify app-foundation-share`; commit `feat(app-foundation-share)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
+- [x] 8.3 `/opsx:verify app-foundation-share`; commit `feat(app-foundation-share)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
 
 ## 9. QA on the iPhone and closing
 
