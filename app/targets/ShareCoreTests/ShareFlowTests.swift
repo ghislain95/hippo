@@ -55,7 +55,7 @@ final class ShareFlowTests {
   /// The state after a first send of `flow` answered by `answer`.
   private func answered(_ flow: ShareFlow, _ answer: ServerAnswer) throws -> ShareState {
     var flow = flow
-    let saved = try flow.save(in: directory)
+    let saved = flow.save(in: directory)
     _ = try #require(saved)
     flow.receive(answer)
     return flow.state
@@ -200,7 +200,7 @@ final class ShareFlowTests {
   @Test("Replayed link after « Réessayer »")
   func replayedLinkAfterReessayer() throws {
     var flow = linkFlow()
-    _ = try flow.save(in: directory)
+    _ = flow.save(in: directory)
     flow.receive(.noAnswer)
 
     let retried = flow.retry()
@@ -236,7 +236,7 @@ final class ShareFlowTests {
   func replayOfAPrivateImage() throws {
     var flow = try imageFlow()
     flow.isPrivate = true
-    _ = try flow.save(in: directory)
+    _ = flow.save(in: directory)
     flow.receive(.noAnswer)
 
     let retried = flow.retry()
@@ -250,7 +250,7 @@ final class ShareFlowTests {
   @Test("« Réessayer » replays the same request")
   func reessayerReplaysTheSameRequest() throws {
     var flow = linkFlow(note: "à tester")
-    let savedFirst = try flow.save(in: directory)
+    let savedFirst = flow.save(in: directory)
     let first = try #require(savedFirst)
     flow.receive(.noAnswer)
 
@@ -269,7 +269,7 @@ final class ShareFlowTests {
   @Test("The form is frozen after the first send")
   func theFormIsFrozenAfterTheFirstSend() throws {
     var flow = linkFlow(note: "première")
-    let savedFirst = try flow.save(in: directory)
+    let savedFirst = flow.save(in: directory)
     let first = try #require(savedFirst)
     flow.receive(.noAnswer)
 
@@ -286,7 +286,7 @@ final class ShareFlowTests {
   @Test("Copy a link")
   func copyALink() throws {
     var flow = linkFlow()
-    _ = try flow.save(in: directory)
+    _ = flow.save(in: directory)
     flow.receive(.noAnswer)
 
     #expect(flow.copyAction == CopyAction(label: "Copier le lien", text: "https://example.com/a"))
@@ -295,7 +295,7 @@ final class ShareFlowTests {
   @Test("Copy a text")
   func copyAText() throws {
     var flow = noteFlow("Idée")
-    _ = try flow.save(in: directory)
+    _ = flow.save(in: directory)
     flow.receive(.noAnswer)
 
     #expect(flow.copyAction == CopyAction(label: "Copier le texte", text: "Idée"))
@@ -304,7 +304,7 @@ final class ShareFlowTests {
   @Test("No copy for an image")
   func noCopyForAnImage() throws {
     var flow = try imageFlow()
-    _ = try flow.save(in: directory)
+    _ = flow.save(in: directory)
     flow.receive(.noAnswer)
 
     #expect(flow.state == .unreachable)
@@ -345,15 +345,37 @@ final class ShareFlowTests {
     flow.noteText = "  \n"
 
     #expect(!flow.canSave)
-    #expect(try flow.save(in: directory) == nil)
+    let saved = flow.save(in: directory)
+    #expect(saved == nil)
     #expect(flow.state == .form)
+  }
+
+  @Test("A body that cannot be written shows the preparation failure")
+  func bodyThatCannotBeWritten() throws {
+    var flow = try imageFlow()
+    // A work directory that does not exist: the multipart body cannot be written in it.
+    let missing = directory.appendingPathComponent("missing", isDirectory: true)
+
+    let saved = flow.save(in: missing)
+    #expect(saved == nil)
+    #expect(flow.state == .preparationFailed)
+    #expect(flow.request == nil)
+    #expect(!flow.state.offersRetry)
+    #expect(!flow.state.closesBySelf)
+    #expect(flow.retry() == nil)
+    #expect(
+      flow.state.screen
+        == ScreenText(
+          title: "Enregistrement impossible",
+          message: "Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie."))
   }
 
   @Test("a note too long to send shows the too-long state and sends nothing")
   func noteTooLong() throws {
     var flow = noteFlow(String(repeating: "a", count: 1_100_000))
 
-    #expect(try flow.save(in: directory) == nil)
+    let saved = flow.save(in: directory)
+    #expect(saved == nil)
     guard case .tooLong = flow.state else {
       Issue.record("expected too-long, got \(flow.state)")
       return

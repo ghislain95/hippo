@@ -190,7 +190,7 @@ Each opening of the extension SHALL draw one capture id, a ULID of 26 characters
 - **THEN** the request sent by « Réessayer » is unchanged
 
 ### Requirement: Each answer of the server maps to one screen
-The extension SHALL map an answer to a screen: no answer, `502`, `503`, `504` or any other `5xx` to unreachable, with « Réessayer »; `401` to token-refused; `413` with type `urn:hippo:problem:image-too-large` to too-large; any other `4xx` to refused, showing the problem's `detail` as is, without « Réessayer »; `201` to saved (RG-04, RG-06, RG-08).
+The extension SHALL map an answer to a screen: no answer, `502`, `503`, `504` or any other `5xx` to unreachable, with « Réessayer »; `401` to token-refused; `413` with type `urn:hippo:problem:image-too-large` to too-large; any other `4xx` to refused, showing the problem's `detail` as is, without « Réessayer »; `201` to saved. A request body that cannot be written on the phone SHALL show the preparation-failure screen, with « Fermer » and without « Réessayer », and nothing SHALL be sent (RG-04, RG-06, RG-08).
 
 #### Scenario: Server not reachable
 - **WHEN** the request fails without an answer
@@ -223,6 +223,11 @@ The extension SHALL map an answer to a screen: no answer, `502`, `503`, `504` or
 #### Scenario: New item
 - **WHEN** the server answers `201` with an item whose `is_private` is false
 - **THEN** the state is saved
+
+#### Scenario: A body that cannot be written shows the preparation failure
+- **GIVEN** the form of an image whose request body cannot be written in the extension's work directory
+- **WHEN** the user saves
+- **THEN** the state is preparation-failed, with the title « Enregistrement impossible » and the text « Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie. », without « Réessayer », and no request is built
 
 ### Requirement: « Déjà dans Hippo » is shown only for a link on its first send
 A `200` SHALL show the duplicate screen only for a link on the first send of its capture id, in its variant with a note when a capture note was sent; any other `200`, and every `200` after « Réessayer », SHALL show the saved screen (RG-04, RG-08, RG-15).

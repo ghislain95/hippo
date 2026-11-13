@@ -47,6 +47,8 @@ app/build/
 app/targets/.build/
 app/targets/.swiftpm/
 app/targets/share/*.generated.swift
+# Colour sets written at prebuild from app/src/ui/theme/tokens.json (design D10).
+app/targets/share/Assets.xcassets/
 *.jks
 *.keystore
 

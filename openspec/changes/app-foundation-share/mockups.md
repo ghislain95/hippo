@@ -16,6 +16,9 @@ Validated by Ghislain on 2026-11-13 (E5 rule: screens are mocked up and validate
 | 10 | Refused by the server | Ban icon (danger); « Hippo a refusé »; the problem's `detail` as the server wrote it (French, shown as is); caption « Message renvoyé par le serveur »; button « Fermer »; no « Réessayer » |
 | 11 | Token refused (401) | Key-off icon (danger); « Accès refusé »; « Le token de l'appli ne correspond plus au serveur. Reconstruis l'appli. »; button « Fermer » |
 | 12 | Saved, private | Lock icon (success); « Enregistré »; « Privé : il attend dans À trier et n'est jamais envoyé à l'IA. »; closes by itself like screen 5 |
+| 13 | Send cannot be prepared | Icon (danger); « Enregistrement impossible »; « Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie. »; button « Fermer »; nothing is sent (the request body could not be written on the phone) |
+
+Validated by Ghislain on 2026-11-13 after the review of tranche B: screen 13, and the caption « Un élément privé n'est jamais envoyé à l'IA. » under the Privé switch of every form (screens 2, 3, 4 and 9), not only screen 2.
 
 Screens 9 to 12 and the corrected texts of screens 4, 6 and 8 were validated by Ghislain on 2026-11-13, after the adversarial pass.
 

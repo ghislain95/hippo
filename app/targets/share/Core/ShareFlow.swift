@@ -61,8 +61,8 @@ struct ShareFlow: Sendable {
   }
 
   /// « Enregistrer »: freezes the form and returns the request to send, or nil when nothing is
-  /// sent (too long, or not allowed now).
-  mutating func save(in directory: URL) throws -> CaptureRequest? {
+  /// sent (too long, a body that cannot be written on the phone, or not allowed now).
+  mutating func save(in directory: URL) -> CaptureRequest? {
     guard canSave else { return nil }
     let result: CaptureBody.Result
     switch form {
@@ -76,9 +76,15 @@ struct ShareFlow: Sendable {
         clientId: clientId)
     case .image:
       guard let image else { return nil }
-      result = try MultipartWriter.write(
-        image: image, userNote: editedUserNote, isPrivate: editedIsPrivate, clientId: clientId,
-        in: directory)
+      do {
+        result = try MultipartWriter.write(
+          image: image, userNote: editedUserNote, isPrivate: editedIsPrivate, clientId: clientId,
+          in: directory)
+      } catch {
+        // Screen 13: nothing is sent, the sheet only offers « Fermer » (validated 2026-11-13).
+        state = .preparationFailed
+        return nil
+      }
     }
     switch result {
     case .tooLong(let byteCount):

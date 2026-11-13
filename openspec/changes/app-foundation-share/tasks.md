@@ -25,31 +25,31 @@ Before starting: `graphify check-update .` (refresh if stale), read ADR-0012, 00
 
 ## 4. Extension: loading, sending, SwiftUI
 
-- [ ] 4.1 `AttachmentLoader` (design D4, D5): `SharedContent` from the providers, file copy in the completion handler, thumbnail by ImageIO, JPEG conversion through `Core`. Verify `make build-ios-sim` and, on the simulator, sharing a Safari page, a Photos image and a Notes text reaches the form with the right preview.
-- [ ] 4.2 `CaptureSender` (design D6, D7): ephemeral session, time limits, JSON from memory, image from file, same request on « Réessayer »; temporary files removed at close. Verify on the simulator against `make dev`: a link, a note and an image are created (`201`), a second share of the link gives screen 6, the backend stopped gives screen 7 within about 10 s.
-- [ ] 4.3 SwiftUI views of screens 2 to 12 plus the three states of « Decisions to confirm », with colours from the generated colour sets and text styles (design D9, D10, mockups.md), `ShareViewController` and `ShareModel` running `ShareFlow`; accessibility labels on icon-only controls. Verify `make build-ios-sim`, a pass in light and dark and at the largest text size on the simulator, and `git grep -nE 'print\(|os_log|Logger' app/targets/share` empty (design D14).
+- [x] 4.1 `AttachmentLoader` (design D4, D5): `SharedContent` from the providers, file copy in the completion handler, thumbnail by ImageIO, JPEG conversion through `Core`. Verify `make build-ios-sim` and, on the simulator, sharing a Safari page, a Photos image and a Notes text reaches the form with the right preview.
+- [x] 4.2 `CaptureSender` (design D6, D7): ephemeral session, time limits, JSON from memory, image from file, same request on « Réessayer »; temporary files removed at close. Verify on the simulator against `make dev`: a link, a note and an image are created (`201`), a second share of the link gives screen 6, the backend stopped gives screen 7 within about 10 s.
+- [x] 4.3 SwiftUI views of screens 2 to 13 (screen 13, preparation failure, added on 2026-11-13 with Ghislain; S: share-extension « A body that cannot be written shows the preparation failure ») plus the three states of « Decisions to confirm », with colours from the generated colour sets and text styles (design D9, D10, mockups.md), `ShareViewController` and `ShareModel` running `ShareFlow`; accessibility labels on icon-only controls. Verify `make build-ios-sim`, a pass in light and dark and at the largest text size on the simulator, and `git grep -nE 'print\(|os_log|Logger' app/targets/share` empty (design D14).
 
 ## 5. App foundation, tests first
 
-- [ ] 5.1 Theme: `src/ui/theme/tokens.json`, `useTheme`, `ThemedText`, `Screen`, colours for the extension in `expo-target.config.js` (design D10); check `ThemeProvider` re-exports and `resolveJsonModule` on the installed versions and update design Context. Failing tests first: S: app-shell « Dark appearance », « Light appearance », « No appearance reported », « Texts of the home screen scale », « Same tokens in the app and the extension ». Verify `make check-app`.
-- [ ] 5.2 Home screen and root layout (design D11, screen 1): `features/home/HomeScreen`, `ServerStatus` as a pill, `ThemeProvider` around the `Stack`. Tests first: S: « Server reachable », « Server unreachable », « Health check sent to the configured server ». Verify `make check-app` and `make build-ios-sim`, then the home screen on the simulator in light and dark.
+- [x] 5.1 Theme: `src/ui/theme/tokens.json`, `useTheme`, `ThemedText`, `Screen`, colours for the extension in `expo-target.config.js` (design D10); check `ThemeProvider` re-exports and `resolveJsonModule` on the installed versions and update design Context. Failing tests first: S: app-shell « Dark appearance », « Light appearance », « No appearance reported », « Texts of the home screen scale », « Same tokens in the app and the extension ». Verify `make check-app`.
+- [x] 5.2 Home screen and root layout (design D11, screen 1): `features/home/HomeScreen`, `ServerStatus` as a pill, `ThemeProvider` around the `Stack`. Tests first: S: « Server reachable », « Server unreachable », « Health check sent to the configured server ». Verify `make check-app` and `make build-ios-sim`, then the home screen on the simulator in light and dark.
 
 ## 6. Checks and CI
 
 - [x] 6.1 `app/targets/.swift-format`, `make lint-swift`, `format-swift`, `test-swift`, `check-swift` in `make check`, lefthook `swift-format` command (design D12). Verify `make check-swift` green and a deliberately misformatted file fails `make lint-swift` and the pre-commit hook.
-- [ ] 6.2 CI job `swift` on a macOS runner, filter `swift`, Xcode selected, `make check-swift`, timeout 15 min, added to the `needs` of `ci-ok` (ADR-0034). Verify `make check-tooling` (actionlint) green.
+- [x] 6.2 CI job `swift` on a macOS runner, filter `swift`, Xcode selected, `make check-swift`, timeout 15 min, added to the `needs` of `ci-ok` (ADR-0034). Verify `make check-tooling` (actionlint) green.
 - [ ] 6.3 After the first push: verify the `swift` job ran and passed on the pull request, note its duration and Xcode version in design D12.
 
 ## 7. Documentation (doc-keeper)
 
-- [ ] 7.1 `docs/dev/conventions-app.md`: section « Swift de l'extension » (layout, `Core`, format, tests, no logs, generated config) and the build configuration (variables, plugin, `make build-ios-sim`, `make ipa`); `app/CLAUDE.md` commands. Verify `make check-docs`.
-- [ ] 7.2 `docs/runbook-ios.md`: build and install the real app and its extension (variables, `make ipa`, SideStore, removal of the E1 app, 2 App IDs, no App Group and none to add (the prebuild prints no App Group warning, design As built), changing the token means a new build). Verify `make check-docs` and `git grep` finds no tailnet name, token or team id in it.
-- [ ] 7.3 `docs/metier.md` RG-01 with the wording validated by Ghislain (design, « Decisions to confirm »); `docs/spec-v1.md` « Application mobile » (extension: forms, priority, original format, errors); `docs/glossary.md` (« Accueil » temporary, « Extension de partage »); `docs/backlog.md` E5-01 and E5-02 done, accent per category to E5-03, forced theme to E5-08. Verify `make check-docs`.
+- [x] 7.1 `docs/dev/conventions-app.md`: section « Swift de l'extension » (layout, `Core`, format, tests, no logs, generated config) and the build configuration (variables, plugin, `make build-ios-sim`, `make ipa`); `app/CLAUDE.md` commands. Verify `make check-docs`.
+- [x] 7.2 `docs/runbook-ios.md`: build and install the real app and its extension (variables, `make ipa`, SideStore, removal of the E1 app, 2 App IDs, no App Group and none to add (the prebuild prints no App Group warning, design As built), changing the token means a new build). Verify `make check-docs` and `git grep` finds no tailnet name, token or team id in it.
+- [x] 7.3 `docs/metier.md` RG-01 with the wording validated by Ghislain (design, « Decisions to confirm »); `docs/spec-v1.md` « Application mobile » (extension: forms, priority, original format, errors); `docs/glossary.md` (« Accueil » temporary, « Extension de partage »); `docs/backlog.md` E5-01 and E5-02 marked done at post-archive (task 9.2), accent per category to E5-03, forced theme to E5-08. Verify `make check-docs`.
 
 ## 8. Verification and pull request
 
-- [ ] 8.1 `make check` green and `make build-ios-sim` green; `openspec validate app-foundation-share --strict`.
-- [ ] 8.2 `code-reviewer` on the diff, including: no log in the extension, no token in the repository, no App Group, every scenario of the specs has its test; fix every 🛑 and 🔴, then review again.
+- [x] 8.1 `make check` green and `make build-ios-sim` green; `openspec validate app-foundation-share --strict`.
+- [x] 8.2 `code-reviewer` on the diff, including: no log in the extension, no token in the repository, no App Group, every scenario of the specs has its test; fix every 🛑 and 🔴, then review again.
 - [ ] 8.3 `/opsx:verify app-foundation-share`; commit `feat(app-foundation-share)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
 
 ## 9. QA on the iPhone and closing

@@ -8,6 +8,7 @@ enum ServerAnswer: Equatable, Sendable {
 
   /// The answer for a failed task, or nil when the user cancelled it (« Annuler »).
   static func failure(_ error: Error) -> ServerAnswer? {
+    if error is CancellationError { return nil }
     if let error = error as? URLError, error.code == .cancelled { return nil }
     return .noAnswer
   }

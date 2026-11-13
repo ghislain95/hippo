@@ -50,6 +50,16 @@ struct InfoPlistTests {
     #expect(transport["NSAllowsArbitraryLoads"] == nil)
   }
 
+  /// `CFBundleDevelopmentRegion` would not do: the target generates its Info.plist too, and
+  /// writes that key from `DEVELOPMENT_LANGUAGE` (`en`) over the versioned value.
+  @Test("the system texts of the extension follow the language of the iPhone (ADR-0026)")
+  func mixedLocalizations() throws {
+    let plist = try infoPlist()
+
+    #expect(plist["CFBundleAllowMixedLocalizations"] as? Bool == true)
+    #expect(plist["CFBundleDevelopmentRegion"] == nil)
+  }
+
   @Test("the extension grants itself no App Group and no shared keychain")
   func noEntitlements() throws {
     let files = try FileManager.default.contentsOfDirectory(atPath: shareFolder.path)

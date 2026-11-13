@@ -90,7 +90,8 @@ final class CaptureBodyTests {
       clientId: clientId)
 
     flow.noteText = "Idée corrigée"
-    let request = try #require(try flow.save(in: directory))
+    let saved = flow.save(in: directory)
+    let request = try #require(saved)
 
     let body = try #require(request.urlRequest(server: server, token: token).httpBody)
     #expect(try json(body)["note"] == AnyHashable("Idée corrigée"))

@@ -24,6 +24,8 @@ enum ShareState: Equatable, Sendable {
   case tokenRefused
   /// Blank text, unreadable image.
   case nothingToSave
+  /// Screen 13: the request body could not be written on the phone; nothing is sent.
+  case preparationFailed
 
   /// Only the unreachable screen offers « Réessayer » (RG-06, design D8).
   var offersRetry: Bool { self == .unreachable }
@@ -79,6 +81,10 @@ enum ShareState: Equatable, Sendable {
       ScreenText(
         title: "Rien à enregistrer",
         message: "Ce partage ne contient ni lien, ni image, ni texte.")
+    case .preparationFailed:
+      ScreenText(
+        title: "Enregistrement impossible",
+        message: "Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie.")
     }
   }
 }
