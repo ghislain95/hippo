@@ -21,5 +21,7 @@ Appli iPhone de capture et de lecture, Expo + React Native + TypeScript strict, 
 make app                    # serveur Expo pour le development build
 make check-app              # eslint + tsc --noEmit + jest
 make test-app               # jest
+make doctor-app             # expo-doctor, sans le contrôle des versions du SDK (dépend du registre du jour)
+make doctor-app-versions    # expo-doctor complet : paquets alignés sur le SDK ? sinon npx expo install --fix
 cd app && npx expo run:ios  # compile et installe le development build (Xcode requis)
 ```
