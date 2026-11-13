@@ -97,7 +97,7 @@ Chaque job alimente la porte `ci-ok` ([ADR-0029](../adr/0029-workflow-git-autono
 | Job | Bloquant |
 | --- | --- |
 | backend | golangci-lint, `go test -race ./...`, build |
-| app | ESLint, `tsc --noEmit`, jest, `expo-doctor` |
+| app | ESLint, `tsc --noEmit`, jest, `expo-doctor` sans le contrôle des versions du SDK ; ce contrôle seulement sur une PR où `app/package.json` ou `app/package-lock.json` change ([workflow.md](workflow.md#dépendances-dependabot)) |
 | api | lint Redocly, code Go et TypeScript générés à jour |
 | schemas | exemples valides, schéma assemblé à jour |
 | openspec | `openspec validate --all`, garde « specs modifiées à la main » |

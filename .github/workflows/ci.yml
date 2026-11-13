@@ -40,6 +40,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       app: ${{ steps.filter.outputs.app }}
+      app_deps: ${{ steps.filter.outputs.app_deps }}
       api: ${{ steps.filter.outputs.api }}
       schemas: ${{ steps.filter.outputs.schemas }}
       openspec: ${{ steps.filter.outputs.openspec }}
@@ -67,6 +68,11 @@ jobs:
               - api/**
               # app/src/api/fiche-examples.typecheck.ts type-checks the fiche examples.
               - docs/prompt/schemas/examples/**
+            # Not under *ci: the SDK version check compares with what the Expo API lists that day, so
+            # it runs only when the app dependencies change (see doctor-app-versions in the Makefile).
+            app_deps:
+              - app/package.json
+              - app/package-lock.json
             api:
               - *ci
               - api/**
@@ -142,8 +148,13 @@ jobs:
         run: make typecheck-app
       - name: Test (jest-expo)
         run: make test-app
-      - name: Expo configuration (expo-doctor)
+      - name: Expo configuration (expo-doctor, without the SDK version check)
         run: make doctor-app
+      # Pull requests only: on main, an Expo patch published between the green pull request and
+      # its merge would turn main red without any code change.
+      - name: Packages match the Expo SDK (expo-doctor, only when the app dependencies change)
+        if: needs.changes.outputs.app_deps == 'true' && github.event_name == 'pull_request'
+        run: make doctor-app-versions
 
   api:
     needs: changes

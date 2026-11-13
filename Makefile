@@ -149,8 +149,17 @@ typecheck-app: ## Type-check the app (tsc --noEmit)
 test-app: ## Run the app tests (jest-expo, React Native Testing Library)
 	cd app && npx --no-install jest --coverage --coverageReporters=text-summary
 
+# expo-doctor compares the installed SDK packages with the versions the Expo API lists *today* for
+# the installed SDK: every Expo patch release would turn CI red on a pull request that changed
+# nothing in the app. `doctor-app` skips that check so its result depends on the code only;
+# `doctor-app-versions` runs it, in CI only on a pull request that changes the app dependencies
+# (docs/dev/workflow.md, "Dépendances").
 .PHONY: doctor-app
-doctor-app: ## Check the Expo project configuration (expo-doctor)
+doctor-app: ## Check the Expo project configuration (expo-doctor, without the SDK version check)
+	cd app && EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK=1 npx --yes $(EXPO_DOCTOR)
+
+.PHONY: doctor-app-versions
+doctor-app-versions: ## Check that the app packages match the versions the Expo SDK expects today
 	cd app && npx --yes $(EXPO_DOCTOR)
 
 .PHONY: app
