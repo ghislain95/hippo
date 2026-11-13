@@ -6,3 +6,5 @@ android/
 .expo/
 src/api/schema.gen.ts
 package-lock.json
+build/
+targets/.build/

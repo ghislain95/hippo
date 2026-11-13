@@ -99,6 +99,7 @@ jobs:
               - .claude/hooks/**
               - .github/**
               - lefthook.yml
+              - app/scripts/**
             image:
               - *ci
               - backend/**

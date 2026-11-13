@@ -66,11 +66,16 @@ When the capture is a link or an image and the share also offers a text, the edi
 - **THEN** the capture is an image and the capture note is prefilled with `recette de la story`
 
 ### Requirement: A shared text alone becomes the text of a note, without a capture note
-A capture of the note form SHALL carry the shared text, trimmed, as its editable text, and SHALL never carry a capture note (RG-01, RG-07, RG-09).
+A capture of the note form SHALL carry the shared text, trimmed, as its editable text, and SHALL never carry a capture note; a note whose text is blank once trimmed SHALL NOT be saved (RG-01, RG-02, RG-07, RG-09).
 
 #### Scenario: Text from Notes
 - **WHEN** a share offers only the text `\n Idée : ranger les câbles \n`
 - **THEN** the capture is a note whose text is `Idée : ranger les câbles` and the form has no capture note field
+
+#### Scenario: Blank note text cannot be saved
+- **GIVEN** the form of a note whose text the user changed to `  \n`
+- **WHEN** the user tries to save
+- **THEN** « Enregistrer » is not offered, no request is built and the form stays shown
 
 ### Requirement: A share with nothing to capture is told as such
 When a share offers no web URL, no readable image and no text left after trimming, the extension SHALL show the nothing-to-save state and send nothing (RG-02, RG-09).

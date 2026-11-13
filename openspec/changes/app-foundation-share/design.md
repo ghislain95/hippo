@@ -11,8 +11,8 @@ See proposal.md (Why, What Changes, « After the adversarial pass ») and mockup
   - each `targets/<name>/` holding an `expo-target.config.js` becomes a target (`build/config-plugin.js:28`, glob `targets/*/expo-target.config.@(json|js)`);
   - the whole folder is a `PBXFileSystemSynchronizedRootGroup`: every file in it, recursively, belongs to the target, except `Info.plist` and the config file (`build/with-xcode-changes.js:342-369`);
   - a missing `Info.plist` is written at `prebuild` with `NSExtensionActivationRule: TRUEPREDICATE` for a share target (`build/target.js:445-453`), and never rewritten once present (`build/with-widget.js:204-208`);
-  - share targets default to App Groups: without any in the app config, it only warns (`build/with-widget.js:105-130`);
-  - `colors: { name: { color, darkColor } }` in the target config generates colour sets (README « Target config » and « Colors »); the config may be a function of the Expo config, CommonJS only (README, « ESM and TypeScript are not supported in the target config »);
+  - share targets default to App Groups, but the default and its warning only apply when the target config defines `entitlements` (`build/with-widget.js:105-130`, inside `if (entitlementsJson)`): without any, nothing is printed (verified in task 1.2, As built);
+  - `colors: { name: { light, dark } }` in the target config generates colour sets (`build/config.d.ts` `DynamicColor`, `withConfigColors`; the README's `color`/`darkColor` is out of date, As built); the config may be a function of the Expo config, CommonJS only (README, « ESM and TypeScript are not supported in the target config »);
   - `ios.appleTeamId` is read from the Expo config, with a warning when missing (`build/config-plugin.js:16-26`);
   - the package autolinks an Expo module, `ExtensionStorage` (`expo-module.config.json`, `ios/ExtensionStorage.podspec`), unused here;
   - it needs CocoaPods 1.16.2 or later and Xcode 16 or later (README « How to use »).
@@ -58,7 +58,7 @@ Alternatives: build settings or `INFOPLIST_KEY_*` (apple-targets exposes no buil
 - `NSExtensionActivationRule` dictionary: `NSExtensionActivationSupportsWebURLWithMaxCount` 1, `NSExtensionActivationSupportsText` true, `NSExtensionActivationSupportsImageWithMaxCount` 1; no file, attachment or movie key;
 - `NSExtensionPointIdentifier` `com.apple.share-services`, `NSExtensionPrincipalClass` `$(PRODUCT_MODULE_NAME).ShareViewController`;
 - `NSAppTransportSecurity` with `NSAllowsLocalNetworking` true only, for the simulator against `http://127.0.0.1:8080`. A device build cannot use it: D1 refuses any `http` URL that is not loopback. Its exact scope on iOS 27 is unverified; the device build's `https` URL needs no exception (ADR-0015, E1-03).
-- `expo-target.config.js`: `type: 'share'`, `name: 'HippoShare'`, `displayName: 'Hippo'`, `bundleIdentifier: '.share'`, `deploymentTarget: '18.0'` (prototype), `colors` from D10, no `entitlements` (so no App Group, ADR-0013, ADR-0014). The prebuild warning about App Groups is expected and is never « fixed » (runbook).
+- `expo-target.config.js`: `type: 'share'`, `name: 'HippoShare'`, `displayName: 'Hippo'`, `bundleIdentifier: '.share'`, `deploymentTarget: '18.0'` (prototype), `colors` from D10, no `entitlements` (so no App Group, ADR-0013, ADR-0014). Without `entitlements`, the prebuild prints no App Group warning (As built); an App Group is never added (runbook).
 
 A `swift test` reads this file and checks the keys (spec share-extension, « The extension is offered… »).
 
@@ -82,6 +82,7 @@ app/targets/
 - No `Package.swift`, test or `XCTest`/`Testing` import may live under `share/`: it would be compiled into the extension.
 - `.gitignore`: `app/targets/.build/`, `app/targets/.swiftpm/`.
 - Verified first, in task 1.2, by `prebuild --clean` and a simulator build: the target compiles `Core/`, ignores `Package.swift` and `ShareCoreTests/`. If not, the fallback is the `exceptions` of the synchronized group, set by our config plugin (unverified).
+- **Result of task 1.2 (2026-11-13, Xcode 27.1, Swift 6.4, iOS 27.1 simulator SDK, `@bacons/apple-targets` 5.0.0): the layout holds, no fallback.** `swift test` passed (Swift Testing); `npx expo prebuild --clean -p ios` then `xcodebuild` Debug for `generic/platform=iOS Simulator`, unsigned, succeeded. The generated project has one `PBXFileSystemSynchronizedRootGroup` with `path = share` under the `expo:targets` group (`path = ../targets`), its exceptions being `Info.plist` and `expo-target.config.js` only; the build log compiles exactly `share/ShareViewController.swift` and `share/Core/Probe.swift` into `HippoShare`, never `Package.swift` nor `ShareCoreTests/`. The SHA-1 of `share/Info.plist` is unchanged by the prebuild, and the built `HippoShare.appex/Info.plist` holds its activation rule and `NSAllowsLocalNetworking`. No App Group output at all (see As built). `make doctor-app` stays green with the plugin.
 
 Alternatives: a package outside `targets/` pointing into `share/` (refused by SwiftPM); a local package dependency of the target (apple-targets has no option for it, the Xcode project is regenerated); copying the sources (drift).
 
@@ -99,7 +100,7 @@ The UIKit layer (`AttachmentLoader`) turns the `NSExtensionItem` attachments int
 3. else the first text not blank after trimming → note;
 4. else nothing-to-save.
 
-For a link or an image, the accompanying text is the first text not used as the URL: every occurrence of the captured URL's exact string is removed, then it is trimmed; non-empty, it prefills the capture note. A note has no capture note field (RG-07).
+For a link or an image, the accompanying text comes from the texts not used as the URL: in each, every occurrence of the captured URL's exact string is removed, then it is trimmed; the first one left non-empty prefills the capture note (none: the note starts empty). A note has no capture note field (RG-07).
 
 The order follows Ghislain's decision of 2026-11-13; its French wording for RG-01 is below (Decisions to confirm).
 
@@ -157,7 +158,7 @@ The answered item is decoded for `is_private` only; an undecodable `2xx` body fa
 
 - `app/src/ui/theme/tokens.json`: `colors.light` and `colors.dark` with the same names (`background`, `surface`, `text`, `textMuted`, `accent`, `success`, `warning`, `danger`, `border`), `spacing`, `radius` (card 16, the E1 finding), `textSizes` (`title`, `body`, `caption`).
 - App: `src/ui/theme/` reads the JSON (`resolveJsonModule`, from `expo/tsconfig.base`, to confirm in task 5.1) and exposes `useTheme()`, which picks light or dark from `useColorScheme()` (light when `null`). The root layout wraps the `Stack` in `ThemeProvider` re-exported by `expo-router`, from `DefaultTheme` or `DarkTheme` with the token colours.
-- Extension: `expo-target.config.js` `require`s the JSON and maps each colour to `{ color, darkColor }`; SwiftUI uses `Color("success")`. Its texts use SwiftUI text styles (`.body`, `.headline`), which follow Dynamic Type natively; only colours are shared.
+- Extension: `expo-target.config.js` `require`s the JSON and maps each colour to `{ light, dark }` (the type the installed plugin reads, As built); SwiftUI uses `Color("success")`. Its texts use SwiftUI text styles (`.body`, `.headline`), which follow Dynamic Type natively; only colours are shared.
 - A jest test evaluates `expo-target.config.js` and compares its colours with the tokens (spec app-shell).
 
 ### D11 — App foundation
@@ -169,10 +170,10 @@ The answered item is decoded for `is_private` only; an undecodable `2xx` body fa
 
 ### D12 — Swift conventions and checks
 
-- `swift format` from the Xcode toolchain (no package), rules in `app/targets/.swift-format` (2-space indent and 100 columns, as the prototype). Lint on tracked files only, so the generated config never matters.
-- Make targets: `lint-swift` (`git ls-files 'app/targets/*.swift' | xargs swift format lint --strict`), `format-swift`, `test-swift` (`cd app/targets && swift test`), `check-swift: lint-swift test-swift`, added to `make check`. `lint-app` and the Linux `app` job are untouched.
-- lefthook: a `swift-format` command on `app/targets/**/*.swift` (lint of the staged files).
-- CI: job `swift` on a macOS runner, `needs: changes`, filter `swift` = `*ci` + `app/targets/**`, Xcode selected explicitly to the version of the Mac (`xcodebuild -version`, Xcode 27.1 on 2026-10-26) or the closest on the runner image, then `make check-swift`; timeout 15 min; added to the `needs` of `ci-ok` (ADR-0034). Free for a public repository; the queue for a macOS runner can add minutes. The image's Xcode versions are unverified until the first run.
+- `swift format` from the Xcode toolchain (no package), rules in `app/targets/.swift-format` (2-space indent and 100 columns, as the prototype). Lint on the files git does not ignore (tracked, or new and not ignored), so a new file is linted before its first commit and the generated config, ignored, never matters.
+- Make targets: `lint-swift` (`git ls-files -z --cached --others --exclude-standard -- 'app/targets/*.swift' | xargs -0 swift format lint --strict --configuration app/targets/.swift-format`), `format-swift`, `test-swift` (`cd app/targets && swift test`), `check-swift: lint-swift test-swift`, added to `make check`. `lint-app` and the Linux `app` job are untouched.
+- lefthook: a `swift-format` command with two globs, `app/targets/*.swift` and `app/targets/**/*.swift` (lefthook 2.2.2's `**` does not match `app/targets/Package.swift`), lint of the staged files.
+- CI: job `swift` on a macOS runner, `needs: changes`, filter `swift` = `*ci` + `app/targets/**` + `api/**` (the tests read `api/openapi.bundled.gen.json` to compare the request members with the contract), Xcode selected explicitly to the version of the Mac (`xcodebuild -version`, Xcode 27.1 on 2026-10-26) or the closest on the runner image, then `make check-swift`; timeout 15 min; added to the `needs` of `ci-ok` (ADR-0034). Free for a public repository; the queue for a macOS runner can add minutes. The image's Xcode versions are unverified until the first run.
 - `conventions-app.md` gets a « Swift de l'extension » section (layout, `Core` rules, format, tests, no logs); ADR-0030 and ADR-0033 are not amended (proposal, Impact).
 
 ### D13 — Building
@@ -180,6 +181,7 @@ The answered item is decoded for `is_private` only; an undecodable `2xx` body fa
 - `app/scripts/build-ios-sim.sh` (`make build-ios-sim`): `npx expo prebuild --clean -p ios`, then `xcodebuild` Debug for `generic/platform=iOS Simulator`, no signing. Needs `HIPPO_API_TOKEN` (any 32 characters) and the default local URL. Part of the definition of done, since the CI does not build the target.
 - `app/scripts/build-ipa.sh` (`make ipa`): `prebuild --clean`, `xcodebuild archive` Release for `generic/platform=iOS` with `CODE_SIGNING_ALLOWED=NO`, `Payload/` zipped as `Hippo.ipa`, then zipped again for AirDrop (runbook E1). Needs the `https` URL and the token.
 - Both run prebuild and build in one command with the same environment (D1). Outputs in `app/build/` (git-ignored).
+- **Token in the build output, checked on 2026-11-13** (Xcode 27.1, fake sentinel token): `make build-ios-sim` (`-quiet`) succeeded, and its output never holds the token. Then a full-output `xcodebuild` (no `-quiet`), with the token in the environment and the « Check Pods Manifest.lock » script phase made to fail (`ios/Pods/Manifest.lock` altered, then restored), ended in `BUILD FAILED` (65): the log prints the `export` lines of each script phase, which are build settings (`HOME`, `PATH`, `USER`…) and no shell variable (`HIPPO_API_TOKEN`, `HIPPO_API_URL` and `LANG` absent), and the token appears nowhere in its 6 836 lines. The token stays in the built products (the generated Swift file, the app's embedded config), as accepted in D1.
 
 ### D14 — Logs
 
@@ -196,6 +198,21 @@ The extension writes no log at all: no `print`, `os_log` or `Logger`, no measure
 - « Accueil » (home screen, `HomeScreen`): a temporary screen until the Bibliothèque, which the glossary names as the home screen (E5-03) replaces it. To add to the glossary as such.
 - « Extension de partage » (`share extension`, target `HippoShare`): not in the glossary yet; to add.
 - « Identifiant de capture » keeps its glossary name (`client_id`); the Swift type is `Ulid`, the value `clientId`.
+
+## As built (tranche A)
+
+Tasks 1.2, 1.3, 2.1 to 2.3, 3.1 to 3.6 and 6.1. Deviations from the decisions above, and facts read in the installed `@bacons/apple-targets` 5.0.0 that correct the Context:
+
+- **No App Group warning at all.** In 5.0.0 the warning is emitted only when the target config defines `entitlements` (`build/with-widget.js`, inside `if (entitlementsJson)`); ours defines none, so the prebuild prints nothing about App Groups. Only the `ios.appleTeamId` warning remains (absent `HIPPO_APPLE_TEAM_ID`). The runbook (task 7.2) must not announce an App Group warning.
+- **Colour sets take `{ light, dark }`, not `{ color, darkColor }`.** `build/config.d.ts` (`DynamicColor`) and `withConfigColors` read `color.light` and `color.dark`; the README's `color`/`darkColor` is out of date. D10 and task 5.1 map the tokens to `{ light, dark }`.
+- **Plugin test in JavaScript** (`app/plugins/with-share-config.test.js`, `@jest-environment node`): a TypeScript test needs Node's types, and `@types/node` is not a direct dependency (no new package). `app/eslint.config.js` declares jest's globals for `plugins/**/*.test.js`, and ignores `build/`, `ios/`, `targets/.build/`; `app/.prettierignore` ignores `build/` and `targets/.build/`.
+- **One URL rule for the app and the extension.** The plugin exports `resolveApiUrl`, which `app.config.ts` uses for `extra.apiUrl` and for `NSAllowsLocalNetworking`: the app also drops trailing slashes, and an empty `HIPPO_API_URL` means the default URL. The plugin is registered as `./plugins/with-share-config` after `@bacons/apple-targets`.
+- **`make ipa`** also refuses a non-`https` `HIPPO_API_URL` before the prebuild, fails when `PlugIns/HippoShare.appex` is missing from the archived app, and writes `app/build/Hippo.ipa` plus `app/build/Hippo.ipa.zip` (AirDrop). Both scripts export `LANG=en_US.UTF-8` when unset (CocoaPods refuses another encoding). `check-tooling` runs shellcheck on `app/scripts/*.sh`.
+- **`lint-swift` lints the files git does not ignore** (`git ls-files --cached --others --exclude-standard`), not only the tracked ones, so a new file is linted before its first commit; the generated configuration stays out (ignored). `.swift-format` is the full configuration dumped from the Xcode 27.1 toolchain (2 spaces, 100 columns), so the rules do not move with the toolchain. The lefthook `swift-format` command has two globs, `app/targets/*.swift` and `app/targets/**/*.swift`: lefthook 2.2.2's `**` does not match `app/targets/Package.swift`.
+- **`Core` API** (what group 4 uses): `SharedContent` and `SharedImage` (types only) → `CaptureChoice.choose` (nil = nothing-to-save); `SharedImage.load` (`ImageLoad.keep` or `.convert`) → `ImagePreparation.prepare(loadedFile:as:clientId:in:)`, called inside the provider's completion handler, which copies or converts the file to `<capture id>.<ext>` itself and checks the size (`Result.ready`, `.tooLarge`, `.unreadable`, `blockingState`); `ShareFlow(choice:image:clientId:)` with `userNote`, `noteText`, `isPrivate` (ignored once frozen), `canSave`, `save(in:)`, `receive(_:)`, `retry()`, `copyAction`; `CaptureRequest.urlRequest(server:token:)`; `ServerAnswer.failure(_:)` (nil for a cancelled task). The French texts of every screen are in `Core` (`ShareState.screen`, `ScreenText`), so the scenarios check them and the views only show them.
+- **Small decisions** (after review): « Enregistrer » is not offered for a note whose text is blank (`canSave`, now scenario « Blank note text cannot be saved »; the server would refuse it as `empty-note`); a blank problem `detail` counts as absent (fallback text); a file whose size cannot be read is unreadable (nothing-to-save); the accompanying text is the first text left non-empty once the URL is removed (D4); the too-long screen shows the size of the JSON body for a link or a note, of the capture note for an image; a server `413 image-too-large` shows the local size of the image; the multipart text parts carry no `Content-Type` header; a link made from a text takes the next text as its accompanying text.
+- **`ShareViewController`** closes the sheet at once and sends nothing until tasks 4.1 to 4.3; `Probe.swift` and its test are removed (task 3.6).
+- **`npm audit` and the `@xmldom/xmldom` override** (decided by Ghislain on 2026-11-13). `@bacons/apple-targets` 5.0.0 brings `@bacons/xcode` 1.0.0-alpha.32, whose own `@expo/plist` 0.0.18 pins `@xmldom/xmldom` `~0.7.0` (0.7.13): one high finding (GHSA-wh4c-j3r5-mjhp, GHSA-2v35-w6hq-6mfw and the other advisories up to `<=0.8.14`). `app/package.json` forces it with `"overrides": { "@bacons/xcode": { "@xmldom/xmldom": "0.8.15" } }`, the smallest fixed version (every advisory stops at 0.8.14), scoped to that branch so that `plist`'s 0.9.12 is not pulled down; that `@expo/plist` only calls `DOMParser.parseFromString`, unchanged in 0.8, and it reads `share/Info.plist` correctly with 0.8.15; `doctor-app`, `check-app`, `build-ios-sim` and `make ipa` pass with it. Production findings: 21 on `main`, 29 with `@bacons/apple-targets`, 27 with the override (1 low, 26 moderate, no high or critical). The moderate ones left that come with `@bacons/apple-targets` are `uuid` 8.3.2 (through `@bacons/xcode`), `glob`, and its SDK 55 copies of `@expo/prebuild-config` and `@expo/config-plugins`: prebuild-time tools that read the project's own files, nothing embedded in the app or the extension. **Remove the override** when `@bacons/apple-targets` (through `@bacons/xcode` and `@expo/plist`) depends on a fixed `@xmldom/xmldom` itself; a bump of `@bacons/apple-targets` checks it.
 
 ## Decisions to confirm with Ghislain
 
@@ -245,11 +262,13 @@ Built with `make ipa`, installed by SideStore (runbook). Column « Observé » f
 - [Photos never offers HEIC or PNG to an extension] → JPEG is sent, as before; Q1 records it; no rework.
 - [A 48 Mpx HEIC of more than 8 bits gives no copy for the AI] (spec-v1, « Copie de l'image », known cases) → Q5 checks the next batch; if it happens, the choice between keeping HEIC and preferring JPEG for photos goes back to Ghislain.
 - [Original images keep their GPS position on the NAS and in the export] → RG-38 strips it from the AI copy; Photos' own « Options » can leave it out; accepted (proposal, Impact).
+- [An image near 20 MiB with a capture note near 1 MiB makes a multipart body over the server's 21 MiB] (each part within its own limit, plus about 500 bytes of part headers) → the server answers `413 about:blank`, told as screen 10 with « Le serveur a refusé ce partage (HTTP 413). »; nothing is stored. Not checked before the send: no existing scenario covers it and telling it otherwise needs a new screen text from Ghislain. Accepted for V1 (it takes a near-limit image and a megabyte of typed note); found by the review of tranche A.
 - [Activation rule semantics for a share mixing types] → unverified; Q3, Q7, Q9.
 - [Scope of `NSAllowsLocalNetworking` on iOS 27] → unverified; unused by a device build, which only takes `https` (D1).
 - [« Annuler » during a send] → the capture may exist without a confirmation; a new share draws a new capture id, so an image or a note could be captured twice. Accepted: it needs a deliberate cancel then a new share.
 - [A `200` after « Réessayer » for a link that was a real duplicate] → shown as « Enregistré », not « Déjà dans Hippo »: the item is safe either way (decided on 2026-11-13).
 - [macOS runner image without the Mac's Xcode] → closest version; `swift format` rules pinned by `.swift-format`; first CI run checks (task 6.3).
+- [`overrides` forces `@xmldom/xmldom` 0.8.15 under `@bacons/xcode`, outside the `~0.7.0` its `@expo/plist` declares] → only `DOMParser.parseFromString` is used, checked by the builds of As built; the override is removed once apple-targets ships a fixed `@xmldom/xmldom` (As built, `npm audit`); moderate findings of prebuild-time tools remain, accepted.
 - [apple-targets rewrites the Xcode project at each prebuild] → version pinned to 5.0.0; a bump is a deliberate change with a simulator build.
 - [Token readable in the `.ipa`] → personal use, tailnet only (ADR-0016, ADR-0027); the `.ipa` is never published.
 - [SideStore weekly refresh, `-80045`] → unchanged, runbook.

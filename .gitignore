@@ -40,6 +40,13 @@ app/web-build/
 app/ios/
 app/android/
 app/coverage/
+# Outputs of make build-ios-sim and make ipa (app/scripts/)
+app/build/
+# Swift package of the share extension (swift test) and its build-time configuration, which holds
+# the token (app/plugins/with-share-config.js, ADR-0027)
+app/targets/.build/
+app/targets/.swiftpm/
+app/targets/share/*.generated.swift
 *.jks
 *.keystore
 
