@@ -490,7 +490,7 @@ Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captu
 5. Vérifier depuis le Mac. Rejouer chaque capture du point 2 telle quelle : `HTTP 200` (et non `201`) avec le même `id` (RG-08). Puis l'image :
 
    ```bash
-   curl -sS -o "$HOME/Desktop/test-hippo-restauree.png" -w 'HTTP %{http_code}\n' https://hippo.<tailnet>.ts.net/api/assets/<id de l'image> -H "Authorization: Bearer $HIPPO_TOKEN" && cmp "$HOME/Desktop/test-hippo.png" "$HOME/Desktop/test-hippo-restauree.png" && echo identique
+   curl -sS -o "$HOME/Desktop/test-hippo-restauree.png" -w 'HTTP %{http_code}\n' https://hippo.<tailnet>.ts.net/api/assets/<id-image> -H "Authorization: Bearer $HIPPO_TOKEN" && cmp "$HOME/Desktop/test-hippo.png" "$HOME/Desktop/test-hippo-restauree.png" && echo identique
    ```
 
    Attendu : `HTTP 200` puis `identique`.

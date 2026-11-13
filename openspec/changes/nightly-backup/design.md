@@ -235,3 +235,16 @@ Files `0640`, folders `0750`, like `assetfs` (conventions-backend « Fichiers de
 1. Merge; the image is published by the CI.
 2. On the NAS (runbook, QA): create the shared folder `Sauvegardes` and `hippo` in it, owned by 65532, mode 750, out of any sync; add `BACKUP_HOST_DIR` to `.env`; update with the manual copy one last time; check `hippo backup`, then the next night's line `backup`; restore once on a `data/` set aside.
 3. Rollback: the previous image ignores `BACKUP_*` (an unknown variable is harmless, `/backups` unused); the compose of the previous SHA has no backup volume. Backups made stay in `Sauvegardes/hippo` and remain restorable by hand.
+
+
+## QA results
+
+### 2026-11-13, Ghislain on the NAS (image `qa-nightly-backup` built from `c6be489` for amd64, loaded with `docker load`)
+
+- Getting the image to the NAS: `scp` (SFTP) refused both the home folder and `/tmp` on UGOS; `ssh … 'cat > /tmp/…' < file` worked. QA-only, not in the runbook.
+- Install (runbook § 7 « Mise à jour qui installe les sauvegardes »): `Sauvegardes/hippo` created, `65532:65532`, `drwxr-x---`, no `+`; `BACKUP_HOST_DIR` added to `.env`; manual copy of `data/`; `hippo started` with the full SHA and `backup scheduled` (`next_run` 02:00 UTC = 03:00 Paris).
+- First `hippo backup` on the real (empty) base: `ok`, `migration_version` 7, 163 840 bytes, 370 ms, exit code 0; folder with `hippo.db`, `assets`, `manifest.json`.
+- Restore test (runbook § 8 « Tester une restauration »): real `data/` set aside; two private captures (a note, a 412 350-byte PNG); `hippo backup` `ok`, `images` 1, `images_copied` 1, 492 ms; restore by `cp -a` of `hippo.db` and `assets` into a new `data/`; replaying both captures answered `200` with the same ids (RG-08); `GET /api/assets/<id>` then `cmp` with the original: identical. Real `data/` put back, test bases and the test backup removed; the service `healthy`.
+- Memory: not measured, nothing to measure yet (no image in the real base); to read on a later full backup.
+- Runbook fixes from the QA: a placeholder with an apostrophe (`<id de l'image>`) opened an unterminated shell quote, renamed `<id-image>`.
+- Note: files of `data/` carry a `+` (ACL inherited from the shared folder `docker`, admin-only); the backup folder has none, as required.
