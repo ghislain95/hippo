@@ -25,7 +25,7 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0017](0017-contrat-openapi.md) | Contrat d'API OpenAPI comme source de vérité | Accepté, précisé par 0031 et 0035 | Backend, appli |
 | [0018](0018-lecture-hors-ligne.md) | Lecture hors ligne par cache local synchronisé | Accepté, synchronisation précisée par 0035 | Appli, backend |
 | [0019](0019-deploiement-docker-nas.md) | Déploiement Docker Compose sur le NAS | Accepté, visibilité de l'image amendée par 0027, limite mémoire amendée par 0038 | Infra |
-| [0020](0020-sauvegardes.md) | Sauvegardes locale et externe chiffrée | Accepté, service à choisir | Infra |
+| [0020](0020-sauvegardes.md) | Sauvegardes locale et externe chiffrée | Accepté, copie externe remplacée par 0039 | Infra |
 | [0021](0021-garde-fous-couts.md) | Garde-fous de coût de l'IA | Accepté | IA, backend |
 | [0022](0022-preparation-multi-utilisateur.md) | Préparer le multi-utilisateur dès le modèle de données | Accepté | Données |
 | [0023](0023-option-prive.md) | Option « Privé » : jamais envoyé à l'IA | Accepté | Métier, IA |
@@ -44,3 +44,4 @@ Chaque décision structurante du projet, avec son contexte et les alternatives �
 | [0036](0036-extension-de-partage-swift.md) | Extension de partage native en Swift | Accepté | Appli |
 | [0037](0037-youtube-sans-transcription.md) | Vidéos YouTube sans transcription en V1 | Accepté | Backend |
 | [0038](0038-limite-memoire-384-mo.md) | Limite mémoire du conteneur à 384 Mo | Accepté | Infra |
+| [0039](0039-sauvegardes-sur-le-nas.md) | Sauvegardes sur le NAS, sans copie externe | Accepté | Infra, backend |

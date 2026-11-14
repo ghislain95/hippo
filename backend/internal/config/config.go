@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -36,8 +37,12 @@ type Config struct {
 	// BatchSchedule is the time of the nightly batch, Paris wall-clock time (BATCH_SCHEDULE,
 	// daily form "M H * * *" only, RG-30).
 	BatchSchedule schedule.Daily
-	// BackupSchedule is the cron expression of the nightly backup (BACKUP_SCHEDULE).
-	BackupSchedule string
+	// BackupSchedule is the time of the nightly backup, Paris wall-clock time (BACKUP_SCHEDULE,
+	// daily form "M H * * *" only, like BatchSchedule).
+	BackupSchedule schedule.Daily
+	// BackupDir is the folder that holds the backups (BACKUP_DIR), fixed by the image and by
+	// make dev. It is never the data folder, inside it nor around it: a backup would copy itself.
+	BackupDir string
 	// MonthlyBudgetUSD caps the AI spend of a calendar month (MONTHLY_BUDGET_USD, RG-81).
 	MonthlyBudgetUSD float64
 	// Prices are the standard prices of AnalysisModel, which price a batch's tokens (RG-80).
@@ -59,6 +64,7 @@ const (
 	defaultAnalysisModel    = "claude-haiku-4-5"
 	defaultBatchSchedule    = "0 2 * * *"
 	defaultBackupSchedule   = "0 3 * * *"
+	defaultBackupDir        = "/backups"
 	defaultMonthlyBudgetUSD = 5.0
 	// Standard prices of Claude Haiku 4.5, checked on 2026-11-07 at
 	// https://platform.claude.com/docs/en/about-claude/pricing (apply-batch-results D12).
@@ -81,7 +87,7 @@ func Load(getenv func(string) string) (Config, error) {
 		APIToken:        getenv("API_TOKEN"),
 		AnthropicAPIKey: getenv("ANTHROPIC_API_KEY"),
 		AnalysisModel:   value("ANALYSIS_MODEL", defaultAnalysisModel),
-		BackupSchedule:  value("BACKUP_SCHEDULE", defaultBackupSchedule),
+		BackupDir:       value("BACKUP_DIR", defaultBackupDir),
 	}
 
 	var errs []error
@@ -100,6 +106,16 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("BATCH_SCHEDULE: %w", err))
 	}
 	cfg.BatchSchedule = batch
+
+	backup, err := schedule.ParseDaily(value("BACKUP_SCHEDULE", defaultBackupSchedule))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("BACKUP_SCHEDULE: %w", err))
+	}
+	cfg.BackupSchedule = backup
+
+	if err := checkBackupDir(cfg.BackupDir, cfg.DataDir); err != nil {
+		errs = append(errs, err)
+	}
 
 	budget, err := parseBudget(getenv("MONTHLY_BUDGET_USD"))
 	if err != nil {
@@ -156,4 +172,31 @@ func parsePrice(name, raw string, fallback float64) (float64, error) {
 		return 0, fmt.Errorf("%s %q: want a positive number of dollars per million tokens", name, raw)
 	}
 	return price, nil
+}
+
+// checkBackupDir refuses a backup folder that is the data folder, inside it or around it: a
+// backup inside the data would back itself up, and one around it would hold the data. The
+// check is lexical, on the cleaned absolute paths; the folders need not exist yet.
+func checkBackupDir(backupDir, dataDir string) error {
+	backup, err := filepath.Abs(backupDir)
+	if err != nil {
+		return fmt.Errorf("BACKUP_DIR: %w", err)
+	}
+	data, err := filepath.Abs(dataDir)
+	if err != nil {
+		return fmt.Errorf("DATA_DIR: %w", err)
+	}
+	if within(backup, data) || within(data, backup) {
+		return errors.New("BACKUP_DIR must be outside DATA_DIR, and must not hold it")
+	}
+	return nil
+}
+
+// within tells whether the cleaned absolute path inner is outer or lies inside it.
+func within(inner, outer string) bool {
+	rel, err := filepath.Rel(outer, inner)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

@@ -5,6 +5,8 @@
 //
 //	hippo               start the server (configuration from environment variables)
 //	hippo healthcheck   probe the local /healthz, for the Docker healthcheck
+//	hippo backup        make one backup of the database and the images in BACKUP_DIR, in the
+//	                    running container (docker compose exec hippo /hippo backup)
 //	hippo extract-page  read one page from stdin, or one PDF from descriptor 3, as the child of
 //	                    the extraction (internal use)
 //	hippo copy-image    copy the image of descriptor 3 to descriptor 4, as the child of the
@@ -22,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 	_ "time/tzdata" // the Paris zone of RG-04 without a time zone database in the image
@@ -31,6 +34,7 @@ import (
 	"github.com/ghislain95/hippo/backend/internal/analysis/prompt"
 	"github.com/ghislain95/hippo/backend/internal/assetfs"
 	"github.com/ghislain95/hippo/backend/internal/auth"
+	"github.com/ghislain95/hippo/backend/internal/backup"
 	"github.com/ghislain95/hippo/backend/internal/capture"
 	"github.com/ghislain95/hippo/backend/internal/config"
 	"github.com/ghislain95/hippo/backend/internal/extraction"
@@ -61,6 +65,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == imagecopy.ChildCommand {
 		os.Exit(imagecopy.RunChild(os.Stdin, os.Stdout))
 	}
+	// `hippo backup` runs beside the service and a batch's child in the container's memory: a
+	// soft limit on its Go heap (nightly-backup design D13).
+	if len(os.Args) > 1 && os.Args[1] == backupCommandName {
+		debug.SetMemoryLimit(backupMemoryLimit)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	// After the first signal, restore the default handling: a second Ctrl-C during the drain
 	// stops the process at once.
@@ -78,10 +87,13 @@ func main() {
 
 func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
 	if len(args) > 0 {
-		if args[0] == "healthcheck" {
+		switch args[0] {
+		case "healthcheck":
 			return healthcheck(ctx, getenv)
+		case backupCommandName:
+			return backupCommand(ctx, getenv, stdout, backupLockWait)
 		}
-		return fmt.Errorf("unknown command %q (want no argument, or healthcheck)", args[0])
+		return fmt.Errorf("unknown command %q (want no argument, healthcheck or backup)", args[0])
 	}
 
 	cfg, err := config.Load(getenv)
@@ -110,6 +122,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
+	}
+	// A missing or unwritable backup folder stops the start-up, before the database is opened,
+	// rather than leaving the service without backups (nightly-backup design D15).
+	if err := backup.CheckDir(cfg.BackupDir); err != nil {
+		return err
 	}
 	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, databaseFile))
 	if err != nil {
@@ -204,6 +221,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return err
 	}
 	defer stopAnalysis()
+
+	// The nightly backup reads the database through its own read-only connection and the
+	// images through its own root: it is stopped before they are closed all the same.
+	stopBackup := startBackup(ctx, backupOptions{
+		Schedule: cfg.BackupSchedule,
+		Location: paris,
+		Clock:    schedule.SystemClock{},
+		Logger:   logger,
+		Database: filepath.Join(cfg.DataDir, databaseFile),
+		Assets:   filepath.Join(cfg.DataDir, assetsDirectory),
+		Dir:      cfg.BackupDir,
+		Version:  version,
+	})
+	defer stopBackup()
 
 	server := &http.Server{
 		Addr: cfg.HTTPAddr,

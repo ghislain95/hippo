@@ -11,6 +11,7 @@
 # Runtime data (SQLite database, images, backups, Tailscale state)
 data/
 infra/data/
+infra/backups/
 infra/tailscale/state/
 
 # macOS

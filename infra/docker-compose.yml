@@ -5,8 +5,11 @@
 # Installation, update and rollback: docs/runbook-nas.md. Update: set HIPPO_IMAGE_TAG, then
 # docker compose pull && docker compose up -d (migrations run at start).
 # Restart the whole project, never the tailscale container alone: it carries hippo's network.
+# Backups (ADR-0039): nightly at BACKUP_SCHEDULE and on demand with
+# `docker compose exec hippo /hippo backup` (never `run`), into BACKUP_HOST_DIR, required.
 # Invariants checked by `make check-infra` (infra/check-compose.sh): no published port, hippo on
-# loopback in the sidecar's network, sidecar in kernel mode, pinned images, log rotation.
+# loopback in the sidecar's network, sidecar in kernel mode, pinned images, log rotation, the
+# backup folder required.
 name: hippo
 
 # Docker log rotation on every service, so that the logs never fill the NAS volume. json-file
@@ -72,8 +75,20 @@ services:
     # The image runs as the distroless nonroot user (uid 65532): on the NAS, ./data must belong
     # to it before the first start (sudo chown -R 65532:65532 data), or SQLite cannot create the
     # database.
+    # The backup folder (/backups, BACKUP_DIR of the image) is the shared folder Sauvegardes/hippo,
+    # outside the project folder and owned by 65532 too (docs/runbook-nas.md). Required: without
+    # BACKUP_HOST_DIR, `docker compose up` stops instead of backing up into the project folder,
+    # and the service refuses to start without a writable /backups. Long syntax on purpose: the
+    # uninterpolated rendering read by infra/check-compose.sh keeps the source whole (the short
+    # form splits on its colons), and create_host_path: false stops `docker compose up` on a
+    # missing folder instead of letting Docker create it owned by root.
     volumes:
       - ./data:/data
+      - type: bind
+        source: ${BACKUP_HOST_DIR:?set BACKUP_HOST_DIR in infra/.env}
+        target: /backups
+        bind:
+          create_host_path: false
     # ADR-0038: the nightly batch runs an image copy child of up to 256 MiB beside the service.
     mem_limit: 384m
     restart: unless-stopped

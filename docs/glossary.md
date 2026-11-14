@@ -104,9 +104,17 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | --- | --- | --- |
 | **Budget mensuel** | `MONTHLY_BUDGET_USD` | Plafond de dépense IA par mois (5 $ par défaut). Une fois atteint, plus aucune analyse jusqu'au mois suivant. |
 | **Coût d'un batch** | `batches.cost_usd` | Coût calculé à partir des tokens réellement consommés, au tarif batch ([formule](spec-v1.md#tokens-et-coût)). |
+| **Déclencheur** | `trigger` : `nightly`, `command` | Ce qui a lancé une sauvegarde : la planification du service (`BACKUP_SCHEDULE`), ou la commande `hippo backup`. |
+| **Dossier des sauvegardes** | `BACKUP_DIR` (backend, `/backups` dans l'image), `BACKUP_HOST_DIR` (Compose : le dossier de l'hôte monté sur `BACKUP_DIR`, `Sauvegardes/hippo` sur le NAS, `./backups` en local) | Le dossier qui contient les sauvegardes, le fichier de verrou `.lock` et, pendant une sauvegarde, son dossier partiel. Ici « dossier » désigne un dossier du système de fichiers : la règle des « Mots à éviter » (jamais « dossier » pour une catégorie) porte sur le rangement des éléments, pas sur lui. |
+| **Dossier partiel** | `.partial-<nom>` | Le dossier où une sauvegarde s'écrit avant d'être renommée sous son nom. Un dossier partiel trouvé au début d'une sauvegarde a été laissé par un crash : il est supprimé. |
+| **Manifeste** | `manifest.json` | Le petit fichier JSON d'une sauvegarde : versions du backend et de migration, nombres, tailles. Aucun nom de fichier, aucun contenu d'élément. |
 | **NAS** | — | Le serveur domestique (Ugreen DXP4800 Plus) qui héberge le backend et les données. |
+| **Nom d'une sauvegarde** | format `YYYY-MM-DDTHHMMSS±hhmm` | L'heure de Paris à laquelle la sauvegarde a commencé, avec son décalage (`2026-11-13T030000+0100`). La conservation ne supprime jamais que des dossiers portant un tel nom. |
+| **Restauration** | — | La procédure manuelle de [`runbook-nas.md`](runbook-nas.md) qui remet une sauvegarde à la place du dossier de données. Hippo n'a pas de commande de restauration ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)). |
+| **Sauvegarde** | `backup`, paquet `internal/backup` | Un dossier daté du dossier des sauvegardes : une copie de la base, des images et un manifeste, faite chaque nuit ou par `hippo backup` ([RG-98](metier.md#données-et-multi-utilisateur), [ADR-0039](adr/0039-sauvegardes-sur-le-nas.md)). À ne pas confondre avec « sauvegardé », employé par le digest *(V2)* pour un article que l'utilisateur garde (`digest_trace`) : une sauvegarde n'est jamais un geste de l'utilisateur. |
 | **Tailscale** | — | Réseau privé qui relie l'iPhone et le NAS sans ouvrir de port sur la box. |
 | **Token d'API** | `API_TOKEN` | Secret partagé entre l'appli et le backend, envoyé dans `Authorization: Bearer`. |
+| **Version de migration** | `migration_version` | La dernière migration goose appliquée à une base, notée dans le manifeste d'une sauvegarde. À ne pas confondre avec la *version de schéma* (`schema_version`), qui est celle du schéma JSON d'une fiche (RG-64). |
 
 ### Veille *(V2)*
 

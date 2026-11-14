@@ -198,7 +198,7 @@ stateDiagram-v2
 - **RG-76** — La position de lecture est enregistrée à la fermeture de la fiche et toutes les quelques secondes pendant la lecture. Rouvrir une fiche « En cours » propose de reprendre à cette position.
 - **RG-77** — L'**épingle** marque un élément « à ne pas oublier ». Un élément épinglé apparaît en tête de sa catégorie et dans le filtre « Épinglés ».
 - **RG-78** — Les **annotations** sont du texte libre, modifiable à tout moment, inclus dans la recherche et dans l'export.
-- **RG-79** — La suppression d'un élément est définitive (fiche, contenu extrait, images) après confirmation.
+- **RG-79** — La suppression d'un élément est définitive (fiche, contenu extrait, images) après confirmation. Voir RG-98 pour les sauvegardes.
 
 ### Coûts
 
@@ -210,7 +210,8 @@ stateDiagram-v2
 
 - **RG-90** — Toute donnée métier appartient à un utilisateur (`user_id`). En V1, il n'y en a qu'un, mais aucune requête ne doit lire ou écrire sans filtrer par utilisateur.
 - **RG-91** — L'**export** produit un fichier Markdown par élément, rangé par catégorie, avec en en-tête (front matter) le titre, l'URL, le type, la catégorie, les tags et les dates ; puis la fiche, puis les annotations. Les images sont incluses. Le Markdown est généré à la demande, jamais stocké.
-- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés) et vers la sauvegarde externe chiffrée. Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. Pour une vidéo YouTube, elle demande à YouTube la page de la vidéo et son oEmbed, qui ne portent que l'identifiant de la vidéo (RG-22). *(Exception ajoutée le 1er novembre 2026, étendue aux vidéos YouTube le 5 novembre 2026 avec Ghislain.)*
+- **RG-92** — Les données ne sortent du NAS que vers l'IA (pour les éléments non privés). Seule exception : l'extraction demande l'URL capturée à son propre site, pour tous les éléments, privés compris ; rien d'autre ne lui est envoyé. Pour une vidéo YouTube, elle demande à YouTube la page de la vidéo et son oEmbed, qui ne portent que l'identifiant de la vidéo (RG-22). Les sauvegardes ne quittent jamais le NAS (RG-98). *(Exception ajoutée le 1er novembre 2026, étendue aux vidéos YouTube le 5 novembre 2026 avec Ghislain.)* *(Réécrite le 12 novembre 2026 avec Ghislain : plus de copie externe.)*
+- **RG-98** — Chaque nuit à 3 h, et avant chaque mise à jour, Hippo copie sa base et ses images dans un dossier de sauvegarde du NAS ; les sauvegardes de plus de 14 jours sont effacées, sauf les 3 plus récentes, toujours gardées. Un élément supprimé reste dans les sauvegardes jusqu'à leur effacement ; restaurer une sauvegarde rend les éléments supprimés depuis et perd les captures faites depuis. Les sauvegardes ne quittent jamais le NAS. *(Ajoutée le 12 novembre 2026 avec Ghislain, avec la garde des 3 plus récentes.)*
 
 ### Recherche
 

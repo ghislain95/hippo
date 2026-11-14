@@ -15,13 +15,16 @@
 #   network, pid, ipc or user namespace, no env_file, no Docker socket mount, cap_add on the
 #   tailscale sidecar only; a mem_limit on hippo (ADR-0038); the hippo environment matches
 #   .env.example (every uncommented variable reaches hippo through ${NAME...}, and the reverse),
-#   minus COMPOSE_ONLY_VARS, plus the variables each compose sets itself;
+#   minus COMPOSE_ONLY_VARS, which never reach hippo, plus the variables each compose sets
+#   itself; hippo mounts a volume on /backups, the backup folder (change nightly-backup);
 # - production (docker-compose.yml): exactly the services hippo and tailscale, no published port,
 #   hippo on 127.0.0.1:8080 in the network of the sidecar and restarted with it; sidecar in
 #   kernel mode (TS_USERSPACE=false, no userspace-networking in its extra arguments) with exactly
 #   NET_ADMIN and /dev/net/tun, TS_AUTH_ONCE=true, serve configuration read from
 #   ./tailscale/config/serve.json; Tailscale image pinned to an exact version, hippo image tag
-#   required (HIPPO_IMAGE_TAG);
+#   required (HIPPO_IMAGE_TAG); the /backups volume of hippo read from ${BACKUP_HOST_DIR:?...},
+#   required, so that a missing line stops `docker compose up` instead of backing up into the
+#   project folder, and never creating its host folder (bind.create_host_path: false);
 # - local (docker-compose.local.yml): ports published on 127.0.0.1 only;
 # - tailscale/config/serve.json: HTTPS on port 443 only, a single handler proxying to
 #   http://127.0.0.1:8080, Funnel off everywhere.
@@ -40,7 +43,7 @@ EXAMPLE=.env.example
 SERVE=tailscale/config/serve.json
 
 # Variables of .env.example read by Compose itself, not by the backend: they never reach hippo.
-COMPOSE_ONLY_VARS='["TS_AUTHKEY", "HIPPO_IMAGE_TAG"]'
+COMPOSE_ONLY_VARS='["TS_AUTHKEY", "HIPPO_IMAGE_TAG", "BACKUP_HOST_DIR"]'
 # Variables each compose sets on hippo itself, absent from .env.example on purpose.
 PROD_SET_VARS='{"HTTP_ADDR": "127.0.0.1:8080"}'
 LOCAL_SET_VARS='{}'
@@ -84,6 +87,10 @@ def hippo: .services.hippo // {};
 def hippo_env: hippo.environment | envmap;
 def mounts: (.value.volumes // [])[]
   | if type == "string" then . else "\(.source // "") \(.target // "")" end;
+# The volumes of hippo mounted on /backups (a short-form string becomes {source, target}).
+def backup_mounts: (hippo.volumes // [])[]
+  | if type == "string" then (split(":") | {source: .[0], target: .[1]}) else . end
+  | select(.target == "/backups");
 
 def common:
   ( services
@@ -105,6 +112,8 @@ def common:
   ( services | .key as $s | select([mounts | select(contains("docker.sock"))] | length > 0)
     | "service \($s): mounting the Docker socket is forbidden" ),
   ( if (hippo.mem_limit // "") == "" then "hippo: no mem_limit (ADR-0038)" else empty end ),
+  ( if ([backup_mounts] | length) == 0 then
+      "hippo: no volume on /backups (the backup folder, BACKUP_HOST_DIR)" else empty end ),
   ( ($example - $compose_only) as $documented
     | hippo_env as $env
     | ( $documented[] | . as $n
@@ -119,8 +128,10 @@ def common:
           elif $env[$n] != $set[$n] then
             "hippo: \($n) must be \($set[$n])"
           else empty end ),
+      ( $env | keys[] | . as $n | select(($compose_only | index($n)) != null)
+        | "hippo: \($n) is read by Compose only and must not reach the container" ),
       ( $env | keys[] | . as $n
-        | select((($documented + ($set | keys)) | index($n)) == null)
+        | select((($documented + ($set | keys) + $compose_only) | index($n)) == null)
         | "hippo: \($n) is not documented in .env.example (or in this script'"'"'s lists)" ) );
 '
 
@@ -160,7 +171,11 @@ common,
 ( if ((tailscale.image // "") | test("^tailscale/tailscale:v?[0-9]+\\.[0-9]+\\.[0-9]+(@sha256:[0-9a-f]{64})?$")) | not then
     "tailscale: image must be pinned to an exact version (tailscale/tailscale:vX.Y.Z), never latest" else empty end ),
 ( if ((hippo.image // "") | startswith("ghcr.io/ghislain95/hippo:${HIPPO_IMAGE_TAG:?")) | not then
-    "hippo: image must be ghcr.io/ghislain95/hippo:${HIPPO_IMAGE_TAG:?...} (tag required, never a silent latest)" else empty end )
+    "hippo: image must be ghcr.io/ghislain95/hippo:${HIPPO_IMAGE_TAG:?...} (tag required, never a silent latest)" else empty end ),
+( if [backup_mounts] != [] and ([backup_mounts | select((.source // "") | contains("${BACKUP_HOST_DIR:?") | not)] | length) > 0 then
+    "hippo: the /backups volume must read ${BACKUP_HOST_DIR:?...} (required on the NAS, never a default in the project folder)" else empty end ),
+( if [backup_mounts] != [] and ([backup_mounts | select(.bind.create_host_path != false)] | length) > 0 then
+    "hippo: the /backups volume must not create its host folder (bind: create_host_path: false; the folder is created beforehand, owned by 65532)" else empty end )
 '
 
 LOCAL_CHECKS='

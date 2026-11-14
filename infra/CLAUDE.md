@@ -10,6 +10,7 @@ Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HT
 - `tailscale/config/serve.json` : configuration de `tailscale serve`.
 - `check-compose.sh` : contrôle statique des deux compose, lancé par `make check-infra` (section suivante).
 - `data/` et `tailscale/state/` : données d'exécution, non versionnées.
+- `backups/` : sauvegardes de la variante locale (`BACKUP_HOST_DIR` vide), créé par `make up`, non versionné. Sur le NAS, les sauvegardes vont dans le dossier partagé `Sauvegardes/hippo`, hors du dossier du projet ([ADR-0039](../docs/adr/0039-sauvegardes-sur-le-nas.md)).
 
 ## Règles critiques
 
@@ -38,11 +39,15 @@ Depuis le 7 novembre 2026 (change `deploy-nas`), `make check-infra`, donc le job
 | Tag de l'image Hippo obligatoire : `${HIPPO_IMAGE_TAG:?…}` | production | Une ligne absente arrête `docker compose up` au lieu de tirer `latest` en silence |
 | Rotation des logs : pilote `json-file` avec `max-size` et `max-file` (10 Mo, 3 fichiers), sur chaque service | les deux | Les logs ne remplissent jamais le volume du NAS |
 | `mem_limit` sur `hippo` | les deux | ADR-0038 |
+| `hippo` monte un volume sur `/backups`, le dossier des sauvegardes | les deux | Sans lui, le service refuse de démarrer (`BACKUP_DIR` absent), ou les sauvegardes manquent |
+| Ce volume lit `${BACKUP_HOST_DIR:?…}`, en syntaxe longue, avec `bind.create_host_path: false` | production | Une ligne absente de `.env` arrête `docker compose up` au lieu de sauvegarder dans le dossier du projet ; un dossier absent l'arrête aussi au lieu d'être créé par Docker au nom de root. La syntaxe courte est refusée : sans interpolation, Compose la coupe sur les `:` de `${…:?…}` et le script ne verrait plus de volume sur `/backups` |
 | Chaque variable non commentée de `.env.example` atteint `hippo` par `${NAME…}`, et chaque variable de `hippo` est dans `.env.example` | les deux | Voir « Règles critiques » |
+| Aucune variable de `COMPOSE_ONLY_VARS` dans l'`environment` de `hippo` | les deux | Elles ne servent qu'à Compose ; `TS_AUTHKEY` en particulier n'a rien à faire dans le conteneur du backend |
 
 Exceptions de la dernière ligne, listées dans le script :
 
-- `TS_AUTHKEY` et `HIPPO_IMAGE_TAG` (`COMPOSE_ONLY_VARS`) : lues par Compose, pas par le backend ; elles n'atteignent pas `hippo`.
+- `TS_AUTHKEY`, `HIPPO_IMAGE_TAG` et `BACKUP_HOST_DIR` (`COMPOSE_ONLY_VARS`) : lues par Compose, pas par le backend ; elles n'atteignent pas `hippo`.
+- `DATA_DIR` et `BACKUP_DIR` : fixées par l'image (`/data`, `/backups`) et par `make dev`, commentées dans `.env.example`, jamais dans `infra/.env`.
 - `HTTP_ADDR` (`PROD_SET_VARS`) : fixée par le compose de production à `127.0.0.1:8080`, absente de `.env.example` exprès.
 
 Une nouvelle variable de Compose, ou fixée par un compose, s'ajoute à ces listes dans le même commit. Pour voir un invariant échouer, sur une copie hors du dépôt : `make check-infra COMPOSE_DIR=<copie>`.
@@ -59,6 +64,7 @@ Une nouvelle variable de Compose, ou fixée par un compose, s'ajoute à ces list
 make check-infra   # les deux compose (config --quiet), shellcheck et invariants (check-compose.sh)
 make image         # construit l'image du backend
 make up            # compose local, puis : curl -fsS http://127.0.0.1:8080/healthz
+docker compose -f infra/docker-compose.local.yml exec hippo /hippo backup   # une sauvegarde dans infra/backups/
 make logs
 make down
 ```

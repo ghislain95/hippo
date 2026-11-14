@@ -19,7 +19,9 @@ backend/
 │   ├── extraction/         téléchargement et lecture des liens (pages, PDF), dossier DATA_DIR/tmp
 │   ├── childproc/          lancement et bornes des processus enfants (seul à lancer un sous-processus)
 │   ├── imagecopy/          copie d'une image pour l'IA, dans l'enfant `hippo copy-image`
-│   ├── schedule/           horaire quotidien à l'heure de Paris (BATCH_SCHEDULE)
+│   ├── schedule/           horaire quotidien à l'heure de Paris (BATCH_SCHEDULE, BACKUP_SCHEDULE)
+│   ├── backup/             sauvegarde de la base et des images dans BACKUP_DIR ; ni réseau ni IA
+│   ├── freespace/          espace libre d'un système de fichiers et marge commune ; feuille
 │   ├── naming/             normalisation des tags et des noms de catégorie ; feuille
 │   ├── analysis/           passe d'analyse : gardes, sélection, requêtes, soumission, réconciliation,
 │   │                       suivi des batchs, validation et application des résultats, coût
@@ -47,6 +49,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 - Seul `internal/analysis/anthropic` importe `anthropic-sdk-go` ; il implémente l'interface `analysis.Analyzer`, branchée par `cmd/hippo` ([ADR-0005](../adr/0005-haiku-batch.md)). Règle `depguard` `anthropic-only-in-analysis`.
 - Seul `internal/naming` importe `golang.org/x/text` (normalisation Unicode, pour retirer les accents des tags et des noms de catégorie, RG-54, RG-58) : règle `depguard` `text-normalisation-only-in-naming` (E3-02 à E3-05). `naming` est une feuille : il n'importe que la librairie standard et `golang.org/x/text/unicode/norm`.
 - Seul `internal/imagecopy` importe les décodeurs d'images `golang.org/x/image` et `github.com/gen2brain` (HEIC), exécutés dans le processus enfant qui les borne : règle `depguard` `image-decoding-only-in-imagecopy` (E3-01).
+- `internal/backup` ne lit et n'écrit que des fichiers locaux : la règle `depguard` `backup-stays-on-the-nas` lui interdit `net` (et ses sous-paquets), `internal/analysis` (et ses sous-paquets), `internal/extraction`, `internal/httpapi` et `database/sql`. Aucun chemin ne mène d'une sauvegarde au réseau ni à l'IA (RG-12, RG-92) ; SQLite reste dans `store` (`store.Snapshot`). `internal/freespace` est une feuille : il n'importe que la librairie standard.
 - Ces règles sont vérifiées par `depguard` dans `backend/.golangci.yml` : une violation casse le lint.
 - `assetfs` est une feuille, importée seulement par `httpapi` et `cmd/hippo` (le domaine `capture` déclare l'interface dont il a besoin) : elle ne connaît ni HTTP, ni la base, ni aucun autre package Hippo. Deux règles `depguard` le vérifient : `assetfs-is-a-leaf` pour ce qu'elle importe, et celle du domaine `capture`, qui lui interdit d'importer `assetfs` (E2-04).
 - Seul `internal/extraction` importe Readability (`codeberg.org/readeck/go-readability/v2`), `golang.org/x/net` (`html`, `html/charset`) et le lecteur de PDF `github.com/ledongthuc/pdf` : règle `depguard` `page-reading-only-in-extraction` (E2-05, étendue par E2-08). Dans le package, le lecteur de PDF n'est appelé que par `pdf.go` et `pdflayout.go`, exécutés dans le processus enfant. Le générateur de PDF de test `internal/extraction/pdftest` n'est importé que par des tests : règle `pdf-generator-only-in-tests`. `capture` ne connaît pas `extraction` : il déclare une interface `Waker` (`Wake()`), branchée par `cmd/hippo`.
@@ -91,7 +94,7 @@ cmd/hippo ──► httpapi ──► <domaine> ──► store
 
 - Fichiers SQL `internal/store/migrations/NNNNN_<nom_snake_case>.sql`, annotés `-- +goose Up`, appliqués au démarrage par goose utilisé comme librairie ([ADR-0032](../adr/0032-migrations-goose.md)).
 - **Une migration appliquée n'est jamais modifiée, supprimée ni renommée** : on en ajoute une. La CI le vérifie.
-- Pas de migration descendante : un retour arrière passe par la sauvegarde ([ADR-0020](../adr/0020-sauvegardes.md)).
+- Pas de migration descendante : un retour arrière passe par la restauration d'une sauvegarde ([ADR-0039](../adr/0039-sauvegardes-sur-le-nas.md), [runbook NAS](../runbook-nas.md#8-revenir-en-arrière)).
 
 ## Fichiers des images
 
@@ -141,17 +144,30 @@ Le travail qui peut exploser en mémoire tourne dans un processus enfant du mêm
 Les fichiers de passage sont dans `DATA_DIR/tmp`, géré par `internal/extraction` (`tempfile.go`), jamais dans `os.TempDir()` : `/tmp` du conteneur est la couche de l'image ou un tmpfs compté dans sa mémoire de 384 Mo ([ADR-0019](../adr/0019-deploiement-docker-nas.md), [ADR-0038](../adr/0038-limite-memoire-384-mo.md)). Il reçoit le PDF téléchargé (extraction) et, pendant la passe d'analyse, le fichier des segments, le corps du batch et la copie d'une image : tous **sans nom**.
 
 - `cmd/hippo` l'ouvre au démarrage par `extraction.OpenTempDir` : créé en `0700`, accès par `os.Root`, **tout fichier régulier qui y reste est supprimé** (nombre logué), puis une sonde vérifie qu'on peut y écrire : le service échoue au démarrage plutôt qu'au premier PDF.
-- Avant chaque PDF, l'espace libre du volume est lu (`syscall.Statfs`, un fichier `freespace_*.go` par système : Linux et macOS ; ailleurs il est inconnu et seule l'écriture échoue) : il faut la taille annoncée du PDF, ou 50 Mio quand elle est inconnue, plus une marge de 64 Mio (`freeSpaceMargin`) laissée à la base, à son WAL et aux images ; sinon rien n'est écrit et l'élément reste en file (`storage_unavailable`).
+- Avant chaque PDF, l'espace libre du volume est lu par `freespace.Available` (`internal/freespace`, `syscall.Statfs`, un fichier `freespace_*.go` par système : Linux et macOS ; ailleurs il est inconnu et seule l'écriture échoue) : il faut la taille annoncée du PDF, ou 50 Mio quand elle est inconnue, plus une marge de 64 Mio (`freespace.Margin`, la même que celle des sauvegardes) laissée à la base, à son WAL et aux images ; sinon rien n'est écrit et l'élément reste en file (`storage_unavailable`).
 - `(*TempDir).NewFile()` rend la paire de descripteurs : l'un en lecture-écriture, l'autre en lecture seule. Le fichier `.pdf-<aléatoire>` (préfixe gardé pour tous, le nom ne vit qu'un instant) est créé en `0600` (`O_EXCL`), rouvert en lecture seule, puis **son nom est supprimé avant le retour**, donc avant toute donnée. `analysis` le consomme par une interface d'une méthode.
 - Par PDF : le fichier est créé ainsi avant le téléchargement. Les données vivent tant qu'un descripteur est ouvert (le service écrit, l'enfant lit) et disparaissent avec le dernier, crash compris. Seul l'instant entre la création et la suppression du nom peut laisser un fichier : le balayage du démarrage le supprime.
-- Le worker ferme les deux descripteurs sur tous les chemins (lu, repli, laissé en file, arrêt) ; la passe d'analyse ferme les siens quand l'envoi revient. Un disque plein pendant la passe arrête la passe de l'utilisateur sans rien soumettre (`storage_unavailable`) ; l'espace libre n'est vérifié d'avance que pour un PDF. Les sauvegardes ([ADR-0020](../adr/0020-sauvegardes.md)) ne voient jamais un fichier sans nom.
+- Le worker ferme les deux descripteurs sur tous les chemins (lu, repli, laissé en file, arrêt) ; la passe d'analyse ferme les siens quand l'envoi revient. Un disque plein pendant la passe arrête la passe de l'utilisateur sans rien soumettre (`storage_unavailable`) ; l'espace libre n'est vérifié d'avance que pour un PDF. Les sauvegardes ([ci-dessous](#sauvegardes)) ne voient jamais un fichier sans nom, et ne lisent jamais `DATA_DIR/tmp`.
 - Les erreurs du dossier ne nomment aucun fichier (comme `assetfs`) ; ni le chemin ni le nom n'atteignent un log.
+
+## Sauvegardes
+
+La sauvegarde copie la base et les images dans `BACKUP_DIR`, sur le NAS seulement ([RG-98](../metier.md#données-et-multi-utilisateur), [ADR-0039](../adr/0039-sauvegardes-sur-le-nas.md)). Comportement : spec OpenSpec `backup` ; procédures : [runbook NAS](../runbook-nas.md#9-sauvegardes).
+
+- **Un seul chemin de code** : `backup.Run`, appelé la nuit par le service (`startBackup` dans `cmd/hippo`, à `BACKUP_SCHEDULE`) et à la demande par la sous-commande `hippo backup`, lancée dans le conteneur en marche (`docker compose exec`, jamais `run`). `hippo backup` n'est pas un processus enfant : elle lit la configuration du service, pose une limite souple de 32 Mio sur son tas Go ([ADR-0038](../adr/0038-limite-memoire-384-mo.md)), écrit sa ligne de log sur sa sortie standard et ne sort à 0 que si une sauvegarde complète existe.
+- **Copie de la base en lecture seule** : `store.Snapshot` ouvre sa propre connexion `mode=ro`, sans migrations ni correction de démarrage, et fait `VACUUM INTO`. Le chemin de sauvegarde n'ouvre jamais la base par `store.Open` : il n'écrit jamais dans la base.
+- **Jamais de nettoyage du dossier de données** : ni balayage des `.tmp-*` des images, ni de `DATA_DIR/tmp` (ils appartiennent au service en marche). Les `.tmp-*` ne sont pas copiés ; les liens symboliques ne sont jamais suivis. `backup.Options` reçoit le chemin de la base et celui des images, jamais `DATA_DIR`.
+- **Liens en dur entre sauvegardes seulement** : une image inchangée depuis la sauvegarde précédente y est liée ; sinon, ou si le lien échoue, elle est copiée par un tampon, sans la copie du noyau (`copy_file_range`) que `io.Copy` choisit entre deux `*os.File` et qui, sous Btrfs, pourrait partager ses blocs avec l'image vivante. Jamais de lien vers une image du dossier de données.
+- **Complète ou absente** : verrou `flock` sur `.lock` du dossier des sauvegardes, écriture dans un dossier partiel `.partial-<nom>`, synchronisation, puis renommage ; espace libre vérifié avant d'écrire ; la conservation ne touche que des dossiers au format d'un nom de sauvegarde.
+- **Erreurs sans chemin** (comme `assetfs`) ; une ligne de log `backup` par sauvegarde, avec des compteurs, jamais un nom d'image ni un contenu d'élément.
+- **Au démarrage**, `backup.CheckDir` vérifie que `BACKUP_DIR` existe, qu'on peut y écrire (un fichier sonde `.probe-*` créé en `O_EXCL` puis supprimé : un `.lock` déjà présent ne prouve pas que le dossier est encore inscriptible) et qu'on peut y ouvrir `.lock` ; il ne crée jamais le dossier : le service refuse de démarrer plutôt que de tourner sans sauvegardes.
 
 ## Configuration
 
 - Uniquement par variables d'environnement, lues une fois dans `config.Load`, qui reçoit une fonction `getenv` (testable) et renvoie une erreur claire pour toute valeur manquante ou invalide. Le binaire refuse de démarrer sur une configuration invalide.
 - La liste des variables et leur rôle est dans `infra/.env.example` ; toute nouvelle variable y est documentée dans le même commit.
-- `BATCH_SCHEDULE` est lu par `schedule.ParseDaily` dans `config.Load` (`Config.BatchSchedule` est un `schedule.Daily`) : seule la forme quotidienne `M H * * *` passe, toute autre arrête le démarrage avec une erreur qui nomme la variable. `BACKUP_SCHEDULE` n'est pas encore validé (E6). `ANTHROPIC_API_KEY` reste facultative : sans elle, la passe n'envoie rien.
+- `BATCH_SCHEDULE` est lu par `schedule.ParseDaily` dans `config.Load` (`Config.BatchSchedule` est un `schedule.Daily`) : seule la forme quotidienne `M H * * *` passe, toute autre arrête le démarrage avec une erreur qui nomme la variable. `BACKUP_SCHEDULE` est lu de la même façon (`Config.BackupSchedule`, erreur qui nomme `BACKUP_SCHEDULE`). `ANTHROPIC_API_KEY` reste facultative : sans elle, la passe n'envoie rien.
+- `DATA_DIR` et `BACKUP_DIR` sont fixées par l'image (`/data`, `/backups`) et par `make dev` (`../data/dev`, `../data/dev-backups`), jamais dans `infra/.env`. `config.Load` refuse un `BACKUP_DIR` égal à `DATA_DIR`, à l'intérieur ou autour de lui (comparaison lexicale des chemins absolus nettoyés) : une sauvegarde dans les données se copierait elle-même.
 - Aucune heure du domaine ne suit `time.Local` : on passe `capture.LoadParis()` (fuseau embarqué). `TZ` ne règle que l'horodatage des logs.
 
 ## Style Go

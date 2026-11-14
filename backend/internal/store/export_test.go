@@ -525,3 +525,35 @@ func BatchRowForTestOf(t testing.TB, s *Store, userID, batchID string) BatchRowF
 	row.CostUSD, row.EndedAt, row.ResultsUnavailableAt, row.ResultsLinesRead = ptr(cost), ptr(endedAt), ptr(unavailableAt), ptr(lines)
 	return row
 }
+
+// HoldCaptureForTest begins a write transaction that inserts a new item of userID through the
+// capture's own insert, and leaves it open, uncommitted, until the returned function rolls it
+// back (tests of a snapshot taken during a write).
+func HoldCaptureForTest(t testing.TB, s *Store, userID string, in NewItem) (rollback func()) {
+	t.Helper()
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("begin write: %v", err)
+	}
+	if _, err := s.insertItem(t.Context(), tx, userID, in, s.now().UTC()); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("insert item: %v", err)
+	}
+	return func() {
+		if err := tx.Rollback(); err != nil {
+			t.Errorf("roll back the write: %v", err)
+		}
+	}
+}
+
+// SnapshotDBForTest opens the connection Snapshot copies the database through (tests that it
+// cannot write).
+func SnapshotDBForTest(t testing.TB, path string) *sql.DB {
+	t.Helper()
+	db, err := openSnapshotSource(path)
+	if err != nil {
+		t.Fatalf("open snapshot connection: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}

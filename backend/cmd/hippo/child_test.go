@@ -11,10 +11,12 @@ import (
 )
 
 // TestMain makes the test binary the binary of production when a test runs it with
-// imagecopy.ChildCommand: main dispatches it.
+// imagecopy.ChildCommand or backupCommandName: main dispatches it. main returns on a
+// successful backup, as the real binary ends with exit code 0: never run the tests then.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == imagecopy.ChildCommand {
+	if len(os.Args) > 1 && (os.Args[1] == imagecopy.ChildCommand || os.Args[1] == backupCommandName) {
 		main()
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
