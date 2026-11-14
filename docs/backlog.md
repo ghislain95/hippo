@@ -420,6 +420,8 @@ ADR-0015
 
 ### E6-03 — Sauvegardes · M
 
+✅ Terminé le 14 novembre 2026 par le change `nightly-backup` ([archive](../openspec/changes/archive/2026-11-14-nightly-backup/proposal.md), [ADR-0039](adr/0039-sauvegardes-sur-le-nas.md), [runbook NAS](runbook-nas.md#9-sauvegardes)) : sauvegarde et restauration testées sur le NAS par Ghislain le 13 novembre 2026, première sauvegarde de nuit réussie le 14.
+
 RG-92 · RG-98 · ADR-0020 · ADR-0039
 - Sauvegardes locales seulement, sur le NAS, dans le dossier partagé `Sauvegardes/hippo` : chaque nuit à 3 h et avant chaque mise à jour (`hippo backup`), base et images, 14 jours conservés. Aucune copie externe : décidé avec Ghislain le 12 novembre 2026 ([ADR-0039](adr/0039-sauvegardes-sur-le-nas.md), qui remplace la copie externe chiffrée de l'ADR-0020).
 - Hérité d'E2-04 (27 octobre 2026) : copier la base (`VACUUM INTO`) puis les images de `DATA_DIR/assets`, en excluant les fichiers temporaires `.tmp-*`. Dans cet ordre, une image orpheline est possible, une ligne sans fichier ne l'est pas.

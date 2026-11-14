@@ -245,6 +245,7 @@ Files `0640`, folders `0750`, like `assetfs` (conventions-backend « Fichiers de
 - Install (runbook § 7 « Mise à jour qui installe les sauvegardes »): `Sauvegardes/hippo` created, `65532:65532`, `drwxr-x---`, no `+`; `BACKUP_HOST_DIR` added to `.env`; manual copy of `data/`; `hippo started` with the full SHA and `backup scheduled` (`next_run` 02:00 UTC = 03:00 Paris).
 - First `hippo backup` on the real (empty) base: `ok`, `migration_version` 7, 163 840 bytes, 370 ms, exit code 0; folder with `hippo.db`, `assets`, `manifest.json`.
 - Restore test (runbook § 8 « Tester une restauration »): real `data/` set aside; two private captures (a note, a 412 350-byte PNG); `hippo backup` `ok`, `images` 1, `images_copied` 1, 492 ms; restore by `cp -a` of `hippo.db` and `assets` into a new `data/`; replaying both captures answered `200` with the same ids (RG-08); `GET /api/assets/<id>` then `cmp` with the original: identical. Real `data/` put back, test bases and the test backup removed; the service `healthy`.
+- Nightly backup of 2026-11-14 at 03:00 (Paris): `trigger` nightly, `outcome` ok, backup `2026-11-14T030000+0100`, 2 015 ms.
 - Memory: not measured, nothing to measure yet (no image in the real base); to read on a later full backup.
 - Runbook fixes from the QA: a placeholder with an apostrophe (`<id de l'image>`) opened an unterminated shell quote, renamed `<id-image>`.
 - Note: files of `data/` carry a `+` (ACL inherited from the shared folder `docker`, admin-only); the backup folder has none, as required.
