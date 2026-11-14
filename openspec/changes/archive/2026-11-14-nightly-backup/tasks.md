@@ -67,7 +67,7 @@ Before starting: `graphify check-update .` (then `graphify update .` if stale); 
 
 ## 11. Pull request, QA and archive
 
-- [ ] 11.1 Commit `feat(nightly-backup)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
+- [x] 11.1 Commit `feat(nightly-backup)`, push, open the PR (French description, « QA Ghislain » section), enable Auto-fix; `ci-ok` green.
 - [x] 11.2 QA by Ghislain on the NAS, following the runbook: folder `Sauvegardes/hippo` created and checked (owner, no `+`, out of every sync); update to the PR's image (manual copy this once); `sudo docker compose exec hippo /hippo backup` with `docker stats` running in another session for the first full backup; the next morning, the nightly `backup` line and its folder; one restore on a `data/` set aside, then the real `data/` put back. Record the peak memory and the duration of the first full backup in design D11 and D13 (no personal data); every deviation fixes the runbook (or the code) in the same PR, with a new review.
 - [x] 11.3 Post-archive: backlog E6-03 marked done; `/opsx:archive nightly-backup` and the post-archive steps of `docs/dev/workflow.md` (doc impact through doc-keeper, Purpose of the new `backup` spec); `graphify update .`; commit `chore(nightly-backup): archive change, post-archive`.
-- [ ] 11.4 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md)
+- [x] 11.4 `/dod-check` passes (make check green, definition of done in docs/dev/workflow.md)
