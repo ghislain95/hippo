@@ -21,6 +21,11 @@ pre-commit:
       glob: "app/**/*.{ts,tsx,js,json,md,yml,yaml}"
       root: "app/"
       run: npx prettier --check {staged_files}
+    swift-format:
+      glob:
+        - "app/targets/*.swift"
+        - "app/targets/**/*.swift"
+      run: swift format lint --strict --configuration app/targets/.swift-format {staged_files}
 
 # Quiet output: only what failed, and the summary.
 output:

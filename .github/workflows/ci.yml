@@ -41,6 +41,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       app: ${{ steps.filter.outputs.app }}
       app_deps: ${{ steps.filter.outputs.app_deps }}
+      swift: ${{ steps.filter.outputs.swift }}
       api: ${{ steps.filter.outputs.api }}
       schemas: ${{ steps.filter.outputs.schemas }}
       openspec: ${{ steps.filter.outputs.openspec }}
@@ -73,6 +74,11 @@ jobs:
             app_deps:
               - app/package.json
               - app/package-lock.json
+            swift:
+              - *ci
+              - app/targets/**
+              # ShareCoreTests/Contract.swift reads api/openapi.bundled.gen.json.
+              - api/**
             api:
               - *ci
               - api/**
@@ -99,6 +105,7 @@ jobs:
               - .claude/hooks/**
               - .github/**
               - lefthook.yml
+              - app/scripts/**
             image:
               - *ci
               - backend/**
@@ -155,6 +162,28 @@ jobs:
       - name: Packages match the Expo SDK (expo-doctor, only when the app dependencies change)
         if: needs.changes.outputs.app_deps == 'true' && github.event_name == 'pull_request'
         run: make doctor-app-versions
+
+  # The pure logic of the share extension (design D12 of app-foundation-share): swift format and
+  # swift test come with Xcode, so this job needs macOS. The extension target itself is built on
+  # the Mac, not here (definition of done).
+  swift:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    # Pinned: macos-26 is the newest GA macOS image (the xcode-27 image is a preview). Xcode 26.6
+    # is the newest Xcode on it, the closest to the Mac's; move both together.
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      XCODE_APP: /Applications/Xcode_26.6.app
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch "${XCODE_APP}/Contents/Developer"
+          xcodebuild -version
+          swift --version
+      - name: Lint (swift format, strict) and test (swift test)
+        run: make check-swift
 
   api:
     needs: changes
@@ -329,7 +358,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, backend, app, api, schemas, openspec, migrations, docs, tooling, infra, secrets, image]
+    needs: [changes, backend, app, swift, api, schemas, openspec, migrations, docs, tooling, infra, secrets, image]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

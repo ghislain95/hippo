@@ -339,8 +339,9 @@ Les écrans sont **maquettés et validés** avant d'être codés. Le gros travai
 
 ADR-0012, ADR-0017
 - Navigation (`expo-router`), client d'API généré, gestion du token et de l'URL du serveur injectés au build.
-- Thèmes clair et sombre (automatique, forçable), taille du texte respectant le réglage iOS.
-- Couleur d'accent par catégorie.
+- Thèmes clair et sombre suivant iOS, taille du texte respectant le réglage iOS.
+- Accueil provisoire en attendant la Bibliothèque : nom, état du serveur, comment capturer.
+- Déplacé avec Ghislain le 13 novembre 2026 (change `app-foundation-share`) : la couleur d'accent par catégorie va en E5-03 (les catégories ne sont pas servies avant E4) ; le thème forcé clair ou sombre va en E5-08 (il demande l'écran Réglages).
 
 ### E5-02 — Extension de partage · M
 
@@ -348,17 +349,19 @@ RG-01 à RG-06, RG-10 · ADR-0014, ADR-0036
 - Partager un lien, un texte ou une image ouvre un mini formulaire : aperçu, note facultative, interrupteur Privé décoché, bouton Enregistrer.
 - Confirmation visible en moins de 5 secondes avec un bon réseau ; message clair et bouton « Copier le lien » si le serveur est injoignable.
 - Extension en Swift et SwiftUI, cible générée par `@bacons/apple-targets` (nouvelle dépendance de l'appli, ADR-0036).
-- Points ouverts par le prototype E1, à trancher au cadrage :
-  - conventions du code Swift (format, lint, tests) ;
-  - format des images : Photos les fournit en JPEG, même une capture d'écran ; garder le JPEG ou demander l'original (RG-02).
-- Hérité d'E2-04 (27 octobre 2026) : vérifier la taille de l'image (20 Mo, RG-02) avant l'envoi. Un `413` reçu en plein envoi peut arriver comme une erreur réseau, et l'extension afficherait à tort « serveur injoignable ».
-- Hérité d'E2-08 (2 novembre 2026) : partager un fichier PDF (et non un lien) depuis Fichiers ou une autre appli n'est pas une forme de capture ; à cadrer avec Ghislain si le besoin se confirme.
+- Tranché au cadrage avec Ghislain le 13 novembre 2026 (change `app-foundation-share`) :
+  - format des images (point ouvert par le prototype E1) : l'original quand l'appli source le propose, HEIC, puis PNG, puis WebP, sinon JPEG (RG-02, [spec](spec-v1.md#application-mobile)) ;
+  - conventions du code Swift (point ouvert par le prototype E1) : `swift format` et `swift test`, sans dépendance ([conventions](dev/conventions-app.md#swift-de-lextension)) ;
+  - taille de l'image (héritée d'E2-04) : vérifiée avant l'envoi, pour qu'une image trop lourde ne s'affiche jamais comme « serveur injoignable » ;
+  - fichier PDF (hérité d'E2-08) : partager un fichier, PDF ou autre, est hors V1 ; un lien vers un PDF reste un lien ;
+  - texte partagé : il devient une note, ou la note de capture d'un lien ou d'une image (RG-01, précisée le même jour).
 
 ### E5-03 — Bibliothèque · M
 
 RG-95, RG-96
 - Liste des éléments en cartes (titre, site, type, pastille de catégorie, badge « en attente » tant que non analysé).
 - Repère du prototype E1 pour les maquettes : effet verre apprécié, arrondi des cartes d'environ 16 points plutôt que 24.
+- Couleur d'accent par catégorie (venue d'E5-01 le 13 novembre 2026).
 - Recherche et filtres combinables ; bandeau « Reprendre la lecture » pour le dernier élément en cours.
 
 ### E5-04 — Fiche et templates · M
@@ -389,6 +392,7 @@ RG-70 à RG-73
 ### E5-08 — Réglages · M
 
 - Thème, taille du texte, état du serveur, file d'attente, coût du mois et alerte de budget, échecs avec bouton Relancer, export Markdown.
+- Thème forcé clair ou sombre, en plus de l'automatique (venu d'E5-01 le 13 novembre 2026).
 
 ### E5-09 — Hors ligne · M
 

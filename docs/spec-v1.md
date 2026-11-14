@@ -626,7 +626,35 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 
 **Direction artistique** : style éditorial et sobre, typographie soignée, beaucoup d'air ; thèmes clair et sombre (automatique, forçable) ; couleur d'accent par catégorie ; animations discrètes (transition carte → fiche, retour haptique) ; taille du texte réglable en respectant iOS. Maquettes avant le code.
 
-**Extension de partage** ([ADR-0014](adr/0014-extension-de-partage-autonome.md)) : URL, texte et images ; mini formulaire (aperçu, note, Privé, Enregistrer) ; envoie elle-même au NAS ; URL et token injectés au build ; message clair et « Copier le lien » si le serveur est injoignable.
+**Accueil provisoire** (E5-01, 13 novembre 2026) : tant que la Bibliothèque n'existe pas (E5-03), l'appli s'ouvre sur un accueil : le nom « Hippo », l'état du serveur (`GET /healthz`, « Serveur joignable » ou « Serveur injoignable »), et une explication : on capture depuis la feuille de partage, Hippo range dans la nuit. La Bibliothèque le remplacera comme écran d'accueil.
+
+**Thème** (E5-01) : clair et sombre suivant l'apparence d'iOS, taille du texte suivant le réglage iOS (Dynamic Type), couleurs communes à l'appli et à l'extension ([conventions](dev/conventions-app.md#interface)). Le thème forcé arrive avec Réglages (E5-08), la couleur d'accent par catégorie avec la Bibliothèque (E5-03).
+
+**Extension de partage** ([ADR-0014](adr/0014-extension-de-partage-autonome.md), [ADR-0036](adr/0036-extension-de-partage-swift.md), E5-02) : en Swift et SwiftUI, elle envoie elle-même `POST /api/items` au NAS, avec l'URL et le token injectés au build. Elle ne stocke rien et n'écrit aucun log.
+
+- **Ce qu'elle accepte** : une URL web, un texte, une seule image. Jamais un fichier : un PDF partagé comme fichier depuis Fichiers est hors V1 (décidé le 13 novembre 2026) ; un lien vers un PDF est un lien comme un autre. Plusieurs photos : Hippo n'est pas proposé.
+- **Forme** : un partage crée un seul élément, URL, sinon image, sinon texte ; un texte qui accompagne une URL ou une image pré-remplit la note de capture ; un texte seul devient le texte d'une note, sans note de capture (RG-01, RG-07).
+- **Formulaire** : aperçu (site et titre ou URL d'un lien, sans appel réseau ; miniature et légende « Image · HEIC · 3,1 Mo » d'une image ; texte modifiable d'une note), « Note (facultative) » pour un lien ou une image, interrupteur « Privé » décoché (RG-10), « Enregistrer ». Enregistrer n'est pas proposé pour une note vide. Dès le premier envoi, le formulaire est figé.
+- **Image** : envoyée dans son format d'origine quand l'appli source le propose, dans cet ordre : HEIC, PNG, WebP, JPEG ; sinon convertie en JPEG. L'original part avec ses métadonnées (position GPS comprise) et reste ainsi sur le NAS et dans les sauvegardes ; seule la copie envoyée à l'IA en est débarrassée (RG-38).
+- **Tailles, vérifiées avant l'envoi** : image de 20 Mo au plus (20 × 1 048 576 octets, après conversion), corps JSON d'un lien ou d'une note et note de capture d'une image de 1 Mo au plus (RG-02). Au-delà, rien n'est envoyé. Les tailles s'affichent en Mo de 1 048 576 octets, à une décimale arrondie au-dessus (« 20,1 Mo »).
+- **Identifiant de capture** : un ULID tiré à l'ouverture de la feuille ; « Réessayer » renvoie exactement la même requête, sans jamais créer un second élément (RG-08).
+
+| Situation | Écran | Suite |
+| --- | --- | --- |
+| `201`, ou tout autre `200` (par exemple une capture rejouée après « Réessayer », RG-08) | « Enregistré » ; si l'élément est privé, « Privé : il attend dans À trier et n'est jamais envoyé à l'IA. » | se ferme seul après 1,5 s |
+| `200` d'un lien au premier envoi (doublon, RG-04) | « Déjà dans Hippo » | se ferme seul après 1,5 s |
+| Pas de réponse, ou `5xx` | « Serveur injoignable » | « Réessayer » ; « Copier le lien » ou « Copier le texte » (rien pour une image) (RG-06) |
+| `401` | « Accès refusé » : le token ne correspond plus, reconstruire l'appli | « Fermer » |
+| Image de plus de 20 Mo, ou `413 image-too-large` | « Image trop lourde » avec sa taille | « Fermer » |
+| Texte ou note de capture de plus de 1 Mo | « Texte trop long » avec sa taille | « Fermer » |
+| Autre `4xx`, ou réponse inattendue | « Hippo a refusé » avec le `detail` du serveur, tel quel ; sans `detail`, « Le serveur a refusé ce partage (HTTP <code>). » | « Fermer » |
+| Ni URL, ni image lisible, ni texte non vide | « Rien à enregistrer » | « Fermer » |
+| Corps de la requête impossible à écrire sur le téléphone (stockage plein) | « Enregistrement impossible » : libérer un peu d'espace, puis réessayer ; rien n'est envoyé | « Fermer » |
+
+- **Délais** : confirmation en moins de 5 secondes avec un bon réseau, d'« Enregistrer » à l'écran de confirmation. Sans aucun octet reçu pendant 10 s, le serveur est injoignable ; un envoi dure au plus 30 s pour un lien ou une note, 330 s pour une image (le serveur accorde 5 minutes).
+- **« Annuler »** reste actif pendant l'envoi : il l'interrompt et ferme la feuille. La capture a pu arriver au serveur ; un nouveau partage tire un nouvel identifiant et peut donc créer une seconde image ou note.
+
+Code et conventions : [conventions de l'appli, « Swift de l'extension »](dev/conventions-app.md#swift-de-lextension) ; build et installation : [runbook iOS](runbook-ios.md).
 
 **Librairies prévues** : expo-router, TanStack Query, expo-sqlite, react-native-reanimated, expo-haptics, une librairie de coloration syntaxique. Extension de partage en Swift, générée par `@bacons/apple-targets` ([ADR-0036](adr/0036-extension-de-partage-swift.md)).
 
