@@ -18,7 +18,7 @@
     "doctor": "expo-doctor"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.105.2",
+    "@tanstack/react-query": "^5.107.1",
     "expo": "~58.0.25",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.20",
@@ -40,7 +40,7 @@
     "eslint-config-expo": "~58.0.4",
     "jest": "~30.5.2",
     "jest-expo": "~58.0.14",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "typescript": "~6.0.3"
   }
 }
