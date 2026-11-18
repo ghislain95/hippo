@@ -38,7 +38,7 @@ Before starting: `graphify check-update .` (refresh if stale), read ADR-0012, 00
 
 - [x] 6.1 `app/targets/.swift-format`, `make lint-swift`, `format-swift`, `test-swift`, `check-swift` in `make check`, lefthook `swift-format` command (design D12). Verify `make check-swift` green and a deliberately misformatted file fails `make lint-swift` and the pre-commit hook.
 - [x] 6.2 CI job `swift` on a macOS runner, filter `swift`, Xcode selected, `make check-swift`, timeout 15 min, added to the `needs` of `ci-ok` (ADR-0034). Verify `make check-tooling` (actionlint) green.
-- [ ] 6.3 After the first push: verify the `swift` job ran and passed on the pull request, note its duration and Xcode version in design D12.
+- [x] 6.3 After the first push: verify the `swift` job ran and passed on the pull request, note its duration and Xcode version in design D12.
 
 ## 7. Documentation (doc-keeper)
 
@@ -55,4 +55,5 @@ Before starting: `graphify check-update .` (refresh if stale), read ADR-0012, 00
 ## 9. QA on the iPhone and closing
 
 - [ ] 9.1 QA by Ghislain, design « QA checklist » Q2 to Q20, with an `.ipa` from `make ipa`; results in design.md « QA results ». Every deviation is fixed in the same PR, with a new review.
+- [x] 9.1a Q9 fix (QA of 2026-11-18, decided with Ghislain): the activation rule of `share/Info.plist` becomes an `NSPredicate` (at most one image and one web URL across the whole share, texts, nothing else), and screen 14 « Une image à la fois » is the net when more than one image arrives anyway (design D2, D4, « As built (QA) »). S: share-extension « Activation rules of the versioned Info.plist » (updated), « More than one image shows one image at a time » (new). Verify `make check-swift`, `make check-app`, `make build-ios-sim`, and on the simulator that Hippo is offered for one image, a text, a link, a link with a text and a text with one image, and not for two images.
 - [ ] 9.2 Post-archive: `/opsx:archive`, `graphify update .`, commit `chore(app-foundation-share): archive change, post-archive`, `/dod-check`, merge (`gh pr merge --merge --delete-branch`, or `--auto` while the CI runs).

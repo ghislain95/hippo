@@ -42,6 +42,13 @@ struct CaptureChoice: Equatable, Sendable {
   /// The accompanying text, trimmed, without the captured URL; empty when there is none.
   let prefilledNote: String
 
+  /// The screen shown instead of any capture: more than one image (screen 14). The activation
+  /// rule already refuses such a share; this is the net behind it, so that no image is dropped
+  /// silently (QA Q9, 2026-11-18).
+  static func blockingState(of content: SharedContent) -> ShareState? {
+    content.images.filter(\.isImage).count > 1 ? .oneImageAtATime : nil
+  }
+
   /// The capture of a share, or nil when there is nothing to save (blank text, no image type).
   static func choose(_ content: SharedContent) -> CaptureChoice? {
     if let url = content.urls.first(where: isWebURL) {

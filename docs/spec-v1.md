@@ -650,6 +650,7 @@ Une appli de lecture avant tout : six écrans, une extension de partage, et un t
 | Autre `4xx`, ou réponse inattendue | « Hippo a refusé » avec le `detail` du serveur, tel quel ; sans `detail`, « Le serveur a refusé ce partage (HTTP <code>). » | « Fermer » |
 | Ni URL, ni image lisible, ni texte non vide | « Rien à enregistrer » | « Fermer » |
 | Corps de la requête impossible à écrire sur le téléphone (stockage plein) | « Enregistrement impossible » : libérer un peu d'espace, puis réessayer ; rien n'est envoyé | « Fermer » |
+| Plus d'une image dans le partage (filet : la règle d'activation la refuse déjà) | « Une image à la fois » : une image par partage, les partager une par une ; rien n'est envoyé | « Fermer » |
 
 - **Délais** : confirmation en moins de 5 secondes avec un bon réseau, d'« Enregistrer » à l'écran de confirmation. Sans aucun octet reçu pendant 10 s, le serveur est injoignable ; un envoi dure au plus 30 s pour un lien ou une note, 330 s pour une image (le serveur accorde 5 minutes).
 - **« Annuler »** reste actif pendant l'envoi : il l'interrompt et ferme la feuille. La capture a pu arriver au serveur ; un nouveau partage tire un nouvel identifiant et peut donc créer une seconde image ou note.

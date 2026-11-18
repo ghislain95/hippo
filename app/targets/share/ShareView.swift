@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The sheet: the form of screens 2, 3, 4 and 9, then one screen per state (screens 5 to 8, 10
-/// to 13, and the nothing-to-save and too-long states), from mockups.md. Colours come from the
+/// to 14, and the nothing-to-save and too-long states), from mockups.md. Colours come from the
 /// colour sets generated from the app's tokens (design D10); texts use SwiftUI text styles, which
 /// follow Dynamic Type. The screen texts come from `Core` (`ShareState.screen`).
 struct ShareView: View {
@@ -252,6 +252,7 @@ extension ShareState {
     case .refused: ("nosign", "danger")
     case .tokenRefused: ("key.slash", "danger")
     case .preparationFailed: ("xmark.octagon.fill", "danger")
+    case .oneImageAtATime: ("photo.on.rectangle.angled", "warning")
     case .nothingToSave, .loading, .form, .sending: ("tray", "textMuted")
     }
   }

@@ -64,6 +64,10 @@ final class ShareModel {
 
   private func load(_ items: [NSExtensionItem]) async {
     let share = await AttachmentLoader.load(items)
+    if let blocking = CaptureChoice.blockingState(of: share.content) {
+      show(blocking)
+      return
+    }
     guard let choice = CaptureChoice.choose(share.content) else {
       show(.nothingToSave)
       return

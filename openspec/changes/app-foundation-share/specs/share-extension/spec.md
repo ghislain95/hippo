@@ -7,12 +7,14 @@ Lets the user capture a web link, a text or an image from the iOS share sheet of
 ## ADDED Requirements
 
 ### Requirement: The extension is offered for one web URL, a text or one image only
-The extension's activation rules SHALL accept at most one web URL, a text and at most one image, and nothing else: no file, no movie, no attachment count beyond these. Its configuration SHALL grant no App Group and no shared keychain, and allow plain HTTP for local addresses only (RG-01, ADR-0013, ADR-0014, ADR-0036).
+The extension's activation rule SHALL be a predicate that accepts at most one web URL, text, and at most one image, counted across the whole share, and nothing else: no file, no movie, no attachment count beyond these. Its configuration SHALL grant no App Group and no shared keychain, and allow plain HTTP for local addresses only (RG-01, ADR-0013, ADR-0014, ADR-0036).
 
 #### Scenario: Activation rules of the versioned Info.plist
 - **GIVEN** the extension's versioned `Info.plist`
 - **WHEN** its activation rule is read
-- **THEN** it allows exactly one web URL, text, and exactly one image, and declares no file, attachment or movie key and no `TRUEPREDICATE`
+- **THEN** it is a predicate, not a dictionary of counts, and holds no `TRUEPREDICATE`
+- **AND** it accepts a web URL, a web URL with a text, a text, a text with one image, one image (a photo, a Live Photo, a screenshot)
+- **AND** it refuses two images, in one item or in two, two web URLs, a movie, a file that is not an image, and a share with no attachment
 
 #### Scenario: No exception to HTTPS beyond local networking
 - **GIVEN** the extension's versioned `Info.plist`
@@ -20,7 +22,7 @@ The extension's activation rules SHALL accept at most one web URL, a text and at
 - **THEN** the only key present is the one allowing local networking, and arbitrary loads are not allowed
 
 ### Requirement: One share makes one item, by priority web URL, then image, then text
-From everything a share offers, the extension SHALL build exactly one capture: an `http` or `https` URL first (scheme in any case), else an image, else a text. A text that, once trimmed, is only an `http` or `https` URL counts as a web URL. A URL of another scheme is ignored (RG-01, RG-02, RG-09).
+From everything a share offers, the extension SHALL build exactly one capture: an `http` or `https` URL first (scheme in any case), else an image, else a text. A text that, once trimmed, is only an `http` or `https` URL counts as a web URL. A URL of another scheme is ignored. A share that offers more than one image SHALL show the one-image-at-a-time screen, with « Fermer », and send nothing (RG-01, RG-02, RG-09).
 
 #### Scenario: Web URL alone
 - **WHEN** a share offers the URL `https://example.com/a`
@@ -45,6 +47,10 @@ From everything a share offers, the extension SHALL build exactly one capture: a
 #### Scenario: URL of another scheme is ignored
 - **WHEN** a share offers the URL `mailto:a@example.com` and the text `Appeler Paul`
 - **THEN** the capture is a note whose text is `Appeler Paul`
+
+#### Scenario: More than one image shows one image at a time
+- **WHEN** a share offers two images and the text `recette`
+- **THEN** the state is one-image-at-a-time, with the title « Une image à la fois » and the text « Hippo ne prend qu'une image par partage. Partage-les une par une. », without « Réessayer », and no capture is made
 
 ### Requirement: A text shared with a URL or an image prefills the capture note
 When the capture is a link or an image and the share also offers a text, the editable capture note SHALL be prefilled with that text, trimmed, without the exact characters of the captured URL; when nothing is left, the note SHALL start empty. Nothing shared is dropped silently (RG-01, RG-03, RG-09).

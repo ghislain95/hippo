@@ -59,6 +59,33 @@ struct CaptureChoiceTests {
     #expect(choice?.form == .note("Appeler Paul"))
   }
 
+  @Test("More than one image shows one image at a time")
+  func moreThanOneImageShowsOneImageAtATime() {
+    let content = SharedContent(
+      texts: ["recette"],
+      images: [SharedImage(typeIdentifiers: ["public.heic"]), anImage])
+
+    let state = CaptureChoice.blockingState(of: content)
+
+    #expect(state == .oneImageAtATime)
+    #expect(state?.offersRetry == false)
+    #expect(state?.closesBySelf == false)
+    #expect(
+      state?.screen
+        == ScreenText(
+          title: "Une image à la fois",
+          message: "Hippo ne prend qu'une image par partage. Partage-les une par une."))
+  }
+
+  @Test("one image, or none, is not refused before the choice")
+  func oneImageIsNotRefused() {
+    #expect(CaptureChoice.blockingState(of: SharedContent(images: [anImage])) == nil)
+    #expect(CaptureChoice.blockingState(of: SharedContent(texts: ["Idée"])) == nil)
+    // An attachment with no image type is not counted as an image.
+    let notAnImage = SharedImage(typeIdentifiers: ["public.data"])
+    #expect(CaptureChoice.blockingState(of: SharedContent(images: [anImage, notAnImage])) == nil)
+  }
+
   @Test("Safari selection with the page URL")
   func safariSelectionWithThePageURL() {
     let choice = CaptureChoice.choose(

@@ -26,6 +26,8 @@ enum ShareState: Equatable, Sendable {
   case nothingToSave
   /// Screen 13: the request body could not be written on the phone; nothing is sent.
   case preparationFailed
+  /// Screen 14: the share offers more than one image; nothing is sent.
+  case oneImageAtATime
 
   /// Only the unreachable screen offers « Réessayer » (RG-06, design D8).
   var offersRetry: Bool { self == .unreachable }
@@ -85,6 +87,10 @@ enum ShareState: Equatable, Sendable {
       ScreenText(
         title: "Enregistrement impossible",
         message: "Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie.")
+    case .oneImageAtATime:
+      ScreenText(
+        title: "Une image à la fois",
+        message: "Hippo ne prend qu'une image par partage. Partage-les une par une.")
     }
   }
 }

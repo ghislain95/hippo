@@ -17,6 +17,7 @@ Validated by Ghislain on 2026-11-13 (E5 rule: screens are mocked up and validate
 | 11 | Token refused (401) | Key-off icon (danger); « Accès refusé »; « Le token de l'appli ne correspond plus au serveur. Reconstruis l'appli. »; button « Fermer » |
 | 12 | Saved, private | Lock icon (success); « Enregistré »; « Privé : il attend dans À trier et n'est jamais envoyé à l'IA. »; closes by itself like screen 5 |
 | 13 | Send cannot be prepared | Icon (danger); « Enregistrement impossible »; « Hippo n'a pas pu préparer l'envoi. Libère un peu d'espace, puis réessaie. »; button « Fermer »; nothing is sent (the request body could not be written on the phone) |
+| 14 | More than one image | Icon (warning); « Une image à la fois »; « Hippo ne prend qu'une image par partage. Partage-les une par une. »; button « Fermer »; nothing is sent (validated by Ghislain on 2026-11-18, after the QA) |
 
 Validated by Ghislain on 2026-11-13 after the review of tranche B: screen 13, and the caption « Un élément privé n'est jamais envoyé à l'IA. » under the Privé switch of every form (screens 2, 3, 4 and 9), not only screen 2.
 
