@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleAllowMixedLocalizations</key>
+  <true/>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionAttributes</key>
+    <dict>
+      <key>NSExtensionActivationRule</key>
+      <string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, NOT (ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" OR (ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND NONE $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url"))).@count &gt; 0).@count == 0
+        AND SUBQUERY(extensionItems, $item, $item.attachments.@count &gt; 0).@count &gt; 0
+        AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image").@count &gt; 1).@count == 0
+        AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image").@count &gt; 0).@count &lt;= 1
+        AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, (ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND NONE $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url")).@count &gt; 1).@count == 0
+        AND SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, (ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND NONE $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url")).@count &gt; 0).@count &lt;= 1</string>
+    </dict>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.share-services</string>
+    <key>NSExtensionPrincipalClass</key>
+    <string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+  </dict>
+</dict>
+</plist>

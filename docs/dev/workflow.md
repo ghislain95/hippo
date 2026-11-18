@@ -47,7 +47,7 @@ Une story de la [backlog](../backlog.md) = un change OpenSpec (`openspec/changes
 
 ### 5. Vérifications locales
 
-`make check` lance exactement ce que lance la CI : secrets, liens de la doc, hooks, OpenSpec, lint et tests du backend et de l'appli, lint du contrat, code généré et schéma assemblé à jour. Un agent ne déclare rien « terminé » sans l'avoir lancé et lu.
+`make check` lance exactement ce que lance la CI : secrets, liens de la doc, hooks, OpenSpec, lint et tests du backend, de l'appli et de l'extension de partage, lint du contrat, code généré et schéma assemblé à jour. Un agent ne déclare rien « terminé » sans l'avoir lancé et lu.
 
 ### 6. Auto-relecture
 

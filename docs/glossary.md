@@ -25,6 +25,7 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Élément privé** | `is_private = 1` | Élément stocké et cherchable, mais **jamais envoyé à l'IA**. Décoché par défaut. L'utilisateur le range lui-même. |
 | **Image** | `asset` | Fichier image rattaché à un élément (capture d'écran, photo), stocké sur le disque du NAS. |
 | **Identifiant de capture** | `client_id`, table `capture_ids` | Identifiant (ULID) choisi par l'appareil qui envoie une capture. Une capture rejouée avec le même identifiant renvoie l'élément déjà créé au lieu d'en créer un second (RG-08). Chaque identifiant reçu est enregistré dans `capture_ids` avec l'élément auquel la capture a abouti, y compris quand elle a été fusionnée dans un doublon. |
+| **Extension de partage** | cible `HippoShare`, `app/targets/share/` | L'entrée de Hippo dans la feuille de partage d'iOS. Elle reçoit une URL, un texte ou une image d'une autre appli, montre un petit formulaire et envoie elle-même la capture au serveur, avec la source `share` ([spec](spec-v1.md#application-mobile)). |
 | **URL normalisée** | `normalized_url` | L'URL débarrassée de ce qui ne change pas le contenu (paramètres de tracking, fragment, slash final). Sert à détecter les doublons. |
 
 ### Traitement
@@ -90,6 +91,7 @@ Les règles métier qui utilisent ces termes sont dans [`metier.md`](metier.md).
 | **Épingle** | `is_pinned` | Marqueur « à ne pas oublier ». Remplace la notion de favori : il n'y a pas de favori distinct. |
 | **Annotations** | `annotations` | Texte libre de l'utilisateur sur une fiche, à côté du contenu généré. Jamais touché par l'IA. |
 | **Bibliothèque** | écran `Library` | L'écran d'accueil de l'appli : tous les éléments, avec recherche et filtres. |
+| **Accueil** *(provisoire)* | `HomeScreen`, route `index` | L'écran ouvert au lancement tant que la Bibliothèque n'existe pas (E5-03) : nom de l'appli, état du serveur, comment capturer. La Bibliothèque le remplace comme écran d'accueil. |
 | **Recherche plein texte** | FTS5, paramètre `q` | Recherche par mots-clés sur le titre, la fiche, la note et les tags, insensible aux accents. |
 | **Recherche sémantique** *(V1.5)* | `embedding` | Recherche par le sens, grâce à des vecteurs calculés localement sur le NAS. |
 | **Éléments liés** *(V1.5)* | `related_items` | Éléments qui parlent du même sujet, calculés à partir des tags, des catégories et des vecteurs. |

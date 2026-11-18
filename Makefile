@@ -45,7 +45,7 @@ setup: ## Install the git hooks and the project dependencies (once per clone)
 # --- Aggregate ---------------------------------------------------------------
 
 .PHONY: check
-check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-app check-infra check-generated ## Run every check the CI runs
+check: check-secrets check-docs check-tooling check-openspec lint-api check-schemas check-backend check-app check-swift check-infra check-generated ## Run every check the CI runs
 
 # --- Code generation -----------------------------------------------------------
 
@@ -83,7 +83,7 @@ check-docs: ## Check the internal links of the Markdown files
 check-tooling: ## Test the agent hooks and lint the shell scripts
 	bash .claude/hooks/block-git-writes.test.sh
 	bash .claude/hooks/protect-files.test.sh
-	shellcheck -S warning .claude/hooks/protect-files.sh .claude/hooks/protect-files.test.sh .claude/hooks/format-on-edit.sh
+	shellcheck -S warning .claude/hooks/protect-files.sh .claude/hooks/protect-files.test.sh .claude/hooks/format-on-edit.sh app/scripts/*.sh
 	shellcheck -S error .claude/hooks/block-git-writes.sh .claude/hooks/block-git-writes.test.sh
 	actionlint
 
@@ -165,6 +165,35 @@ doctor-app-versions: ## Check that the app packages match the versions the Expo 
 .PHONY: app
 app: ## Start the Expo dev server for the development build (HIPPO_API_URL, HIPPO_API_TOKEN)
 	cd app && npx --no-install expo start --dev-client
+
+.PHONY: build-ios-sim
+build-ios-sim: ## Prebuild and build the app and its share extension for the simulator (HIPPO_API_TOKEN)
+	app/scripts/build-ios-sim.sh
+
+.PHONY: ipa
+ipa: ## Build the unsigned app/build/Hippo.ipa for SideStore (HIPPO_API_URL https, HIPPO_API_TOKEN)
+	app/scripts/build-ipa.sh
+
+# --- Share extension (Swift) ------------------------------------------------------
+# swift format ships with Xcode; the rules are in app/targets/.swift-format (design D12). Only
+# files git does not ignore are linted, so the generated build configuration never matters.
+
+SWIFT_FILES = git ls-files -z --cached --others --exclude-standard -- 'app/targets/*.swift'
+
+.PHONY: check-swift
+check-swift: lint-swift test-swift ## Lint and test the Swift code of the share extension
+
+.PHONY: lint-swift
+lint-swift: ## Lint the Swift code of the share extension (swift format, strict)
+	$(SWIFT_FILES) | xargs -0 swift format lint --strict --configuration app/targets/.swift-format
+
+.PHONY: format-swift
+format-swift: ## Format the Swift code of the share extension in place
+	$(SWIFT_FILES) | xargs -0 swift format format --in-place --configuration app/targets/.swift-format
+
+.PHONY: test-swift
+test-swift: ## Run the tests of the share extension's pure logic (swift test)
+	cd app/targets && swift test
 
 # --- Local stack (Docker Compose, without Tailscale) ----------------------------
 
