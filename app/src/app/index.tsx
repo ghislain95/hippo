@@ -1,21 +1,6 @@
-import { StyleSheet, View } from 'react-native';
+import { HomeScreen } from '@/features/home/HomeScreen';
 
-import { ServerStatus } from '@/features/health/ServerStatus';
-
-/** Temporary home screen: shows the state of the server until the library lands (E5-03). */
-export default function HomeScreen() {
-  return (
-    <View style={styles.container}>
-      <ServerStatus />
-    </View>
-  );
+/** Accueil: temporary home screen until the library lands (E5-03). */
+export default function Index() {
+  return <HomeScreen />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-});

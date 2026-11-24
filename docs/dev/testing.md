@@ -9,6 +9,7 @@ Adaptée des playbooks de geomni et wifisense à la stack de Hippo ([ADR-0033](.
 | **Intégration backend (principale)** | `testing`, `net/http/httptest`, vraie base SQLite sur fichier temporaire, migrations réelles | Un scénario = un comportement observable par l'API : requête HTTP → réponse + état relu par l'API ou la base | Par défaut, pour tout ce que décrit un delta OpenSpec |
 | **Unitaire backend** | `testing`, tests en tableau | Calcul pur : normalisation d'URL (RG-05) et de tags (RG-58), coût d'un batch, découpage, validation | Quand un test HTTP serait plus lourd que la règle testée |
 | **Appli** | jest-expo, React Native Testing Library | Écrans et composants vus par l'utilisateur ; rendu de chaque template de fiche | Pour tout écran, template ou hook de l'appli |
+| **Extension de partage** | `swift test` (Swift Testing) | Logique pure de `app/targets/share/Core` : forme de la capture, image, tailles, requêtes, réponses ([conventions](conventions-app.md#swift-de-lextension)) | Pour toute décision de l'extension ; la couche SwiftUI se vérifie par `make build-ios-sim` et la QA |
 | **Jeu de test du prompt** | `/eval-prompt` ([eval-set.md](../prompt/eval-set.md)) | Fidélité des fiches, classement, coût, sur ~22 vrais contenus figés | À chaque changement du prompt ou d'un schéma ; **payant**, sur accord |
 | **Non testé directement** | — | Code généré (`*.gen.go`, `schema.gen.ts`), `main.go` | Couvert par les tests d'intégration |
 
@@ -98,6 +99,7 @@ Chaque job alimente la porte `ci-ok` ([ADR-0029](../adr/0029-workflow-git-autono
 | --- | --- |
 | backend | golangci-lint, `go test -race ./...`, build |
 | app | ESLint, `tsc --noEmit`, jest, `expo-doctor` sans le contrôle des versions du SDK ; ce contrôle seulement sur une PR où `app/package.json` ou `app/package-lock.json` change ([workflow.md](workflow.md#dépendances-dependabot)) |
+| swift | `swift format lint --strict` et `swift test` sur un runner macOS, quand `app/targets/` ou `api/` change ; ne construit pas la cible de l'extension |
 | api | lint Redocly, code Go et TypeScript générés à jour |
 | schemas | exemples valides, schéma assemblé à jour |
 | openspec | `openspec validate --all`, garde « specs modifiées à la main » |
