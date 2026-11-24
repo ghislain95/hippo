@@ -58,12 +58,12 @@ Before the merge (the published image `latest` is still `3fb9955`, whose commit 
 - [x] 7.2 Install the script from the branch and the cron line; a run with the pinned tag logs `paused`
 - [x] 7.3 A run by hand with `HIPPO_IMAGE_TAG=latest` logs `failed`/`fetch_failed` (no script at `3fb9955`), replaces no file and leaves Hippo running: the early path on the real NAS
 
-After the merge (needs Ghislain's agreement to merge before the end of the QA, D13):
+After the merge (Ghislain agreed on 2026-11-24 to merge before it, D13). Not tasks of this change: they run on the NAS once `image.yml` has published the merge commit, and their results go to a follow-up PR (« QA results › After the merge » of the archived `design.md`), with a fix if needed:
 
-- [ ] 7.4 The first night updates to the merge commit: `updated`, a backup in `Sauvegardes/hippo`, `/healthz` with the new version
-- [ ] 7.5 After that first update, the UGOS Docker app still shows the `hippo` project and its « restart project » works (Compose labels point into the state folder, D17); otherwise the runbook's SSH restart is the way
-- [ ] 7.6 The next night, nothing new: `up-to-date`
-- [ ] 7.7 Reboot of the NAS: the cron line is still there; results written in « QA results » of `design.md` (follow-up PR if the QA finds a defect)
+- 7.4 The first night updates to the merge commit: `updated`, a backup in `Sauvegardes/hippo`, `/healthz` with the new version
+- 7.5 After that first update, the UGOS Docker app still shows the `hippo` project and its « restart project » works (Compose labels point into the state folder, D17); otherwise the runbook's SSH restart is the way
+- 7.6 The next night, nothing new: `up-to-date`
+- 7.7 Reboot of the NAS: the cron line and the script are still there
 
 ## 8. Done
 

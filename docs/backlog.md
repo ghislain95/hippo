@@ -437,11 +437,13 @@ RG-92 · RG-98 · ADR-0020 · ADR-0039
 
 ### E6-05 — Mise à jour automatique · S
 
+✅ Terminé le 24 novembre 2026 par le change `nightly-update` ([archive](../openspec/changes/archive/2026-11-24-nightly-update/proposal.md), [ADR-0040](adr/0040-mise-a-jour-automatique-de-nuit.md), [runbook NAS](runbook-nas.md#11-mise-à-jour-automatique)) : QA d'avant fusion faite sur le NAS par Ghislain (script installé, frein à main, passage réel arrêté sans rien toucher, ACL d'UGOS retirée) ; la QA d'après fusion (première mise à jour de nuit) se fait sur le NAS après la fusion, ses résultats dans une PR de suivi.
+
 RG-98 · RG-99 · ADR-0019 · ADR-0039 · ADR-0040
 - Chaque nuit à 4 h, une ligne cron de root sur le NAS lance `infra/hippo-update.sh` : il installe l'image `latest` et les fichiers de déploiement du même commit, après une sauvegarde ; s'il n'y a rien de nouveau, rien ne se passe.
 - Un échec est noté dans le journal de mise à jour et laissé tel quel, sans retour arrière automatique ; le retour arrière à la main est dans le [runbook NAS](runbook-nas.md#après-une-mise-à-jour-automatique).
 - Un `sha-…` épinglé dans `HIPPO_IMAGE_TAG` suspend la mise à jour automatique (frein à main).
-- Script testé dans `make check-infra`, donc en CI, avec `docker`, `curl` et `flock` remplacés par des faux ; QA sur le NAS par Ghislain, avant puis après la fusion.
+- Script testé dans `make check-infra`, donc en CI, avec `docker`, `curl`, `flock` et `ls` remplacés par des faux ; QA sur le NAS par Ghislain, avant puis après la fusion.
 - Change `nightly-update`, cadré avec Ghislain du 14 au 24 novembre 2026 ([ADR-0040](adr/0040-mise-a-jour-automatique-de-nuit.md)).
 
 ---
