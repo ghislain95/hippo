@@ -1,6 +1,10 @@
-# Publish the backend image on GHCR (ADR-0019, ADR-0027). Only from main, after a merge: pull
-# requests build the image without pushing it (ci.yml, job `image`). No deployment: the NAS
-# pulls the new image by hand (docker compose pull && docker compose up -d).
+# Publish the backend image on GHCR (ADR-0019, ADR-0027, ADR-0040). Only from main, after a merge:
+# pull requests build the image without pushing it (ci.yml, job `image`). No deployment from
+# GitHub: the NAS pulls `latest` by itself every night (RG-99, infra/hippo-update.sh), reads the
+# commit the image was built from (its org.opencontainers.image.revision label, set by
+# docker/metadata-action) and fetches the deployment files of that commit. A change to one of
+# those files publishes a new image too, so that it reaches the NAS with an image built from the
+# same commit.
 name: Image
 
 on:
@@ -8,6 +12,11 @@ on:
     branches: [main]
     paths:
       - backend/**
+      # The deployment files fetched by the NAS at the image's commit (infra/hippo-update.sh).
+      - infra/docker-compose.yml
+      - infra/tailscale/config/serve.json
+      - infra/.env.example
+      - infra/hippo-update.sh
       - .github/workflows/image.yml
   workflow_dispatch:
 
@@ -20,6 +29,9 @@ concurrency:
 
 jobs:
   publish:
+    # main only: a workflow_dispatch on another branch would publish a `latest` that the NAS
+    # installs without a pull request nor ci-ok.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
