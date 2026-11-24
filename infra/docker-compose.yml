@@ -2,8 +2,10 @@
 # The backend shares the network of the Tailscale sidecar, which publishes it in HTTPS on the
 # tailnet with `tailscale serve` (ADR-0015): no port is opened on the box.
 # Variables: infra/.env (not versioned), documented in infra/.env.example.
-# Installation, update and rollback: docs/runbook-nas.md. Update: set HIPPO_IMAGE_TAG, then
-# docker compose pull && docker compose up -d (migrations run at start).
+# Installation, update and rollback: docs/runbook-nas.md. Update (RG-99, ADR-0040): with
+# HIPPO_IMAGE_TAG=latest, infra/hippo-update.sh installs each night the published image and
+# this file taken at the image's commit, after a backup; with a pinned sha-<short sha> tag, by
+# hand. Migrations run at start.
 # Restart the whole project, never the tailscale container alone: it carries hippo's network.
 # Backups (ADR-0039): nightly at BACKUP_SCHEDULE and on demand with
 # `docker compose exec hippo /hippo backup` (never `run`), into BACKUP_HOST_DIR, required.

@@ -1,6 +1,6 @@
 # infra/ — déploiement
 
-Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HTTPS sans port ouvert ([ADR-0015](../docs/adr/0015-reseau-tailscale.md), [ADR-0019](../docs/adr/0019-deploiement-docker-nas.md)). Installer, mettre à jour, revenir en arrière sur le NAS : [`docs/runbook-nas.md`](../docs/runbook-nas.md).
+Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HTTPS sans port ouvert ([ADR-0015](../docs/adr/0015-reseau-tailscale.md), [ADR-0019](../docs/adr/0019-deploiement-docker-nas.md)). Le NAS se met à jour seul chaque nuit à 4 h (RG-99, ADR-0040, `hippo-update.sh`). Installer, mettre à jour, revenir en arrière sur le NAS : [`docs/runbook-nas.md`](../docs/runbook-nas.md).
 
 ## Fichiers
 
@@ -9,6 +9,7 @@ Docker Compose sur le NAS, avec un sidecar Tailscale qui publie le backend en HT
 - `.env.example` : toutes les variables, commentées. `.env` (non versionné) est créé par Ghislain ; **les agents ne le lisent jamais** (hook).
 - `tailscale/config/serve.json` : configuration de `tailscale serve`.
 - `check-compose.sh` : contrôle statique des deux compose, lancé par `make check-infra` (section suivante).
+- `hippo-update.sh` : la mise à jour automatique de nuit, installée sur le NAS **hors du dossier du projet**, en `/usr/local/sbin/hippo-update`, et lancée par une ligne cron de root avec le dossier du projet en argument (section « Mise à jour automatique »). `hippo-update.test.sh` : sa suite de tests, un test par scénario de `openspec/specs/automatic-update/`.
 - `data/` et `tailscale/state/` : données d'exécution, non versionnées.
 - `backups/` : sauvegardes de la variante locale (`BACKUP_HOST_DIR` vide), créé par `make up`, non versionné. Sur le NAS, les sauvegardes vont dans le dossier partagé `Sauvegardes/hippo`, hors du dossier du projet ([ADR-0039](../docs/adr/0039-sauvegardes-sur-le-nas.md)).
 
@@ -52,6 +53,29 @@ Exceptions de la dernière ligne, listées dans le script :
 
 Une nouvelle variable de Compose, ou fixée par un compose, s'ajoute à ces listes dans le même commit. Pour voir un invariant échouer, sur une copie hors du dépôt : `make check-infra COMPOSE_DIR=<copie>`.
 
+## Mise à jour automatique (`hippo-update.sh`)
+
+Change `nightly-update` (design D1 à D17, ADR-0040). Installé en `/usr/local/sbin/hippo-update` (root, `0700`), hors du partage UGOS qui contient le dossier du projet, et lancé par root à 4 h. Son état est aussi hors du partage, dans `/var/lib/hippo-update` (root, `0700`) : `lock`, `update.log` (+ `.1`), `run/` (copies de `docker-compose.yml` et `.env` le temps d'un passage), `staging/`, `previous/`, `installing`.
+
+```
+0 4 * * * root /usr/local/sbin/hippo-update /<volume>/docker/hippo >/dev/null 2>&1
+```
+
+Un passage, dans l'ordre : contrôle des droits (ci-dessous), verrou `flock`, frein à main (`HIPPO_IMAGE_TAG` autre que `latest` : `paused`), `docker pull` de `latest`, lecture de son label `org.opencontainers.image.revision`, téléchargement de `docker-compose.yml`, `tailscale/config/serve.json`, `.env.example` et du script **à ce commit** dans `/var/lib/hippo-update/staging/`, rien de nouveau (`up-to-date`), refus des fichiers qui ne vont pas avec `.env`, pull des autres images, sauvegarde par `docker compose exec -T hippo /hippo backup`, puis, point de non-retour : installation par renommage, `up -d`, attente de `healthy` sur la nouvelle image, et seulement après `updated`, remplacement de son propre fichier par le script téléchargé.
+
+Règles du script, à garder à chaque modification :
+
+- **Le dossier du projet est atteint par son inode, jamais par son chemin** (D16) : le script fait `cd -P` dans le dossier dès l'argument validé, puis n'utilise que des chemins relatifs pour ses propres lectures et écritures (`cmp`, `cp`, installation vers `./<fichier>`). Aucune variable `$HIPPO_DIR/…` après le `cd` (elle ne sert qu'aux messages). Il n'écrit dans le dossier du projet que les fichiers de déploiement qu'il installe ; tout le reste va dans le dossier d'état.
+- **Compose ne reçoit que des copies, jamais un fichier du partage** (D17) : Compose ouvre ses fichiers par chemin absolu (vu par `strace`), même avec `-f ./docker-compose.yml`. Une fois le verrou pris, `./docker-compose.yml` et `./.env` sont copiés dans `/var/lib/hippo-update/run/` (`0600`), et chaque appel est `docker compose --project-directory . --env-file <état>/run/.env -f <état>/run/docker-compose.yml …`, ou `-f <état>/staging/docker-compose.yml` pour la version téléchargée, y compris `up -d` et les sondages après l'installation. `HIPPO_IMAGE_TAG` et les noms de variables sont lus dans la copie. `run/` est effacé à la fin de chaque passage, quelle que soit l'issue : la copie de `.env` ne vit sur le disque système que le temps du passage.
+- **Le dossier du projet appartient à root seul** (D15) : l'argument est obligatoire et absolu. Avant toute écriture et tout `docker`, le dossier du projet, `tailscale/`, `tailscale/config/`, `docker-compose.yml`, `.env`, `.env.example`, `serve.json`, le dossier d'état et le fichier du script lui-même (ceux qui existent ; le dossier, le compose et `.env` sont obligatoires) ne doivent être ni un lien symbolique, ni à un autre uid que 0, ni modifiables par le groupe ou les autres, ni porteurs d'une ACL (`+` dans `ls -ldn`). Sinon : message sur stderr qui nomme le chemin et la cause, exit 1, aucun journal. Lecture par `ls -ldn`, jamais `stat`. Les dossiers parents ne sont pas vérifiés : les montages relatifs (`./data`, `./tailscale/config`, `./tailscale/state`) sont résolus par le démon sous le chemin du dossier, et un compte qui gagne la course de renommage à la création des conteneurs peut y substituer les siens (autres données, `serve.json` avec Funnel, autre identité du nœud ; pas de code root, D16). Le refus d'une ACL n'est pas testé par la suite (vérifié en recette).
+- **`.env` n'est jamais sourcé ni évalué** : seuls la valeur de `HIPPO_IMAGE_TAG` et les noms de variables sont lus, avec `sed`. Le script n'écrit jamais `.env`, ne lance jamais `down`, `run` ni `--force-recreate`.
+- **Journal en liste blanche** (`/var/lib/hippo-update/update.log`, `0600`, rotation au-delà de 1 Mio) : une ligne JSON par issue, construite avec des clés fixes (`time`, `msg`, `outcome`, `reason`, `old_revision`, `new_revision`, `backup`, `missing`, `duration_s`) dont chaque valeur est vérifiée contre sa forme, sinon `invalid`. Rien de ce qu'affichent `docker` ou `curl` n'y entre : leur sortie part dans `/dev/null` ou reste dans une variable analysée, jamais recopiée.
+- **Avant le point de non-retour, rien n'est changé** et le tag local `latest` est remis comme avant ; après, rien n'est défait (pas de retour arrière automatique, ADR-0032).
+- **Portable bash 3.2 et outils BSD** (la suite tourne sur le Mac) comme GNU/Debian : ni tableau associatif, ni `mapfile`, ni `sed -i`, ni `stat`, ni `readlink -f`, ni option propre à GNU. `set -u`, corps en fonctions, dernière ligne `main "$@"; exit $?` (bash a tout lu avant que le script se remplace). Aucune dépendance au-delà de `bash`, `docker compose`, `curl`, `flock`, `sed`, `cmp` : ni `jq` ni `python3` sur le NAS.
+- **Environnement réservé aux tests** : `HIPPO_UPDATE_OWNER_UID` (uid attendu, 0 par défaut), `HIPPO_UPDATE_STATE_DIR` (dossier d'état, absolu, `/var/lib/hippo-update` par défaut), `HIPPO_UPDATE_HEALTH_TIMEOUT`, `HIPPO_UPDATE_HEALTH_INTERVAL`, `HIPPO_UPDATE_REPO_URL` ; cron n'en fixe aucun.
+- **Tests** : `hippo-update.test.sh`, bash pur (pas de `bats`), faux `docker`, `curl`, `flock` et `ls` en tête de `PATH`, qui répondent depuis un dossier de scénario et journalisent leurs appels (le faux `ls` annonce un autre propriétaire pour un chemin donné) ; chaque test lance une **copie** du script, hors du dossier de projet temporaire, avec ce dossier en argument, un dossier d'état temporaire et `HIPPO_UPDATE_OWNER_UID` égal à l'uid de l'utilisateur qui lance les tests (le script remplace son propre fichier). Le faux `docker compose` se comporte comme Compose : il prend son répertoire dans `$PWD`, puis ouvre `-f` et `--env-file` par ce chemin ; un crochet de course échange les dossiers entre les deux. Avec l'échange définitif au `pull`, le test « A project folder swapped during the run is not followed » garde les correctifs D16 et D17. Les appels `t` suivent l'ordre des scénarios de la spec. Un scénario ajouté à la spec = un test nommé d'après lui. Ce que seuls les essais sur le NAS vérifient : le vrai déclenchement à 4 h et le fuseau, `flock`, `exec -T`, les identifiants d'image et le label de révision, GitHub et GHCR pour de vrai.
+- **Publication** : `image.yml` publie depuis `main` seulement, et aussi quand l'un des quatre fichiers téléchargés change, pour qu'il arrive au NAS avec une image du même commit.
+
 ## Tailscale et exploitation
 
 - La clé `TS_AUTHKEY` ne sert qu'une fois : avec `TS_AUTH_ONCE=true`, elle n'est utilisée que si `tailscale/state` ne contient pas encore de nœud. Une fois le nœud `hippo` enrôlé, Ghislain l'efface de `infra/.env` (`TS_AUTHKEY=` vide, autorisé par le compose). Clé à usage unique, pré-approuvée, non éphémère, sans tag.
@@ -61,7 +85,8 @@ Une nouvelle variable de Compose, ou fixée par un compose, s'ajoute à ces list
 ## Commandes (depuis la racine du dépôt)
 
 ```bash
-make check-infra   # les deux compose (config --quiet), shellcheck et invariants (check-compose.sh)
+make check-infra   # les deux compose (config --quiet), shellcheck, invariants (check-compose.sh), tests de hippo-update.sh
+bash infra/hippo-update.test.sh   # les tests de la mise à jour automatique seuls (quelques secondes, sans Docker ni réseau)
 make image         # construit l'image du backend
 make up            # compose local, puis : curl -fsS http://127.0.0.1:8080/healthz
 docker compose -f infra/docker-compose.local.yml exec hippo /hippo backup   # une sauvegarde dans infra/backups/
