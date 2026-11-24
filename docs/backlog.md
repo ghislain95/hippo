@@ -435,6 +435,15 @@ RG-92 · RG-98 · ADR-0020 · ADR-0039
 - Logs JSON lisibles depuis l'interface Docker du NAS ; aucun secret ni contenu d'élément dans les logs.
 - Procédure de mise à jour et de retour arrière dans `docs/runbook-nas.md`.
 
+### E6-05 — Mise à jour automatique · S
+
+RG-98 · RG-99 · ADR-0019 · ADR-0039 · ADR-0040
+- Chaque nuit à 4 h, une ligne cron de root sur le NAS lance `infra/hippo-update.sh` : il installe l'image `latest` et les fichiers de déploiement du même commit, après une sauvegarde ; s'il n'y a rien de nouveau, rien ne se passe.
+- Un échec est noté dans le journal de mise à jour et laissé tel quel, sans retour arrière automatique ; le retour arrière à la main est dans le [runbook NAS](runbook-nas.md#après-une-mise-à-jour-automatique).
+- Un `sha-…` épinglé dans `HIPPO_IMAGE_TAG` suspend la mise à jour automatique (frein à main).
+- Script testé dans `make check-infra`, donc en CI, avec `docker`, `curl` et `flock` remplacés par des faux ; QA sur le NAS par Ghislain, avant puis après la fusion.
+- Change `nightly-update`, cadré avec Ghislain du 14 au 24 novembre 2026 ([ADR-0040](adr/0040-mise-a-jour-automatique-de-nuit.md)).
+
 ---
 
 ## Après la V1
@@ -460,3 +469,5 @@ Sans détail pour l'instant ; chaque ligne deviendra un epic le moment venu.
 | V3 | Badge « peut-être obsolète » |
 | V3 | Serveur MCP sur la base |
 | Plus tard | Questions posées à la base, suggestions de sujets, radar techno, widget iOS |
+| Plus tard | État de la mise à jour automatique du NAS visible dans l'appli (RG-99, ADR-0040) |
+| Plus tard | Sortir le dossier du projet du partage `docker` d'UGOS, pour fermer la course sur les montages de la mise à jour automatique (ADR-0040, risque accepté le 24 novembre 2026) ; à reconsidérer si ce partage est monté sur un autre appareil |

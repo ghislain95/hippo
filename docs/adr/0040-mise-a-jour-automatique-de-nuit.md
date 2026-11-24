@@ -1,0 +1,66 @@
+# ADR-0040 — Mise à jour automatique de nuit sur le NAS
+
+- **Statut** : Accepté
+- **Date** : 2026-11-24
+- **Amende** : [ADR-0019](0019-deploiement-docker-nas.md), sur la mise à jour seulement (« manuelle et volontaire »)
+
+## Contexte
+
+L'[ADR-0019](0019-deploiement-docker-nas.md) (10 octobre 2026) prévoit une mise à jour manuelle et volontaire du NAS. Depuis le change `deploy-nas` (12 novembre 2026), chaque fusion sur `main` n'atteint le NAS que quand Ghislain suit le runbook à la main, en SSH, qu'UGOS coupe souvent. Le NAS prend du retard sur `main`.
+
+Le change `nightly-backup` (14 novembre 2026) a posé le filet qui manquait : `hippo backup`, une sauvegarde qui échoue bruyamment ([ADR-0039](0039-sauvegardes-sur-le-nas.md)). La mise à jour peut donc tourner seule la nuit, juste après une sauvegarde.
+
+Faits relevés sur le NAS le 24 novembre 2026 : UGOS Pro est une Debian 12, avec `cron`, `systemd`, `curl` et Docker Compose v5.1.3 ; UGOS n'a pas de planificateur de tâches (vérifié par Ghislain dans l'interface d'UGOS).
+
+Décisions prises avec Ghislain du 14 au 24 novembre 2026 (change `nightly-update`, E6-05), puis resserrées après la passe de l'agent `architect`.
+
+## Décision
+
+1. **Mécanisme : une ligne cron de root sur l'hôte du NAS** (`/etc/cron.d/hippo-update`), qui lance un script de mise à jour (copie d'`infra/hippo-update.sh`) avec le dossier du projet en argument. Rien ne tourne dans un conteneur qui tient le socket Docker.
+2. **Chaque nuit à 4 h, heure de Paris**, après le batch (2 h) et la sauvegarde de nuit (3 h). Rien de nouveau : rien ne se passe, ni sauvegarde ni redémarrage, une ligne au journal ([RG-99](../metier.md#données-et-multi-utilisateur)).
+3. **Une mise à jour qui échoue est notée et laissée telle quelle** : aucun retour arrière automatique. Une image plus ancienne démarrerait sans erreur sur un schéma migré ([ADR-0032](0032-migrations-goose.md)). La ligne du journal donne l'ancienne et la nouvelle version, et la sauvegarde faite juste avant : c'est tout ce qu'il faut pour revenir en arrière à la main ([runbook NAS](../runbook-nas.md#8-revenir-en-arrière)).
+4. **Notification : le journal de mise à jour seulement.** Pas de service de notification externe : un service de plus, et des données qui sortiraient du NAS ([RG-92](../metier.md#données-et-multi-utilisateur)). L'état de la mise à jour visible dans l'appli est une idée de la [backlog](../backlog.md#après-la-v1).
+5. **Le NAS suit tout ce que `main` publie pour lui** : l'image de Hippo, le compose de production (image Tailscale comprise), `serve.json`, `.env.example` et le script lui-même. Une image et son compose ne marchent qu'ensemble (`BACKUP_HOST_DIR` est arrivé avec `nightly-backup`).
+   - **Les fichiers viennent du commit de l'image** : le script tire `latest`, lit son étiquette `org.opencontainers.image.revision` (un SHA de 40 caractères) et récupère les fichiers de ce commit sur `raw.githubusercontent.com`. Un compose fusionné sur `main` n'atteint jamais le NAS avant son image.
+   - `image.yml` publie aussi quand l'un de ces fichiers change (une montée de Tailscale par Dependabot publie une image), et **ne publie que depuis `main`**.
+   - **Frein à main** : `HIPPO_IMAGE_TAG` du `.env` vaut `latest` pour suivre `main` ; un `sha-…` épinglé suspend la mise à jour automatique (RG-99).
+6. **`main` est digne de confiance, et cette confiance est écrite ici** (décidé le 24 novembre 2026). Le script se remplace par la version du même commit, seulement après une mise à jour réussie. Pas de `check-compose.sh` sur le NAS : il reste en CI, sur chaque PR. Sur le NAS, `docker compose config --quiet` vérifie seulement que le `.env` convient au nouveau compose.
+7. **Rien de ce que root lance ou lit ne doit être modifiable par un autre compte que root** (décidé avec Ghislain le 24 novembre 2026, cas d'arrêt sécurité). Le dossier du projet est dans un partage d'UGOS (`/<volume>/docker`) que le compte administrateur peut modifier : tout processus de ce compte (SMB depuis le Mac, une appli d'UGOS) pourrait remplacer le script ou le compose, ou renommer le dossier du projet et en mettre un autre à sa place, et devenir root à 4 h.
+   - **Le script est installé hors du dossier du projet**, dans `/usr/local/sbin/hippo-update` (root, `0700`), et se remplace là après une mise à jour réussie.
+   - **Tout son état est hors du dossier du projet**, dans `/var/lib/hippo-update/` (root, `0700`) : journal de mise à jour, fichiers récupérés (`staging/`), fichiers d'avant (`previous/`), verrou, marque d'installation.
+   - **Il entre dans le dossier du projet avant de le contrôler**, puis le lit par des chemins relatifs : si le dossier est renommé après le contrôle, le script continue sur le dossier contrôlé.
+   - **Compose ne reçoit que des copies.** Compose ouvre `-f` et `--env-file` par chemin absolu : après le verrou, le script copie `./docker-compose.yml` et `./.env`, lus dans le dossier contrôlé, dans `/var/lib/hippo-update/run/` (root, `0700`, fichiers `0600`), et lance Compose sur ces copies (`--project-directory .`). Après l'installation, `up -d` et les sondages utilisent le compose téléchargé dans `staging/`. `run/` est vidé au début et effacé à la fin de chaque passage ; une copie impossible (disque système plein) arrête le passage, sans ligne au journal.
+   - **Avant tout, il contrôle les droits** du dossier du projet, de `tailscale/`, `tailscale/config/`, `docker-compose.yml`, `.env`, `.env.example`, `tailscale/config/serve.json`, de `/var/lib/hippo-update` et du fichier du script lui-même : il refuse de tourner (message sur la sortie d'erreur, code non nul, aucune ligne au journal) si l'un d'eux est un lien symbolique, n'appartient pas à root, est modifiable par le groupe ou les autres, ou porte une ACL. Le runbook vérifie et corrige ces droits à l'installation.
+
+Ordre d'un passage, garde-fous (verrou, refus de fichiers qui ne conviennent pas au `.env`, sauvegarde par `exec` avant tout changement, santé après) et format du journal : design du change `nightly-update` et spec OpenSpec `automatic-update`. Procédures : [runbook NAS](../runbook-nas.md#11-mise-à-jour-automatique).
+
+Le reste de l'ADR-0019 tient (Compose, distroless, sidecar, migrations au démarrage), avec ses amendements par l'[ADR-0027](0027-depot-public.md) et l'[ADR-0038](0038-limite-memoire-384-mo.md). Ce que l'ADR-0027 rappelle de l'ADR-0019 sur la « mise à jour manuelle » est amendé de la même façon.
+
+## Conséquences
+
+- **Risques acceptés** par Ghislain le 24 novembre 2026 :
+  - **`main` vaut root sur le NAS.** Ce qui arrive sur `main` tourne sur le NAS la nuit suivante, en root, sans que Ghislain le relise. Les garde-fous (`main` protégée, PR fusionnée seulement avec `ci-ok` vert, qui lance `check-compose.sh` ([ADR-0029](0029-workflow-git-autonome.md), [ADR-0034](0034-auto-merge-github.md)) ; `image.yml` limité à `main` ; frein à main) arrêtent les **erreurs**, pas une **compromission** : un compte GitHub compromis est root sur le NAS dès la nuit suivante. Ce risque existait déjà, mais passait par Ghislain au moment de la mise à jour.
+  - **Une mise à jour d'UGOS peut effacer la ligne cron sans bruit.** Le runbook demande un contrôle après chaque mise à jour d'UGOS ; la QA vérifie que la ligne survit à un redémarrage.
+  - **Un échec après le redémarrage laisse Hippo arrêté** jusqu'à ce que Ghislain lise le journal ou voie les captures échouer. Une capture faite dans l'appli attend sur le téléphone ; une capture de l'extension de partage échoue avec un message clair et le lien à copier (RG-06). La lecture et la recherche marchent hors ligne sur les éléments synchronisés (RG-97).
+- **Risques restants de la décision 7** :
+  - **Une course sur les montages, acceptée par Ghislain le 24 novembre 2026** (la fermer demanderait de sortir le dossier du projet du partage d'UGOS, donc de déplacer les données réelles ; l'attaque suppose déjà un programme malveillant sous le compte administrateur, qui pourrait aussi modifier le compose et attendre une mise à jour manuelle en `sudo`). Compose rend absolus les montages relatifs `./data`, `./tailscale/config` et `./tailscale/state`, que le démon Docker ouvre à la création des conteneurs. Un compte qui renomme le dossier du projet et en met un autre à sa place à cet instant fait monter ses propres dossiers. Au pire : Hippo (uid 65532) tourne sur une base et des images choisies par ce compte ; un `serve.json` qui active Funnel expose Hippo sur Internet, si le tailnet l'autorise ; le nœud Tailscale prend une autre identité. Aucun code de ce compte ne tourne en root, et le compose lancé reste celui que le script a copié.
+  - **Une ACL qu'UGOS poserait sans que `ls` affiche le `+`** échapperait au contrôle.
+  - **Le script, son état et la ligne cron sont sur le système du NAS** (`/usr/local/sbin`, `/var/lib`, `/etc/cron.d`), pas sur le volume des données : une mise à jour d'UGOS pourrait les effacer, ou changer les droits des partages. Le runbook demande de les vérifier, avec les droits, après chaque mise à jour d'UGOS.
+  - La seule fermeture complète de cette course serait de sortir le dossier du projet du partage d'UGOS (un dossier que seul root peut modifier, jusqu'à son parent). Écartée par défaut et signalée à Ghislain le 24 novembre 2026 : c'est à lui de la reprendre.
+- Si un passage est coupé brutalement (coupure de courant, `kill -9`), la copie de `.env`, avec ses secrets, reste dans `/var/lib/hippo-update/run/` (root, `0600`) sur le disque système jusqu'au passage suivant.
+- Les conteneurs créés par la mise à jour portent les chemins du dossier d'état dans leurs étiquettes Compose : `com.docker.compose.project.config_files` vise `/var/lib/hippo-update/staging/docker-compose.yml` (en place jusqu'au passage suivant), et l'étiquette du fichier d'environnement, sans doute, `/var/lib/hippo-update/run/.env`, effacé à la fin du passage. Un `docker compose` lancé à la main depuis le dossier du projet retrouve le projet par son nom. Que l'appli Docker d'UGOS montre toujours le projet et sache le redémarrer est vérifié pendant la QA ; sinon, on redémarre en SSH (runbook, section 6).
+- Une sauvegarde de plus chaque nuit où une mise à jour s'installe ; la conservation de RG-98 la borne.
+- Une nuit manquée (NAS éteint) n'est pas rattrapée, comme le batch et la sauvegarde (RG-30, RG-98).
+- Sur l'hôte, le script n'utilise que `bash`, `cron`, `curl`, `flock` et `docker compose` ; ni `jq` ni `python3`.
+- Les vieilles images restent sur le disque (environ 25 Mo chacune) ; le runbook donne la commande pour les effacer.
+
+## Alternatives écartées
+
+- **Watchtower, ou tout conteneur qui tient le socket Docker** : `infra/check-compose.sh` interdit de monter `docker.sock`, qui donne la main sur tout le NAS depuis un conteneur ; et Watchtower ne met à jour que l'image, pas le compose qui va avec.
+- **Pousser depuis GitHub vers le NAS** : il faudrait des secrets et un accès au tailnet dans GitHub Actions.
+- **Prendre les fichiers sur `raw/main`** : course avec la construction de l'image (le compose arriverait avant son image), et deux fichiers pourraient venir de deux commits.
+- **Embarquer les fichiers dans l'image** (`docker cp` depuis un conteneur créé) : même cohérence, mais un second contexte de build dans le Dockerfile, `make image`, `ci.yml` et le compose local.
+- **Lancer `check-compose.sh` sur le NAS** : il demande `jq`, et ne protège pas d'un `main` compromis, dont le compose peut déjà monter n'importe quel dossier de l'hôte.
+- **Garder le script et son état dans le dossier du projet** : ce dossier est dans un partage d'UGOS modifiable par le compte administrateur ; le script y serait lancé en root, et son état (fichiers récupérés, verrou) pourrait être remplacé.
+- **Retour arrière automatique** : une image plus ancienne sur un schéma migré démarre sans erreur et sans le voir (ADR-0032).
+- **Planificateur de tâches d'UGOS** : il n'existe pas (vérifié le 24 novembre 2026).

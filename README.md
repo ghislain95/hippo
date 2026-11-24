@@ -118,7 +118,7 @@ curl -fsS http://127.0.0.1:8080/healthz      # {"status":"ok","version":"…"}
 make down
 ```
 
-Sur le NAS : `infra/docker-compose.yml` (sidecar Tailscale, image `ghcr.io/ghislain95/hippo` épinglée par `HIPPO_IMAGE_TAG`). Installation, mise à jour et retour arrière pas à pas : [runbook NAS](docs/runbook-nas.md).
+Sur le NAS : `infra/docker-compose.yml` (sidecar Tailscale, image `ghcr.io/ghislain95/hippo` choisie par `HIPPO_IMAGE_TAG` : `latest` pour la mise à jour automatique de nuit, un `sha-…` pour la suspendre). Installation, mise à jour et retour arrière pas à pas : [runbook NAS](docs/runbook-nas.md).
 
 ### Appli
 
