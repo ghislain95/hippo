@@ -3,12 +3,12 @@
 ## Purpose
 Keeps Hippo on the NAS in line with what `main` publishes, every night at 04:00, without Ghislain: it backs up before changing anything, leaves a failed update as it is, and writes one log line per run. Nothing of it goes through the API: its observable behaviour is the Docker commands it runs, the files it puts in place, its exit code and its log line.
 
-Terms used below: the **project folder** is the NAS folder that holds `docker-compose.yml`, `.env`, `.env.example`, `tailscale/config/serve.json` and the **update script**; the **deployment files** are those three files plus the update script; the **published image** is `ghcr.io/ghislain95/hippo:latest` on GHCR; its **revision** is the commit it was built from, read from its `org.opencontainers.image.revision` label; a **run** is one execution of the update script; the **update log** is the log file of the update script in the project folder. Every scenario runs the update script in a temporary project folder, with `docker`, `curl` and `flock` replaced by fakes that record their calls.
+Terms used below: the **project folder** is the NAS folder that holds `docker-compose.yml`, `.env`, `.env.example` and `tailscale/config/serve.json`, given to the update script as its only argument; the **deployment files** are `docker-compose.yml`, `.env.example` and `tailscale/config/serve.json`; the **update script** is the script of a run, installed outside the project folder (`infra/hippo-update.sh` in the repository); the **published image** is `ghcr.io/ghislain95/hippo:latest` on GHCR; its **revision** is the commit it was built from, read from its `org.opencontainers.image.revision` label; a **run** is one execution of the update script; the **state folder** is the folder, outside the project folder and readable by root only (`/var/lib/hippo-update` on the NAS), where a run keeps its lock, its log, the copies it gives Docker Compose, the fetched files and the previous deployment files; the **update log** is the log file of the update script in the state folder. Every scenario runs a copy of the update script on a temporary project folder and a temporary state folder, with `docker`, `curl`, `flock` and `ls` replaced by fakes (`docker` and `curl` record their calls; `ls` can report another owner), and the user running the tests standing for root.
 
 ## ADDED Requirements
 
 ### Requirement: A pinned image tag pauses the automatic update
-A run MUST read `HIPPO_IMAGE_TAG` from `.env` without executing `.env`, and MUST do nothing but log `paused` and exit 0 when it is anything other than `latest`. A run MUST fail when `.env` or its `HIPPO_IMAGE_TAG` line is missing (RG-99).
+A run MUST read `HIPPO_IMAGE_TAG` from `.env` without executing `.env`, and MUST do nothing but log `paused` and exit 0 when it is anything other than `latest`. A run MUST fail when the `HIPPO_IMAGE_TAG` line of `.env` is missing; a missing `.env` is refused before (« The project folder and the deployment files belong to root alone ») (RG-99).
 
 #### Scenario: A pinned tag pauses the update
 - **GIVEN** `.env` holds `HIPPO_IMAGE_TAG=sha-3fb9955`
@@ -39,12 +39,12 @@ A run MUST hold an exclusive lock for its whole duration; a run that finds the l
 - **THEN** it logs `locked`, exits non-zero and runs no `docker` command
 
 ### Requirement: The deployment files come from the commit of the published image
-A run MUST pull the published image, read its revision, and fetch the deployment files of that revision from the public repository into a staging folder, without touching the running stack. A revision that is not 40 lowercase hexadecimal characters, or a fetch that fails, MUST fail the run with nothing replaced (RG-99, ADR-0040).
+A run MUST pull the published image, read its revision, and fetch the deployment files and the update script of that revision from the public repository into a staging folder of the state folder, without touching the running stack. A revision that is not 40 lowercase hexadecimal characters, or a fetch that fails, MUST fail the run with nothing replaced (RG-99, ADR-0040).
 
 #### Scenario: The files are fetched at the image's revision
 - **GIVEN** the published image has the revision `aaaa…` (40 characters)
 - **WHEN** a run starts
-- **THEN** each deployment file is fetched from the repository at `aaaa…`, and none from a branch name
+- **THEN** each deployment file and the update script are fetched from the repository at `aaaa…`, and none from a branch name
 
 #### Scenario: A malformed revision fails the run
 - **GIVEN** the published image has no revision label, or a label that is not 40 hexadecimal characters
@@ -124,7 +124,7 @@ After a successful backup, a run MUST keep a copy of the installed deployment fi
 #### Scenario: A successful update
 - **GIVEN** a new published image and a healthy start
 - **WHEN** a run updates Hippo
-- **THEN** the installed deployment files are the fetched ones, the previous ones are kept apart, `docker compose up -d` ran once, and the run logs `updated` with the old revision, the new revision and the backup name, and exits 0
+- **THEN** the installed deployment files are the fetched ones, the previous ones are kept in the state folder, `docker compose up -d` ran once, and the run logs `updated` with the old revision, the new revision and the backup name, and exits 0
 
 #### Scenario: An unhealthy start is logged and left as is
 - **GIVEN** a new published image whose container never becomes `healthy`
@@ -137,12 +137,12 @@ After a successful backup, a run MUST keep a copy of the installed deployment fi
 - **THEN** it logs `failed` with the reason `up_failed` and the backup name, exits non-zero and leaves the new files in place
 
 ### Requirement: The update script replaces itself only after a successful update
-A run MUST put the fetched update script in place of the running one, by a rename, only after it logged `updated`; never after any other outcome (RG-99, ADR-0040).
+A run MUST put the fetched update script in place of the running script's own file, by a rename in that file's folder, only after it logged `updated`; never after any other outcome. Nothing of the update script is written to the project folder (RG-99, ADR-0040).
 
 #### Scenario: The script is replaced after an update
 - **GIVEN** a new published image whose update script differs from the installed one
 - **WHEN** a run logs `updated`
-- **THEN** the installed update script is the fetched one, executable by its owner only
+- **THEN** the file of the running update script is the fetched one, executable by its owner only, and the project folder holds no update script
 
 #### Scenario: The script is kept after a failed update
 - **GIVEN** a new published image whose container never becomes `healthy`
@@ -173,3 +173,39 @@ Each run MUST append to the update log, and print on its output, JSON lines with
 - **GIVEN** an update log larger than 1 MiB
 - **WHEN** a run ends
 - **THEN** the previous content is in the rotated file and the update log holds only the new lines
+
+### Requirement: The project folder and the deployment files belong to root alone
+Before any write and any `docker` command, a run MUST take the project folder from its only argument, an absolute path, and check that the project folder, `docker-compose.yml` and `.env` exist, and that each of the project folder, `tailscale/`, `tailscale/config/`, `docker-compose.yml`, `.env`, `.env.example`, `tailscale/config/serve.json`, the state folder and the update script's own file, those that exist, is not a symbolic link, belongs to root, is writable neither by its group nor by others, and carries no ACL. Otherwise the run MUST exit non-zero with a message on its error output that names the path and the cause, write no log line, create nothing and run no `docker` command (RG-99, ADR-0040).
+
+#### Scenario: A state folder writable by its group is refused
+- **GIVEN** a state folder writable by its group
+- **WHEN** a run starts
+- **THEN** it exits non-zero, its error output names the state folder and the cause, it runs no `docker` command, writes no log line and creates nothing in the project folder nor in the state folder
+
+#### Scenario: A project folder writable by its group is refused
+- **GIVEN** a project folder writable by its group
+- **WHEN** a run starts
+- **THEN** it exits non-zero, its error output names the project folder and the cause, it runs no `docker` command, writes no log line and creates nothing in the project folder
+
+#### Scenario: A compose file of another owner is refused
+- **GIVEN** a `docker-compose.yml` that belongs to another user than root
+- **WHEN** a run starts
+- **THEN** it exits non-zero, its error output names `docker-compose.yml` and its owner, it runs no `docker` command, writes no log line and creates nothing in the project folder
+
+#### Scenario: A compose file that is a symbolic link is refused
+- **GIVEN** a `docker-compose.yml` that is a symbolic link to a file elsewhere
+- **WHEN** a run starts
+- **THEN** it exits non-zero, its error output names `docker-compose.yml` as a symbolic link, it runs no `docker` command, writes no log line and creates nothing in the project folder
+
+#### Scenario: A missing project folder argument is refused
+- **GIVEN** a run started without an argument, or with a relative path
+- **WHEN** it starts
+- **THEN** it exits non-zero with its usage or the reason on its error output, runs no `docker` command, writes no log line and creates nothing in the project folder
+
+### Requirement: A run follows the project folder it checked
+After the check, a run MUST reach the project folder only through the folder it checked, never again by its path: a folder renamed and replaced by another at the same path during the run is not followed. Docker Compose opens its files by absolute path, so a run MUST never give it a file of the project folder: it gives it copies of the checked `docker-compose.yml` and `.env` made in the state folder, then the fetched compose once installed, with the project folder as working directory; the copy of `.env` MUST be removed when the run ends, whatever its outcome. A run MUST write nothing in the project folder but the deployment files it installs; its lock, log, copies, fetched files, previous files and marker are in the state folder (RG-99, ADR-0040).
+
+#### Scenario: A project folder swapped during the run is not followed
+- **GIVEN** a new published image; the project folder renamed during the run, after the check, with another folder put at its path for good that holds its own `docker-compose.yml`, `.env` and update script files; and, around every `docker compose`, the folder Compose took as working directory swapped with yet another one between Compose reading its working directory and opening its files
+- **WHEN** the run updates Hippo
+- **THEN** no `docker compose` reads a file of either other folder, the backup reads the compose of the checked folder, `docker compose up -d` gets a compose outside the project folder (the fetched one) and the `.env` of the checked folder, the new deployment files are installed in the checked folder, nothing is written in the other folders, the update script installed is the one fetched from the repository, and no copy of `.env` is left in the state folder

@@ -184,11 +184,12 @@ logs: ## Follow the logs of the local stack
 	API_TOKEN=$${API_TOKEN:-unused-by-logs} $(COMPOSE_LOCAL) logs --follow
 
 .PHONY: check-infra
-check-infra: ## Validate both compose files and their invariants (infra/check-compose.sh)
+check-infra: ## Validate both compose files and their invariants (infra/check-compose.sh), test the update script
 	API_TOKEN=check HIPPO_IMAGE_TAG=check BACKUP_HOST_DIR=/check docker compose -f infra/docker-compose.yml config --quiet
 	API_TOKEN=check $(COMPOSE_LOCAL) config --quiet
-	shellcheck -S warning infra/check-compose.sh
+	shellcheck -S warning infra/check-compose.sh infra/hippo-update.sh infra/hippo-update.test.sh
 	bash infra/check-compose.sh
+	bash infra/hippo-update.test.sh
 
 # --- Agent tooling ---------------------------------------------------------------
 
