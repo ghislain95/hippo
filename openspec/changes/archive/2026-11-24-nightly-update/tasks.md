@@ -67,4 +67,4 @@ After the merge (Ghislain agreed on 2026-11-24 to merge before it, D13). Not tas
 
 ## 8. Done
 
-- [ ] 8.1 /dod-check passes (make check green, definition of done in docs/dev/workflow.md)
+- [x] 8.1 /dod-check passes (make check green, definition of done in docs/dev/workflow.md)
