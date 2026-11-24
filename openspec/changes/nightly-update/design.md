@@ -178,4 +178,13 @@ The third `code-reviewer` pass showed with `strace` (Compose v5.7.1, `docker:cli
 
 ## QA results
 
-To fill during the QA.
+### Before the merge (Ghislain on the NAS, 2026-11-24)
+
+- **7.1 Facts.** `flock`, `getfacl`, `getfattr`, `setpriv` present; `cron` active; time zone: a CET/CEST zone other than `Europe/Paris`, with the same clock and the same DST changes, so 04:00 is 04:00 Paris time; `docker inspect -f '{{.Image}}' hippo-hippo-1` equals `docker image inspect -f '{{.Id}}'` of `sha-3fb9955` (`sha256:797b6556…`), so D4 holds; revision label `3fb995522651675e05468c31eaaf7f01cd3cdda8`.
+- **Ownership (D15).** Every checked path belonged to root, but carried a `+`: UGOS applies its own ACL (`system.ugacl_self`, or inherited from the `docker` share), which `getfacl` does not show. Without `sudo`, the admin account `<admin>` could create files in the project folder and in `tailscale/config` (which was also `drwxrwxrwx`). Fixed by Ghislain: in the UGOS file manager, `hippo` › Properties › Permissions, account the admin account `<admin>` set to « Accès interdit », applied with « Remplacer »; then `chmod` of the seven paths (`700` folders, `755` `tailscale/config`, `600` compose and both env files, `644` `serve.json`), which on UGOS removes its ACL: no `+` left on them, `touch` without `sudo` refused, `docker compose restart` healthy. `setpriv … test -w` does **not** see the UGOS ACL (it answered writable where `touch` was refused): never rely on it. Side effect: the admin account can no longer enter the project folder; every runbook command now runs without `cd`, through `sudo` and absolute paths. A new UGOS admin account would get access by default: the runbook says to deny it too.
+- **7.2.** Script installed in `/usr/local/sbin/hippo-update` from the branch commit `4187df3` (sha256 matched the repository's), first run by hand with the pinned tag: `paused`, exit 0; `/etc/cron.d/hippo-update` written (`0644`, root).
+- **7.3.** With `HIPPO_IMAGE_TAG=latest`, a run by hand logged `failed`/`fetch_failed` with old and new revision `3fb9955…` (no script at that commit), exit 1, in 2 s; the three deployment files kept their checksums; the local `latest` tag was removed again (there was none before; the image stays under `sha-3fb9955`); `hippo` stayed healthy; `/var/lib/hippo-update` held `lock`, `staging/` and `update.log`, no `run/`. Hand brake set back to `sha-3fb9955`.
+
+### After the merge
+
+To fill (7.4 to 7.7).

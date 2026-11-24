@@ -11,6 +11,7 @@ Procédure pour faire tourner Hippo sur le NAS (Ugreen DXP4800 Plus, UGOS Pro), 
 Conventions de ce document :
 
 - Les commandes marquées « NAS » se tapent dans une session SSH sur le NAS ; celles marquées « Mac » dans un terminal du Mac.
+- Le dossier du projet (`$HIPPO_DIR`) est fermé au compte administrateur (section 1, point 5) : on n'y entre jamais par `cd`. Chaque commande passe par `sudo` avec des chemins absolus, et Compose par `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml"`, qui prend ce dossier comme dossier du projet et y lit `.env`. Un glob (`*`) ou une redirection (`>`) vers ce dossier ne marche qu'à l'intérieur d'un `sudo sh -c`, ou avec `sudo tee`.
 - `<volume>`, `<tailnet>`, `<sha>`, `<tag>`, `<nom>` sont à remplacer. Rien de personnel (nom du tailnet, adresses, clés) ne s'écrit dans le dépôt, qui est public ([ADR-0027](adr/0027-depot-public.md)).
 - Un **journal d'exploitation**, hors du dépôt (une note du gestionnaire de mots de passe convient), garde pour chaque installation ou mise à jour : la date, le SHA des fichiers récupérés, le tag de l'image, et ce qui a été fait.
 
@@ -97,17 +98,17 @@ Conventions de ce document :
    ```
 
    ```bash
-   cd "$HIPPO_DIR" && for f in docker-compose.yml tailscale/config/serve.json .env.example; do sudo curl -fsSL -o "$f" "https://raw.githubusercontent.com/ghislain95/hippo/$SHA/infra/$f" || echo "ÉCHEC $f"; done
+   for f in docker-compose.yml tailscale/config/serve.json .env.example; do sudo curl -fsSL -o "$HIPPO_DIR/$f" "https://raw.githubusercontent.com/ghislain95/hippo/$SHA/infra/$f" || echo "ÉCHEC $f"; done
    ```
 
 3. Donner `data/` à l'utilisateur de l'image (uid 65532, non root) et fermer les dossiers sensibles (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo chown -R 65532:65532 data && sudo chmod 700 tailscale/state copies
+   sudo chown -R 65532:65532 "$HIPPO_DIR/data" && sudo chmod 700 "$HIPPO_DIR/tailscale/state" "$HIPPO_DIR/copies"
    ```
 
    ```bash
-   cd "$HIPPO_DIR" && sudo ls -ldn data tailscale/state copies
+   sudo ls -ldn "$HIPPO_DIR/data" "$HIPPO_DIR/tailscale/state" "$HIPPO_DIR/copies"
    ```
 
    Attendu : `data` appartient à `65532 65532` ; `tailscale/state` et `copies` en `drwx------`, sans `+` à la fin (un `+` signale une ACL d'UGOS qui ouvre le dossier à d'autres comptes). Si `data` n'appartient pas à 65532 (les droits des dossiers partagés d'UGOS peuvent l'emporter), s'arrêter : SQLite ne pourra pas créer la base. `data/` doit exister **avant** le premier démarrage : créé par Docker, il appartiendrait à root.
@@ -134,14 +135,45 @@ Conventions de ce document :
 
    Attendu : `drwxr-x---`, propriétaire `65532 65532`, **sans `+` à la fin**. Un `+` signale une ACL d'UGOS, qui peut ouvrir les sauvegardes à d'autres comptes ou empêcher Hippo d'y écrire : s'arrêter et le signaler. Comme `HIPPO_DIR`, la variable `SAUVEGARDES` se redéfinit à chaque session SSH.
 
-5. Noter dans le journal : date, `SHA`.
+5. **Fermer le dossier du projet au compte administrateur** (une fois, après les points 2 à 4). Chaque nuit, root lit ce dossier et démarre le compose qu'il contient (section 11) : un autre compte qui pourrait y écrire deviendrait root. Or UGOS pose sur les dossiers du partage `docker` sa propre ACL, que `getfacl` ne montre pas et que `ls` signale par un `+`. Constaté sur le NAS le 24 novembre 2026 : avant ce réglage, le compte administrateur pouvait écrire dans `hippo` et dans `tailscale/config` malgré des droits `rwx------` de root.
+
+   - **Dans UGOS** (libellés relevés le 24 novembre 2026) : gestionnaire de fichiers › `docker` › clic droit sur `hippo` › Propriétés › Permissions. Mettre la ligne du compte administrateur (`<admin>`) en « Accès interdit » ; la ligne de rôle « Administrateur » n'est pas cliquable, et « Utilisateur standard » est déjà en « Accès interdit ». « Autorisations appliquées à » : **Remplacer**, puis Confirmer.
+   - **Remplacer l'ACL par les droits Linux** : sur UGOS, un `chmod` fait disparaître le `+`. `.env` n'existe pas encore : la section 2 lui donne ses droits. `data/` n'est pas touché. NAS :
+
+   ```bash
+   sudo chmod 700 "$HIPPO_DIR" "$HIPPO_DIR/tailscale" "$HIPPO_DIR/tailscale/state" "$HIPPO_DIR/copies" && sudo chmod 755 "$HIPPO_DIR/tailscale/config" && sudo chmod 600 "$HIPPO_DIR/docker-compose.yml" "$HIPPO_DIR/.env.example" && sudo chmod 644 "$HIPPO_DIR/tailscale/config/serve.json"
+   ```
+
+   - **Vérifier** (NAS) :
+
+   ```bash
+   sudo ls -ldn "$HIPPO_DIR" "$HIPPO_DIR/tailscale" "$HIPPO_DIR/tailscale/config" "$HIPPO_DIR/docker-compose.yml" "$HIPPO_DIR/.env.example" "$HIPPO_DIR/tailscale/config/serve.json"
+   ```
+
+   Attendu : propriétaire `0 0` partout, et aucun `+` à la fin des droits : `drwx------` pour le dossier et `tailscale`, `drwxr-xr-x` pour `tailscale/config`, `-rw-------` pour les deux fichiers du dossier, `-rw-r--r--` pour `serve.json`. `data/` garde son `+` : normal, il n'est pas contrôlé.
+
+   - **L'essai qui fait foi** : écrire **sans `sudo`**, avec le compte administrateur. NAS :
+
+   ```bash
+   touch "$HIPPO_DIR/essai-ecriture"
+   ```
+
+   ```bash
+   touch "$HIPPO_DIR/tailscale/config/essai-ecriture"
+   ```
+
+   Attendu, deux fois : `Permission denied`. Le second confirme surtout que le compte ne traverse plus `$HIPPO_DIR` ; les droits propres de `tailscale/config` se vérifient par l'absence de `+` (`ls -ldn`, ci-dessus). Un `touch` qui réussit : effacer le fichier (`sudo rm "$HIPPO_DIR/essai-ecriture"`, ou celui de `tailscale/config`), refaire le réglage dans UGOS et le `chmod`, puis l'essai. Jamais `test -w` ni `setpriv … test -w` pour cette vérification : ils ne voient pas l'ACL d'UGOS.
+
+   Ensuite, le compte administrateur ne peut plus entrer dans `$HIPPO_DIR` (`cd` : `Permission denied`), ni l'ouvrir dans le gestionnaire de fichiers d'UGOS ou par SMB : c'est voulu. Toutes les commandes de ce runbook passent donc par `sudo` et des chemins absolus (conventions, en tête). Un **nouveau compte administrateur** créé plus tard dans UGOS reçoit par défaut la lecture et l'écriture sur `hippo` : refaire ce point pour lui.
+
+6. Noter dans le journal : date, `SHA`.
 
 ## 2. Fichier `.env` (une fois)
 
 1. Créer le fichier, lisible par root seul (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo cp .env.example .env && sudo chmod 600 .env
+   sudo cp "$HIPPO_DIR/.env.example" "$HIPPO_DIR/.env" && sudo chmod 600 "$HIPPO_DIR/.env"
    ```
 
 2. Générer le token d'API **propre au NAS** (pas celui du Mac). Mac :
@@ -185,7 +217,7 @@ Conventions de ce document :
 5. Vérifier que `.env` n'est lisible que par root (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo ls -ln .env
+   sudo ls -ln "$HIPPO_DIR/.env"
    ```
 
    Attendu : `-rw-------`, propriétaire `0 0`, sans `+` à la fin.
@@ -209,7 +241,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 1. Tirer les images et démarrer (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose pull && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" pull && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Un tag absent fait échouer le `pull` (« manifest unknown ») : revoir la section 2, point 3.
@@ -217,7 +249,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 2. Attendre une minute, puis vérifier l'état (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose ps
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps
    ```
 
    Attendu, colonne STATUS : `Up …` pour `hippo-tailscale-1`, `Up … (healthy)` pour `hippo-hippo-1`.
@@ -225,7 +257,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 3. Lire les logs de Hippo (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose logs --tail 30 hippo
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --tail 30 hippo
    ```
 
    Attendu, en JSON, une ligne par évènement :
@@ -239,7 +271,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 4. Lire les logs de Tailscale (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose logs --tail 50 tailscale
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --tail 50 tailscale
    ```
 
    Chercher la connexion réussie et la prise en compte de `serve.json`. La console Tailscale montre une nouvelle machine `hippo`, connectée.
@@ -249,7 +281,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 6. **Effacer la clé consommée** : dans `.env`, laisser `TS_AUTHKEY=` vide, puis (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Le conteneur Tailscale est recréé, Hippo le suit. Vérifier dans la console que `hippo` reste connecté, **sans** nouvelle machine `hippo-1`. Si ce n'est pas le cas, voir la section 10.
@@ -282,7 +314,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
     - redémarrer le projet (NAS) puis refaire le point 7 :
 
       ```bash
-      cd "$HIPPO_DIR" && sudo docker compose restart
+      sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" restart
       ```
 
     - redémarrer le NAS (UGOS › menu › Redémarrer), attendre, puis refaire le point 7 : les deux conteneurs repartent seuls (`restart: unless-stopped`).
@@ -293,7 +325,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 2. La poser dans `ANTHROPIC_API_KEY` du `.env`, puis (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose up -d && sleep 20 && sudo docker compose logs --tail 20 hippo
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d && sleep 20 && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --tail 20 hippo
    ```
 
    Attendu : `hippo started`, et **plus** la ligne `no ANTHROPIC_API_KEY`.
@@ -315,7 +347,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 4. **Le lendemain matin**, les logs de la nuit (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose logs --since 24h hippo | grep -E '"analysis (pass|follow-up)"'
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --since 24h hippo | grep -E '"analysis (pass|follow-up)"'
    ```
 
    Attendu : une ligne `analysis pass` vers 2 h avec `"submitted":2` et `"images_without_copy":0` (son `duration_ms` mesure l'envoi, copie de l'image comprise) ; puis une ligne `analysis follow-up` avec `"analyzed":2` et `cost_usd`. Trois éléments existent (la note privée de la phase 1 en plus) et deux seulement sont partis : la preuve, en vrai, qu'un élément privé n'est pas envoyé (RG-12). Relire chaque élément en **rejouant** sa capture avec le même `client_id` (RG-08) : la réponse `HTTP 200` porte `"status":"analyzed"`, le type, la catégorie, les tags et la fiche. Mac :
@@ -331,7 +363,7 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 6. **Repartir d'une base vierge**, pour que les éléments fictifs ne restent pas dans la bibliothèque (la suppression d'un élément arrive avec E4). La dépense du mois comptée par Hippo pour le budget (RG-81) repart aussi de zéro : moins de 0,01 $ d'écart avec la console Anthropic, sans effet. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-test-$(date +%F-%H%M)" && sudo mkdir data && sudo chown 65532:65532 data && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo mv -n "$HIPPO_DIR/data" "$HIPPO_DIR/copies/data-test-$(date +%F-%H%M)" && sudo mkdir "$HIPPO_DIR/data" && sudo chown 65532:65532 "$HIPPO_DIR/data" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Vérifier `/healthz` depuis l'iPhone, puis supprimer la copie de test quand tout va bien :
@@ -344,9 +376,10 @@ La coller dans `TS_AUTHKEY` du `.env`. Elle ne sert qu'au premier démarrage : l
 
 - **Logs** : appli Docker › Conteneurs › `hippo-hippo-1` › Journal. Une ligne JSON par évènement (`time`, `level`, `msg`, puis des identifiants et des compteurs) ; jamais de secret ni de contenu d'élément. Les logs tournent seuls (3 fichiers de 10 Mo par conteneur).
 - **Santé** : la colonne d'état montre `healthy`. Limite connue : la sonde interroge Hippo de l'intérieur ; elle reste verte même si le nœud Tailscale est hors ligne. Le vrai test reste `/healthz` depuis l'iPhone.
-- **Redémarrer** : redémarrer **le projet** (les deux conteneurs), ou `hippo-hippo-1` seul. Depuis la mise à jour automatique, le projet a été créé à partir de fichiers de `/var/lib/hippo-update` (section 11) : si l'appli refuse de redémarrer le projet, le faire en SSH, `cd "$HIPPO_DIR" && sudo docker compose restart`. **Jamais `hippo-tailscale-1` seul** : il porte le réseau de Hippo, qui perdrait sa connexion sans que sa sonde ne le voie.
-- **Sauvegardes** : dans le journal de `hippo-hippo-1`, la ligne `backup scheduled` au démarrage (prochaine sauvegarde de nuit), puis chaque nuit une ligne `backup` avec son `outcome` (section 9). La sortie d'un `docker compose exec hippo /hippo backup` ne va pas dans ce journal : elle s'affiche dans la session SSH.
+- **Redémarrer** : redémarrer **le projet** (les deux conteneurs), ou `hippo-hippo-1` seul. Depuis la mise à jour automatique, le projet a été créé à partir de fichiers de `/var/lib/hippo-update` (section 11) : si l'appli refuse de redémarrer le projet, le faire en SSH, `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" restart`. **Jamais `hippo-tailscale-1` seul** : il porte le réseau de Hippo, qui perdrait sa connexion sans que sa sonde ne le voie.
+- **Sauvegardes** : dans le journal de `hippo-hippo-1`, la ligne `backup scheduled` au démarrage (prochaine sauvegarde de nuit), puis chaque nuit une ligne `backup` avec son `outcome` (section 9). La sortie d'une sauvegarde lancée à la main (section 7, point 5) ne va pas dans ce journal : elle s'affiche dans la session SSH.
 - **Mise à jour automatique** : son journal n'est pas dans l'interface Docker ; il se lit en SSH (section 11).
+- **Gestionnaire de fichiers d'UGOS, SMB** : le dossier du projet `hippo` ne s'ouvre plus pour le compte administrateur (section 1, point 5) : c'est voulu.
 - **Ne pas modifier** le compose ni les variables depuis l'interface : la référence est le dossier `$HIPPO_DIR` et ce runbook.
 
 ## 7. Mettre à jour
@@ -358,10 +391,10 @@ La mise à jour automatique (section 11) fait tout ceci seule, chaque nuit. La m
 
 1. Relever dans le journal le `SHA` et le tag en place, choisir les nouveaux (sections 1 et 2).
 2. **Une migration entre les deux ?** Ouvrir `https://github.com/ghislain95/hippo/compare/<ancien SHA>...<nouveau SHA>` et chercher un fichier ajouté dans `backend/internal/store/migrations/`. Le noter : il change le retour arrière (section 8).
-3. Récupérer les fichiers au nouveau SHA (section 1, point 2), puis comparer les variables. NAS :
+3. Récupérer les fichiers au nouveau SHA (section 1, point 2), puis refaire la vérification des droits (section 11, « Vérifications », point 4), et comparer les variables. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && diff <(sudo sed -n 's/^\([A-Z_]*\)=.*/\1/p' .env | sort) <(sed -n 's/^\([A-Z_]*\)=.*/\1/p' .env.example | sort)
+   diff <(sudo sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$HIPPO_DIR/.env" | sort) <(sudo sed -n 's/^\([A-Z_]*\)=.*/\1/p' "$HIPPO_DIR/.env.example" | sort)
    ```
 
    Une variable présente seulement à droite est nouvelle : l'ajouter au `.env` avec sa valeur commentée dans `.env.example`. Une montée de l'image Tailscale (proposée par Dependabot dans le dépôt) arrive par ce même `docker-compose.yml`.
@@ -369,13 +402,13 @@ La mise à jour automatique (section 11) fait tout ceci seule, chaque nuit. La m
 4. Mettre le nouveau tag dans `HIPPO_IMAGE_TAG`, puis tirer les images à l'avance (Hippo tourne encore). NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose pull
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" pull
    ```
 
 5. **Sauvegarder, Hippo en marche**, avec la version en place. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose exec hippo /hippo backup; echo "code de sortie : $?"
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" exec hippo /hippo backup; echo "code de sortie : $?"
    ```
 
    Attendu : une ligne JSON `"msg":"backup"` avec `"outcome":"ok"` et `"backup":"<nom>"`, puis `code de sortie : 0`. Cette sortie ne va **pas** dans les logs Docker : c'est ici qu'on la lit. Noter `<nom>` dans le journal. Un autre code, ou un autre `outcome` : ne pas mettre à jour, voir la section 10.
@@ -388,10 +421,10 @@ La mise à jour automatique (section 11) fait tout ceci seule, chaque nuit. La m
 6. Démarrer la nouvelle version (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
-7. Vérifier : `cd "$HIPPO_DIR" && sudo docker compose ps` (`healthy`), `/healthz` depuis l'iPhone avec la nouvelle `version`. Les migrations s'appliquent seules au démarrage.
+7. Vérifier : `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps` (`healthy`), `/healthz` depuis l'iPhone avec la nouvelle `version`. Les migrations s'appliquent seules au démarrage.
 8. Noter dans le journal. Les sauvegardes anciennes s'effacent seules (section 9).
 
 ### Mise à jour qui installe les sauvegardes (une fois)
@@ -405,7 +438,7 @@ La première mise à jour vers une version qui contient le change `nightly-backu
 5. À la place des points 5 et 6, **copier les données à la main, Hippo arrêté** (la base est en WAL : ses fichiers `-wal` et `-shm` partent avec elle), puis démarrer la nouvelle version. La copie porte la date et l'heure ; si elle existe déjà, `mkdir` échoue avant l'arrêt et rien ne change. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && C="copies/data-$(date +%F-%H%M)" && sudo mkdir "$C" && sudo docker compose stop hippo && sudo cp -a data/. "$C"/ && echo "copie : $C" && sudo docker compose up -d
+   C="data-$(date +%F-%H%M)" && sudo mkdir "$HIPPO_DIR/copies/$C" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo cp -a "$HIPPO_DIR/data/." "$HIPPO_DIR/copies/$C/" && echo "copie : $C" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Noter le nom de la copie dans le journal. Pour revenir en arrière depuis cette mise à jour : section 8, « Depuis une copie manuelle ».
@@ -418,15 +451,15 @@ La première mise à jour vers une version qui contient le change `nightly-backu
 
 Après une mise à jour automatique, commencer par « Après une mise à jour automatique » ci-dessous : elle donne l'ancien tag et la sauvegarde. Après une mise à jour à la main, ils sont dans le journal d'exploitation.
 
-- **Sans migration entre les deux versions** : remettre l'ancien tag dans `HIPPO_IMAGE_TAG` (et les anciens fichiers, section 1 avec l'ancien `SHA`, s'ils ont changé), puis `sudo docker compose up -d`.
+- **Sans migration entre les deux versions** : remettre l'ancien tag dans `HIPPO_IMAGE_TAG` (et les anciens fichiers, section 1 avec l'ancien `SHA`, s'ils ont changé), puis `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d`.
 - **Avec une migration** : l'ancienne image démarrerait sans erreur sur le nouveau schéma, qu'elle ne connaît pas (goose ignore les versions inconnues). Il faut restaurer la sauvegarde faite avant la mise à jour (section 7, point 5, nom noté dans le journal) : « Restaurer une sauvegarde » ci-dessous. Son manifeste donne l'ancien tag.
 - **Depuis une copie manuelle** de `copies/` (mise à jour qui installe les sauvegardes). NAS :
 
   ```bash
-  cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-abandonnee-$(date +%F-%H%M)" && sudo cp -a "copies/<nom de la copie, noté dans le journal>" data && sudo ls -ldn data
+  sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo mv -n "$HIPPO_DIR/data" "$HIPPO_DIR/copies/data-abandonnee-$(date +%F-%H%M)" && sudo cp -a "$HIPPO_DIR/copies/<nom de la copie, noté dans le journal>" "$HIPPO_DIR/data" && sudo ls -ldn "$HIPPO_DIR/data"
   ```
 
-  Attendu : `data` appartient à `65532 65532` (`cp -a` garde le propriétaire). Puis remettre l'ancien tag et les anciens fichiers, et `sudo docker compose up -d`. Les captures faites depuis la copie sont perdues (elles restent dans `copies/data-abandonnee-…`).
+  Attendu : `data` appartient à `65532 65532` (`cp -a` garde le propriétaire). Puis remettre l'ancien tag et les anciens fichiers, et `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d`. Les captures faites depuis la copie sont perdues (elles restent dans `copies/data-abandonnee-…`).
 
 ### Après une mise à jour automatique
 
@@ -451,7 +484,7 @@ Le retour arrière reste à la main : la mise à jour automatique ne revient jam
    sudo sed -i 's/^HIPPO_IMAGE_TAG=.*/HIPPO_IMAGE_TAG=sha-<7 caractères>/' "$HIPPO_DIR/.env" && sudo grep -n '^HIPPO_IMAGE_TAG=' "$HIPPO_DIR/.env"
    ```
 
-   Attendu : une seule ligne, `HIPPO_IMAGE_TAG=sha-…` avec le bon tag. Vérifier que ce tag existe (section 2, point 3).
+   Attendu : une seule ligne, `HIPPO_IMAGE_TAG=sha-…` avec le bon tag. Vérifier que ce tag existe (section 2, point 3). `sed -i` réécrit le fichier : vérifier ensuite `sudo ls -ln "$HIPPO_DIR/.env"` (`-rw-------`, `0 0`, sans `+` ; sinon `sudo chmod 600 "$HIPPO_DIR/.env"`).
 
 3. **Une migration entre les deux ?** Section 7, point 2, avec `old_revision` et `new_revision`.
 4. **Sans migration** : remettre les fichiers d'avant. Le script en garde une copie dans `/var/lib/hippo-update/previous/` (`sudo ls -lR /var/lib/hippo-update/previous`), mais seulement ceux d'avant le **dernier** passage qui a installé : si une autre nuit a retenté après l'échec, `previous/` contient déjà les nouveaux fichiers. Les fichiers du commit `old_revision` sont toujours les bons. Le plus simple : la section 1, point 2, avec ce commit (NAS) :
@@ -460,7 +493,7 @@ Le retour arrière reste à la main : la mise à jour automatique ne revient jam
    SHA=<old_revision, 40 caractères>
    ```
 
-   Puis la commande `curl` de la section 1, point 2, et `cd "$HIPPO_DIR" && sudo docker compose up -d`. Vérifier : section 7, point 7.
+   Puis la commande `curl` de la section 1, point 2, et `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d`. Vérifier : section 7, point 7.
 5. **Avec une migration** : restaurer la sauvegarde nommée par `backup` (« Restaurer une sauvegarde » ci-dessous, à partir du point 3 ; le tag est déjà en place).
 6. Noter dans le journal d'exploitation. Le frein à main reste serré jusqu'à ce qu'une version corrigée soit publiée sur `main` ; ensuite, section 11, « Mettre en marche ».
 
@@ -487,13 +520,13 @@ Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captu
 3. Arrêter Hippo, mettre `data/` de côté et créer un `data/` vide. Si `data/` n'a pas bougé, `mkdir` échoue et rien n'est écrasé. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-abandonnee-$(date +%F-%H%M)" && sudo mkdir data
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo mv -n "$HIPPO_DIR/data" "$HIPPO_DIR/copies/data-abandonnee-$(date +%F-%H%M)" && sudo mkdir "$HIPPO_DIR/data"
    ```
 
 4. **Copier** la base et les images de la sauvegarde dans `data/`, puis le donner à l'utilisateur de l'image. Toujours `cp -a`, **jamais `mv` ni `ln`** : déplacer viderait la sauvegarde, et un lien ferait écrire Hippo dans la sauvegarde et dans toutes celles qui partagent ses images. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo cp -a "$SAUVEGARDES/<nom>/hippo.db" "$SAUVEGARDES/<nom>/assets" data/ && sudo chown -R 65532:65532 data && sudo ls -ln data
+   sudo cp -a "$SAUVEGARDES/<nom>/hippo.db" "$SAUVEGARDES/<nom>/assets" "$HIPPO_DIR/data/" && sudo chown -R 65532:65532 "$HIPPO_DIR/data" && sudo ls -ln "$HIPPO_DIR/data"
    ```
 
    Attendu : `hippo.db` et `assets`, propriétaire `65532 65532`, rien d'autre. **Aucun** `hippo.db-wal` ni `hippo.db-shm` : une sauvegarde n'en contient pas, et un tel fichier venu d'une autre base abîmerait celle-ci. Hippo repasse la base en mode WAL au démarrage.
@@ -501,10 +534,10 @@ Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captu
 5. Mettre dans `HIPPO_IMAGE_TAG` le tag du point 2 (et les fichiers du SHA correspondant, section 1, s'ils ont changé), puis démarrer. Ce tag épinglé serre aussi le frein à main de la mise à jour automatique (section 11). NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
-6. Vérifier : `cd "$HIPPO_DIR" && sudo docker compose ps` (`healthy`), puis `/healthz` depuis l'iPhone : sa `version` commence par les 7 caractères du tag.
+6. Vérifier : `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps` (`healthy`), puis `/healthz` depuis l'iPhone : sa `version` commence par les 7 caractères du tag.
 7. Noter dans le journal : la sauvegarde restaurée, le tag, le nom du `data/` mis de côté. Le supprimer quand tout va bien : `sudo rm -r "$HIPPO_DIR/copies/data-abandonnee-<date>"`.
 
 ### Tester une restauration
@@ -514,7 +547,7 @@ Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captu
 1. Mettre le vrai `data/` de côté et démarrer sur un `data/` vide (NAS) :
 
    ```bash
-   cd "$HIPPO_DIR" && R="copies/data-reelle-$(date +%F-%H%M)" && sudo docker compose stop hippo && sudo mv -n data "$R" && sudo mkdir data && sudo chown 65532:65532 data && echo "vrai data : $R" && sudo docker compose up -d
+   R="data-reelle-$(date +%F-%H%M)" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo mv -n "$HIPPO_DIR/data" "$HIPPO_DIR/copies/$R" && sudo mkdir "$HIPPO_DIR/data" && sudo chown 65532:65532 "$HIPPO_DIR/data" && echo "vrai data : $R" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Noter le nom du vrai `data/` dans le journal.
@@ -541,10 +574,10 @@ Restaurer une sauvegarde rend les éléments supprimés depuis et perd les captu
 
    Attendu : `HTTP 200` puis `identique`.
 
-6. Remettre le vrai `data/`. Le test `[ ! -e data ]` empêche de ranger le vrai `data/` **dans** un `data/` resté en place. NAS :
+6. Remettre le vrai `data/`. Le test `sudo test ! -e` empêche de ranger le vrai `data/` **dans** un `data/` resté en place ; sans `sudo`, il ne verrait rien du dossier du projet, fermé au compte administrateur. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo docker compose stop hippo && sudo mv -n data "copies/data-test-restauration-$(date +%F-%H%M)" && [ ! -e data ] && sudo mv -n "copies/<vrai data, noté au point 1>" data && sudo ls -ldn data && sudo docker compose up -d
+   sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" stop hippo && sudo mv -n "$HIPPO_DIR/data" "$HIPPO_DIR/copies/data-test-restauration-$(date +%F-%H%M)" && sudo test ! -e "$HIPPO_DIR/data" && sudo mv -n "$HIPPO_DIR/copies/<vrai data, noté au point 1>" "$HIPPO_DIR/data" && sudo ls -ldn "$HIPPO_DIR/data" && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d
    ```
 
    Attendu : `data` appartient à `65532 65532`. Puis `/healthz` depuis l'iPhone.
@@ -578,7 +611,7 @@ sudo du -sh "$SAUVEGARDES"
 **Lire la sauvegarde de la nuit**, le matin (NAS) :
 
 ```bash
-cd "$HIPPO_DIR" && sudo docker compose logs --since 24h hippo | grep -E '"msg":"backup|"schedule":"backup"'
+sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --since 24h hippo | grep -E '"msg":"backup|"schedule":"backup"'
 ```
 
 Attendu : une ligne `backup` vers 3 h avec `"trigger":"nightly"` et `"outcome":"ok"`. Ses champs : `backup` (le nom), `backend_version`, `migration_version`, `database_bytes`, `images`, `images_copied`, `images_linked`, `images_gone` (une image supprimée pendant la sauvegarde : sans gravité), `image_bytes_written`, `duration_ms`, `backups_removed`, `leftovers_removed`. Les autres `outcome` :
@@ -611,12 +644,12 @@ Une ligne `backup retention` (`error`) signale un effacement impossible : la sau
 | `hippo backup` : `"outcome":"name_taken"` | deux sauvegardes lancées dans la même seconde : relancer |
 | Un dossier `.partial-…` dans `$SAUVEGARDES` alors qu'aucune sauvegarde ne tourne | laissé par un arrêt brutal pendant une sauvegarde : la suivante le supprime, n'y rien toucher |
 | Pas de ligne `backup` le matin | NAS éteint ou Hippo arrêté à 3 h (pas de rattrapage) ; une ligne `scheduled run missed` avec `"schedule":"backup"` ; sinon chercher `backup scheduled` au dernier démarrage (section 9) |
-| Après un `exec -u root`, Hippo n'arrive plus à ouvrir ou à écrire sa base | des fichiers `hippo.db-wal` ou `hippo.db-shm` appartiennent à root : `cd "$HIPPO_DIR" && sudo chown 65532:65532 data/hippo.db*`, puis redémarrer ; ne jamais lancer `hippo backup` avec `-u root` |
+| Après un `exec -u root`, Hippo n'arrive plus à ouvrir ou à écrire sa base | des fichiers `hippo.db-wal` ou `hippo.db-shm` appartiennent à root : `sudo sh -c 'chown 65532:65532 "$1"/data/hippo.db*' sh "$HIPPO_DIR"` (le `*` doit s'étendre en root), puis redémarrer ; ne jamais lancer `hippo backup` avec `-u root` |
 | `pull` : « manifest unknown » | le tag n'existe pas : le relire sur la page du paquet GHCR |
-| `hippo-hippo-1` redémarre en boucle, log « open database … » ou « permission denied » | `data/` n'appartient pas à 65532 : `sudo ls -ldn data`, section 1 point 3 |
-| `hippo-hippo-1` `unhealthy` | `sudo docker compose logs --tail 50 hippo` |
+| `hippo-hippo-1` redémarre en boucle, log « open database … » ou « permission denied » | `data/` n'appartient pas à 65532 : `sudo ls -ldn "$HIPPO_DIR/data"`, section 1 point 3 |
+| `hippo-hippo-1` `unhealthy` | `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" logs --tail 50 hippo` |
 | `hippo-tailscale-1` : erreur sur `/dev/net/tun` | section 0 point 3 |
-| Machine `hippo-1` dans la console | un ancien nœud `hippo` existait, ou `tailscale/state` a été perdu. Supprimer `hippo` et `hippo-1` dans la console, créer une clé neuve (section 3) et la mettre dans `.env`, puis : `cd "$HIPPO_DIR" && sudo docker compose down && sudo find tailscale/state -mindepth 1 -delete && sudo docker compose up -d`, puis section 4, points 5 et 6 (expiration de clé, clé effacée) |
+| Machine `hippo-1` dans la console | un ancien nœud `hippo` existait, ou `tailscale/state` a été perdu. Supprimer `hippo` et `hippo-1` dans la console, créer une clé neuve (section 3) et la mettre dans `.env`, puis : `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" down && sudo find "$HIPPO_DIR/tailscale/state" -mindepth 1 -delete && sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d`, puis section 4, points 5 et 6 (expiration de clé, clé effacée) |
 | Après l'effacement de `TS_AUTHKEY`, le nœud ne se reconnecte plus | remettre une clé neuve (section 3) dans `.env`, `up -d`, puis la laisser en place (une clé consommée est inoffensive) et le noter dans le journal |
 | `/healthz` injoignable depuis l'iPhone | Tailscale actif, LocalDevVPN coupé ? `hippo` connecté dans la console ? Premier appel : attendre le certificat et recharger |
 | Le Mac ne résout pas `hippo.<tailnet>.ts.net` | « Use Tailscale DNS » coupé sur le Mac |
@@ -680,7 +713,7 @@ Fichiers sur le NAS, tous à root et hors du dossier du projet : aucun partage d
    timedatectl
    ```
 
-   Attendu : `Time zone: Europe/Paris`. Sinon, régler le fuseau dans UGOS › Panneau de configuration › Date et heure (libellés indicatifs), redémarrer cron (`sudo systemctl restart cron`) et revérifier.
+   Attendu : `Time zone: Europe/Paris`, ou un autre fuseau à la même heure que Paris toute l'année (même décalage, CET/CEST, mêmes changements d'heure). Sinon, régler le fuseau dans UGOS › Panneau de configuration › Date et heure (libellés indicatifs), redémarrer cron (`sudo systemctl restart cron`) et revérifier.
 
 3. cron en marche (NAS) :
 
@@ -693,28 +726,30 @@ Fichiers sur le NAS, tous à root et hors du dossier du projet : aucun partage d
 4. **Droits du dossier du projet.** Chaque nuit, root lit ces fichiers et démarre le compose qu'ils décrivent : un compte qui pourrait les modifier (le compte administrateur par SMB depuis le Mac, une appli d'UGOS) deviendrait root à 4 h. Le script refuse donc de tourner si l'un d'eux, son état `/var/lib/hippo-update` ou le script lui-même est un lien symbolique, n'appartient pas à root, est modifiable par le groupe ou les autres, ou porte une ACL. Il entre dans le dossier du projet avant de le contrôler et ne lit que ce dossier-là, même renommé ; Compose ne reçoit que des copies de `docker-compose.yml` et de `.env`, faites dans `/var/lib/hippo-update/run/`. Reste une course sur les montages (`./data`, `./tailscale/…`) : le partage parent, `docker`, reste modifiable par le compte administrateur, qui pourrait y renommer le dossier du projet au moment où les conteneurs sont créés. Ce point 4 ne la ferme pas ; elle est décrite dans l'[ADR-0040](adr/0040-mise-a-jour-automatique-de-nuit.md#conséquences). NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo ls -ldn . tailscale tailscale/config docker-compose.yml .env .env.example tailscale/config/serve.json
+   sudo ls -ldn "$HIPPO_DIR" "$HIPPO_DIR/tailscale" "$HIPPO_DIR/tailscale/config" "$HIPPO_DIR/docker-compose.yml" "$HIPPO_DIR/.env" "$HIPPO_DIR/.env.example" "$HIPPO_DIR/tailscale/config/serve.json"
    ```
 
    Attendu, sur chaque ligne :
    - premier caractère `d` ou `-`, jamais `l` (un lien symbolique, avec `->`) ;
    - propriétaire (3e colonne) `0` ;
-   - aucun `w` en 6e ni en 9e caractère (`drwxr-xr-x`, `-rw-r--r--` et `-rw-------` conviennent) ;
+   - aucun `w` en 6e ni en 9e caractère (`drwx------`, `drwxr-xr-x`, `-rw-r--r--` et `-rw-------` conviennent) ;
    - pas de `+` à la fin des droits.
 
-   Un propriétaire qui n'est pas `0`, ou un `w` en trop : corriger avec les deux commandes suivantes, puis relancer la vérification. Elles ne touchent que ces chemins, sans `-R` : **jamais** `data/` (à l'utilisateur de l'image, 65532), `tailscale/state/`, `copies/` ni le dossier des sauvegardes. NAS :
+   Puis l'essai qui fait foi, sans `sudo` : section 1, point 5, dernière étape (`touch` refusé).
+
+   Un `+` (l'ACL d'UGOS), un `w` en trop, un propriétaire qui n'est pas `0`, ou un `touch` qui réussit : refaire le réglage dans UGOS (section 1, point 5), puis ces deux commandes, puis la vérification et l'essai. Sur UGOS, le `chmod` remplace l'ACL par les droits Linux et fait disparaître le `+`. Elles ne touchent que ces sept chemins, sans `-R` : **jamais** `data/` (à l'utilisateur de l'image, 65532, qui garde son `+`), `tailscale/state/`, `copies/` ni le dossier des sauvegardes. NAS :
 
    ```bash
-   cd "$HIPPO_DIR" && sudo chown 0:0 . tailscale tailscale/config docker-compose.yml .env .env.example tailscale/config/serve.json
+   sudo chown 0:0 "$HIPPO_DIR" "$HIPPO_DIR/tailscale" "$HIPPO_DIR/tailscale/config" "$HIPPO_DIR/docker-compose.yml" "$HIPPO_DIR/.env" "$HIPPO_DIR/.env.example" "$HIPPO_DIR/tailscale/config/serve.json"
    ```
 
    ```bash
-   cd "$HIPPO_DIR" && sudo chmod go-w . tailscale tailscale/config docker-compose.yml .env .env.example tailscale/config/serve.json
+   sudo chmod 700 "$HIPPO_DIR" "$HIPPO_DIR/tailscale" && sudo chmod 755 "$HIPPO_DIR/tailscale/config" && sudo chmod 600 "$HIPPO_DIR/docker-compose.yml" "$HIPPO_DIR/.env" "$HIPPO_DIR/.env.example" && sudo chmod 644 "$HIPPO_DIR/tailscale/config/serve.json"
    ```
 
-   Ensuite, le dossier du projet n'est plus modifiable depuis le Mac : c'est voulu.
+   Ensuite, le compte administrateur ne peut plus entrer dans le dossier du projet, ni l'ouvrir dans le gestionnaire de fichiers d'UGOS ou par SMB : c'est voulu.
 
-   Un `l` (lien symbolique) ou un `+` (ACL d'UGOS) : s'arrêter et le signaler.
+   Un `l` (lien symbolique) : s'arrêter et le signaler. Ne jamais vérifier ces droits avec `test -w` ou `setpriv … test -w` : ils ne voient pas l'ACL d'UGOS (le 24 novembre 2026, ils disaient « modifiable » alors que `touch` était refusé).
 
    Après le premier passage (« Mettre en marche », point 2), l'état du script (NAS) :
 
@@ -762,7 +797,7 @@ Hippo tourne (`healthy`, section 4, point 2) ; hors de 2 h à 4 h 30.
    sudo sed -i 's/^HIPPO_IMAGE_TAG=.*/HIPPO_IMAGE_TAG=latest/' "$HIPPO_DIR/.env" && sudo grep -n '^HIPPO_IMAGE_TAG=' "$HIPPO_DIR/.env" && sudo ls -ln "$HIPPO_DIR/.env"
    ```
 
-   Attendu : une seule ligne, `HIPPO_IMAGE_TAG=latest`, et `.env` toujours en `-rw-------`, propriétaire `0 0`. Ne lancer ni `docker compose pull` ni `docker compose up -d` : le passage s'en charge, après la sauvegarde.
+   Attendu : une seule ligne, `HIPPO_IMAGE_TAG=latest`, et `.env` toujours en `-rw-------`, propriétaire `0 0`, sans `+` (sinon `sudo chmod 600 "$HIPPO_DIR/.env"` : le script refuse un `.env` qui porte un `+`). Ne lancer ni `docker compose pull` ni `docker compose up -d` : le passage s'en charge, après la sauvegarde.
 
 2. Un passage à la main, sans attendre 4 h (NAS) :
 
@@ -772,7 +807,7 @@ Hippo tourne (`healthy`, section 4, point 2) ; hors de 2 h à 4 h 30.
 
    Attendu, après quelques minutes au plus : la ligne JSON du passage (la même que dans le journal de mise à jour), avec `"outcome":"updated"` (nouvelle version ou nouveaux fichiers, installés après une sauvegarde) ou `"outcome":"up-to-date"`, puis `code de sortie : 0`. Autre chose : « Lire le journal de mise à jour » ci-dessous. Un message sans ligne JSON : le script a refusé de tourner avant d'écrire au journal, souvent pour les droits (« Vérifications », point 4).
 
-3. L'état du script : « Vérifications », point 4, dernière commande. Après `updated` : section 7, point 7 (`healthy`, `/healthz` avec la nouvelle `version`), et l'appli Docker d'UGOS montre toujours le projet `hippo` et ses deux conteneurs. Le script lance Compose sur des copies qu'il efface ensuite : les conteneurs pointent vers un compose qui n'existe plus. Un `docker compose` lancé à la main depuis `$HIPPO_DIR` retrouve le projet par son nom ; si l'appli d'UGOS ne le montre plus, le noter et le signaler (à vérifier pendant la QA du change `nightly-update`). Noter dans le journal d'exploitation la date, `new_revision` et `backup`.
+3. L'état du script : « Vérifications », point 4, dernière commande. Après `updated` : section 7, point 7 (`healthy`, `/healthz` avec la nouvelle `version`), et l'appli Docker d'UGOS montre toujours le projet `hippo` et ses deux conteneurs. Le script lance Compose sur des fichiers de `/var/lib/hippo-update` : les étiquettes Compose des conteneurs pointent vers `/var/lib/hippo-update/staging/docker-compose.yml` (en place jusqu'au passage suivant) et, sans doute, vers `/var/lib/hippo-update/run/.env`, effacé à la fin du passage. Un `docker compose` lancé à la main avec `-f "$HIPPO_DIR/docker-compose.yml"` retrouve le projet par son nom ; si l'appli d'UGOS ne le montre plus, le noter et le signaler (à vérifier pendant la QA du change `nightly-update`). Noter dans le journal d'exploitation la date, `new_revision` et `backup`. Refaire aussi « Vérifications », point 4 : les fichiers installés par le script ne doivent pas porter de `+` (à vérifier pendant la QA du change `nightly-update`).
 4. Le lendemain matin, une ligne de 4 h dans le journal de mise à jour.
 
 ### Lire le journal de mise à jour
@@ -790,7 +825,7 @@ Une ligne JSON par issue : `time` (heure locale du NAS), `msg` (`update`), `outc
 | `paused` | frein à main serré : rien n'a été fait | rien ; pour reprendre, « Mettre en marche » |
 | `up-to-date` | rien de nouveau : ni sauvegarde ni redémarrage | rien |
 | `updated` | nouvelle version ou nouveaux fichiers installés, Hippo `healthy` | rien ; au besoin, noter `new_revision` et `backup` dans le journal d'exploitation |
-| `interrupted` | un passage a été coupé pendant l'installation (redémarrage du NAS, arrêt) ; `new_revision` dit laquelle | lire la ligne suivante : le passage a continué, et sa sauvegarde et son `up -d` réparent l'installation ; puis `cd "$HIPPO_DIR" && sudo docker compose ps` |
+| `interrupted` | un passage a été coupé pendant l'installation (redémarrage du NAS, arrêt) ; `new_revision` dit laquelle | lire la ligne suivante : le passage a continué, et sa sauvegarde et son `up -d` réparent l'installation ; puis `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps` |
 | `locked` | un autre passage tournait (par exemple un passage lancé à la main vers 4 h) ; rien n'a été fait | rien si c'est une fois ; plusieurs nuits de suite, `sudo pgrep -af hippo-update` montre un passage bloqué : le signaler |
 | *(aucune ligne de la nuit)* | le script n'a pas tourné (ligne cron ou script effacés, NAS éteint à 4 h), ou s'est arrêté avant d'écrire : droits du dossier du projet refusés (« Vérifications », point 4), copie de `docker-compose.yml` et `.env` impossible dans `/var/lib/hippo-update/run` (disque système plein ?), `flock` absent, `/var/lib/hippo-update` qui est un lien symbolique | `sudo ls -ln /etc/cron.d/hippo-update /usr/local/sbin/hippo-update`, puis lancer le script à la main (« Mettre en marche », point 2) : un arrêt avant le journal affiche sa raison à l'écran |
 | `failed` | échec, expliqué par `reason` | tableau suivant |
@@ -798,18 +833,18 @@ Une ligne JSON par issue : `time` (heure locale du NAS), `msg` (`update`), `outc
 | `reason` | Ce qui s'est passé | Hippo | Que faire |
 | --- | --- | --- | --- |
 | `no_image_tag` | `.env` absent, ou sans ligne `HIPPO_IMAGE_TAG` | inchangé | section 2, point 4 |
-| `hippo_not_running` | aucun conteneur `hippo` en marche | déjà arrêté | `cd "$HIPPO_DIR" && sudo docker compose ps -a`, puis ses logs et la section 10 |
+| `hippo_not_running` | aucun conteneur `hippo` en marche | déjà arrêté | `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps -a`, puis ses logs et la section 10 |
 | `pull_failed` | GHCR, ou Docker Hub pour Tailscale, n'a pas répondu, ou une image n'existe pas | inchangé | rien : la nuit suivante réessaie. Plusieurs nuits de suite : vérifier l'accès à Internet du NAS et la page du paquet GHCR |
 | `bad_revision` | l'image publiée n'a pas d'étiquette de révision valable | inchangé | le signaler : la publication de l'image est à corriger |
 | `fetch_failed` | un fichier n'a pas pu être récupéré sur GitHub, à ce commit | inchangé | rien : la nuit suivante réessaie. Plusieurs nuits de suite : le signaler |
 | `missing_variables` | le nouveau `.env.example` a une variable que `.env` n'a pas ; `missing` la nomme | inchangé | l'ajouter au `.env` (ci-dessous), puis relancer à la main |
 | `compose_invalid` | le nouveau compose ne se lit pas avec le `.env` actuel | inchangé | lire l'erreur (ci-dessous), corriger le `.env`, puis relancer à la main |
 | `backup_failed` | la sauvegarde d'avant la mise à jour a échoué | inchangé | une sauvegarde à la main (section 7, point 5), et lire son `outcome` (sections 9 et 10) |
-| `install_failed` | le passage a commencé à installer (point de non-retour), mais n'a pas pu écrire un fichier du dossier du projet (disque plein, droits) ; la sauvegarde est faite | inchangé ou à moitié installé : certains fichiers peuvent être nouveaux | `df -h "$HIPPO_DIR"`, puis relancer à la main : le passage suivant reprend tout, avec une nouvelle sauvegarde |
-| `up_failed` | les nouveaux fichiers sont en place, `docker compose up -d` a échoué | sans doute arrêté | relancer `cd "$HIPPO_DIR" && sudo docker compose up -d` et lire l'erreur ; sinon section 8, « Après une mise à jour automatique » |
-| `unhealthy` | la nouvelle version a démarré, mais n'est pas `healthy` après 3 minutes | nouvelle version, lente ou en panne | `cd "$HIPPO_DIR" && sudo docker compose ps` : `healthy` un peu plus tard (une longue migration), rien à faire ; sinon ses logs (section 10), puis section 8, « Après une mise à jour automatique » |
+| `install_failed` | le passage a commencé à installer (point de non-retour), mais n'a pas pu écrire un fichier du dossier du projet (disque plein, droits) ; la sauvegarde est faite | inchangé ou à moitié installé : certains fichiers peuvent être nouveaux | `sudo df -h "$HIPPO_DIR"`, puis relancer à la main : le passage suivant reprend tout, avec une nouvelle sauvegarde |
+| `up_failed` | les nouveaux fichiers sont en place, `docker compose up -d` a échoué | sans doute arrêté | relancer `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" up -d` et lire l'erreur ; sinon section 8, « Après une mise à jour automatique » |
+| `unhealthy` | la nouvelle version a démarré, mais n'est pas `healthy` après 3 minutes | nouvelle version, lente ou en panne | `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps` : `healthy` un peu plus tard (une longue migration), rien à faire ; sinon ses logs (section 10), puis section 8, « Après une mise à jour automatique » |
 
-Un `up_failed` ou un `unhealthy` n'est noté qu'**une nuit** : la nuit suivante, si la nouvelle version tourne avec les nouveaux fichiers, le passage note `up-to-date`, même si elle n'est toujours pas `healthy`. Lire le journal le matin d'après une fusion, et `cd "$HIPPO_DIR" && sudo docker compose ps` en cas de doute.
+Un `up_failed` ou un `unhealthy` n'est noté qu'**une nuit** : la nuit suivante, si la nouvelle version tourne avec les nouveaux fichiers, le passage note `up-to-date`, même si elle n'est toujours pas `healthy`. Lire le journal le matin d'après une fusion, et `sudo docker compose -f "$HIPPO_DIR/docker-compose.yml" ps` en cas de doute.
 
 **Variable manquante** : le nouveau `.env.example` est dans `/var/lib/hippo-update/staging/`, avec le commentaire de la variable. En remplaçant `<NOM>` par un nom de `missing` (NAS) :
 
@@ -822,7 +857,7 @@ L'ajouter au `.env` avec la valeur qui convient (`sudo vi "$HIPPO_DIR/.env"`, se
 **Compose qui ne se lit pas** : la même vérification que le script, qui affiche l'erreur. Elle peut citer une valeur du `.env` : ne la copier nulle part. NAS :
 
 ```bash
-cd "$HIPPO_DIR" && sudo docker compose --project-directory "$HIPPO_DIR" --env-file "$HIPPO_DIR/.env" -f /var/lib/hippo-update/staging/docker-compose.yml config --quiet
+sudo docker compose --project-directory "$HIPPO_DIR" --env-file "$HIPPO_DIR/.env" -f /var/lib/hippo-update/staging/docker-compose.yml config --quiet
 ```
 
 ### Frein à main
@@ -833,7 +868,7 @@ cd "$HIPPO_DIR" && sudo docker compose --project-directory "$HIPPO_DIR" --env-fi
 sudo sed -i 's/^HIPPO_IMAGE_TAG=.*/HIPPO_IMAGE_TAG=sha-<7 caractères>/' "$HIPPO_DIR/.env" && sudo grep -n '^HIPPO_IMAGE_TAG=' "$HIPPO_DIR/.env"
 ```
 
-Attendu : une seule ligne, avec le bon tag ; vérifier qu'il existe (section 2, point 3). Rien d'autre à faire : Hippo continue sur la même version, et chaque passage note `paused`. Un `docker compose up -d` plus tard recrée peut-être le conteneur sur la même image, sans effet.
+Attendu : une seule ligne, avec le bon tag ; vérifier qu'il existe (section 2, point 3). Puis `sudo ls -ln "$HIPPO_DIR/.env"` : `-rw-------`, `0 0`, sans `+` (sinon `sudo chmod 600 "$HIPPO_DIR/.env"`), car le script refuse un `.env` qui porte un `+`. Rien d'autre à faire : Hippo continue sur la même version, et chaque passage note `paused`. Un `docker compose up -d` plus tard recrée peut-être le conteneur sur la même image, sans effet.
 
 **Desserrer** : « Mettre en marche ». Le premier passage installe ce qui a été publié entre-temps, après une sauvegarde.
 

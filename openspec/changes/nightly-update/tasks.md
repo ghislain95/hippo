@@ -54,9 +54,9 @@
 
 Before the merge (the published image `latest` is still `3fb9955`, whose commit has no `infra/hippo-update.sh`):
 
-- [ ] 7.1 Facts: `flock`, time zone `Europe/Paris`, image id semantics, revision label of the published image; owner, mode and ACLs of the project folder and its files once made root's (`ls -ldn`, `getfacl`, D15)
-- [ ] 7.2 Install the script from the branch and the cron line; a run with the pinned tag logs `paused`
-- [ ] 7.3 A run by hand with `HIPPO_IMAGE_TAG=latest` logs `failed`/`fetch_failed` (no script at `3fb9955`), replaces no file and leaves Hippo running: the early path on the real NAS
+- [x] 7.1 Facts: `flock`, time zone at Paris time (`Europe/Paris` or a zone with the same clock), image id semantics, revision label of the published image; owner, mode and ACLs of the project folder and its files once made root's (`ls -ldn`, `getfacl`, D15)
+- [x] 7.2 Install the script from the branch and the cron line; a run with the pinned tag logs `paused`
+- [x] 7.3 A run by hand with `HIPPO_IMAGE_TAG=latest` logs `failed`/`fetch_failed` (no script at `3fb9955`), replaces no file and leaves Hippo running: the early path on the real NAS
 
 After the merge (needs Ghislain's agreement to merge before the end of the QA, D13):
 
